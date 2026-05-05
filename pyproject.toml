@@ -1,0 +1,52 @@
+[project]
+name = "personal-finance-os"
+version = "1.0.0"
+description = "Self-hosted personal finance platform — Discord bot · FastAPI · React"
+requires-python = ">=3.14"
+dependencies = [
+    "finance-api",
+    "finance-bot",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+finance-api = { workspace = true }
+finance-bot = { workspace = true }
+finance-common = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.25",
+    "httpx>=0.28",
+    "ruff>=0.9",
+    "mypy>=1.15",
+    "pytest-mock>=3.14",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+src = ["packages/*/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "ANN", "ARG", "PTH", "SIM", "TID"]
+ignore = [
+    "ANN401",  # dynamically typed expressions (Any)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/seed_demo_data.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+mypy_path = "packages/common/src:packages/bot/src:packages/api/src"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

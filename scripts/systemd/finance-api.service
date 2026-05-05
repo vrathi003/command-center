@@ -1,0 +1,15 @@
+[Unit]
+Description=Personal Finance OS API (FastAPI + APScheduler)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/path/to/Personal-Finance-OS
+EnvironmentFile=/path/to/Personal-Finance-OS/.env
+ExecStart=/path/to/Personal-Finance-OS/.venv/bin/python -m uvicorn finance_api.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

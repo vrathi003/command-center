@@ -1,0 +1,492 @@
+"""Credit cards and statement uploads."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from typing import Annotated
+
+import aiosqlite
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+
+from finance_api.deps import get_conn, get_settings
+from finance_api.schemas.credit_card import (
+    CreditCardCreateBody,
+    CreditCardEmiCreateBody,
+    CreditCardEmiOut,
+    CreditCardEmiPutBody,
+    CreditCardOut,
+    CreditCardPutBody,
+    CreditCardStatementApplyResponse,
+    CreditCardStatementOut,
+)
+from finance_api.services.credit_card_statement_service import (
+    build_credit_card_statement_payload,
+    dumps_line_items,
+    dumps_summary,
+)
+from finance_api.settings import ApiSettings
+from finance_common.parsing.credit_card_statement import (
+    infer_cc_payment_mode,
+    line_items_json_loads,
+    summary_json_loads,
+)
+from finance_common.parsing.transaction_import import parse_transaction_date
+from finance_common.repositories import credit_cards as cc_repo
+from finance_common.repositories import transactions as tx_repo
+from finance_common.repositories.credit_cards import (
+    CreditCardEmiRow,
+    CreditCardRow,
+    CreditCardStatementRow,
+)
+from finance_common.types import Category, Paise, PaymentMode
+
+router = APIRouter(prefix="/credit-cards", tags=["credit-cards"])
+
+
+def _total_limit_used(bal: int | None, emi_blocked: int) -> int:
+    return (bal or 0) + emi_blocked
+
+
+def _util_pct(limit: int, total_used: int) -> float | None:
+    if limit <= 0:
+        return None
+    return round(min(100.0, (total_used / limit) * 100.0), 2)
+
+
+def _card_out(
+    row: CreditCardRow,
+    emi: tuple[int, int, int] = (0, 0, 0),
+) -> CreditCardOut:
+    blocked, monthly, count = emi
+    total = _total_limit_used(row.current_balance_paise, blocked)
+    return CreditCardOut(
+        id=row.id,
+        name=row.name,
+        issuer=row.issuer,
+        last_four=row.last_four,
+        credit_limit_paise=row.credit_limit_paise,
+        current_balance_paise=row.current_balance_paise,
+        notes=row.notes,
+        is_active=row.is_active,
+        utilization_pct=_util_pct(row.credit_limit_paise, total),
+        emi_limit_blocked_paise=blocked,
+        emi_monthly_due_paise=monthly,
+        emi_active_plan_count=count,
+        total_limit_used_paise=total,
+    )
+
+
+def _emi_principal_basis(row: CreditCardEmiRow) -> int:
+    if row.principal_paise is not None:
+        return row.principal_paise
+    return row.limit_blocked_paise
+
+
+def _emi_opt_str(s: str | None) -> str | None:
+    if s is None:
+        return None
+    t = s.strip()
+    return t if t else None
+
+
+def _emi_out(row: CreditCardEmiRow) -> CreditCardEmiOut:
+    rem = max(0, row.tenure_months - row.installments_paid) if row.is_active else 0
+    principal_basis = _emi_principal_basis(row)
+    monthly = row.emi_amount_paise
+    tenure = row.tenure_months
+    paid = row.installments_paid
+    total_schedule = monthly * tenure
+    total_interest = max(0, total_schedule - principal_basis)
+    interest_pct = (
+        round((total_interest / principal_basis) * 100.0, 2) if principal_basis > 0 else None
+    )
+    amount_paid_to_date = monthly * paid
+    interest_paid_est = int(round(total_interest * (paid / tenure))) if tenure > 0 else 0
+    interest_remaining_est = max(0, total_interest - interest_paid_est)
+    return CreditCardEmiOut(
+        id=row.id,
+        credit_card_id=row.credit_card_id,
+        description=row.description,
+        limit_blocked_paise=row.limit_blocked_paise,
+        emi_amount_paise=row.emi_amount_paise,
+        tenure_months=row.tenure_months,
+        installments_paid=row.installments_paid,
+        is_active=row.is_active,
+        notes=row.notes,
+        loan_type=row.loan_type,
+        creation_date=row.creation_date,
+        finish_date=row.finish_date,
+        principal_paise=row.principal_paise,
+        outstanding_instalment_paise=row.outstanding_instalment_paise,
+        installments_remaining=rem,
+        pending_installments=rem,
+        principal_basis_paise=principal_basis,
+        total_repayment_schedule_paise=total_schedule,
+        total_interest_estimated_paise=total_interest,
+        interest_over_principal_pct=interest_pct,
+        amount_paid_to_date_paise=amount_paid_to_date,
+        interest_paid_estimated_paise=interest_paid_est,
+        interest_remaining_estimated_paise=interest_remaining_est,
+    )
+
+
+def _merge_emi(existing: CreditCardEmiRow, body: CreditCardEmiPutBody) -> CreditCardEmiRow:
+    patch = body.model_dump(exclude_unset=True)
+    if not patch:
+        return existing
+    for k in ("loan_type", "creation_date", "finish_date"):
+        if k in patch:
+            v = patch[k]
+            if v is None:
+                continue
+            s = str(v).strip()
+            patch[k] = s if s else None
+    return replace(existing, **patch)
+
+
+def _stmt_out(row: CreditCardStatementRow) -> CreditCardStatementOut:
+    return CreditCardStatementOut(
+        id=row.id,
+        credit_card_id=row.credit_card_id,
+        filename=row.filename,
+        period_start=row.period_start,
+        period_end=row.period_end,
+        extraction_preview=row.extraction_preview,
+        summary=summary_json_loads(row.summary_json),
+        line_items=line_items_json_loads(row.line_items_json),
+        status=row.status,
+        created_at=row.created_at,
+    )
+
+
+def _merge_card(existing: CreditCardRow, body: CreditCardPutBody) -> CreditCardRow:
+    patch = body.model_dump(exclude_unset=True)
+    if not patch:
+        return existing
+    return replace(existing, **patch)
+
+
+@router.get("/", response_model=list[CreditCardOut])
+async def list_cards(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    active_only: Annotated[bool, Query()] = False,
+) -> list[CreditCardOut]:
+    totals = await cc_repo.emi_totals_by_card(conn)
+    rows = await cc_repo.list_credit_cards(conn, active_only=active_only)
+    return [_card_out(r, totals.get(r.id, (0, 0, 0))) for r in rows]
+
+
+@router.post("/", response_model=CreditCardOut, status_code=201)
+async def create_card(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    body: CreditCardCreateBody,
+) -> CreditCardOut:
+    cid = await cc_repo.insert_credit_card(
+        conn,
+        name=body.name.strip(),
+        issuer=body.issuer.strip() if body.issuer else None,
+        last_four=body.last_four.strip() if body.last_four else None,
+        credit_limit_paise=body.credit_limit_paise,
+        current_balance_paise=body.current_balance_paise,
+        notes=body.notes.strip() if body.notes else None,
+        is_active=body.is_active,
+    )
+    row = await cc_repo.get_credit_card(conn, cid)
+    if row is None:
+        raise HTTPException(status_code=500, detail="card not found after insert")
+    return _card_out(row, (0, 0, 0))
+
+
+@router.get("/{card_id}", response_model=CreditCardOut)
+async def get_card(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+) -> CreditCardOut:
+    row = await cc_repo.get_credit_card(conn, card_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    totals = await cc_repo.emi_totals_by_card(conn)
+    return _card_out(row, totals.get(card_id, (0, 0, 0)))
+
+
+@router.put("/{card_id}", response_model=CreditCardOut)
+async def put_card(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+    body: CreditCardPutBody,
+) -> CreditCardOut:
+    existing = await cc_repo.get_credit_card(conn, card_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    merged = _merge_card(existing, body)
+    await cc_repo.update_credit_card_row(conn, merged)
+    totals = await cc_repo.emi_totals_by_card(conn)
+    return _card_out(merged, totals.get(card_id, (0, 0, 0)))
+
+
+@router.delete("/{card_id}", status_code=204)
+async def delete_card(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+) -> None:
+    ok = await cc_repo.delete_credit_card(conn, card_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+
+
+@router.get("/{card_id}/statements", response_model=list[CreditCardStatementOut])
+async def list_statements(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+) -> list[CreditCardStatementOut]:
+    row = await cc_repo.get_credit_card(conn, card_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    stmts = await cc_repo.list_statements_for_card(conn, card_id)
+    return [_stmt_out(s) for s in stmts]
+
+
+@router.get("/{card_id}/statements/{statement_id}", response_model=CreditCardStatementOut)
+async def get_statement_detail(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+    statement_id: int,
+) -> CreditCardStatementOut:
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    stmt = await cc_repo.get_statement(conn, statement_id)
+    if stmt is None or stmt.credit_card_id != card_id:
+        raise HTTPException(status_code=404, detail="Statement not found")
+    return _stmt_out(stmt)
+
+
+@router.post("/{card_id}/statements", response_model=CreditCardStatementOut, status_code=201)
+async def upload_statement(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    api_settings: Annotated[ApiSettings, Depends(get_settings)],
+    card_id: int,
+    file: UploadFile = File(...),
+    pdf_password: str | None = Form(default=None),
+) -> CreditCardStatementOut:
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="file name is required")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="file is empty")
+    try:
+        summary, line_items, preview = await build_credit_card_statement_payload(
+            file.filename,
+            content,
+            pdf_password=pdf_password,
+            issuer=card.issuer,
+            settings=api_settings,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    ps = summary.get("period_start")
+    pe = summary.get("period_end")
+    if isinstance(ps, str):
+        pass
+    else:
+        ps = None
+    if isinstance(pe, str):
+        pass
+    else:
+        pe = None
+
+    sid = await cc_repo.insert_statement(
+        conn,
+        credit_card_id=card_id,
+        filename=file.filename,
+        period_start=ps,
+        period_end=pe,
+        extraction_preview=preview,
+        summary_json=dumps_summary(summary),
+        line_items_json=dumps_line_items(line_items),
+        status="pending_review",
+    )
+    st = await cc_repo.get_statement(conn, sid)
+    if st is None:
+        raise HTTPException(status_code=500, detail="statement not found after insert")
+    return _stmt_out(st)
+
+
+@router.post(
+    "/{card_id}/statements/{statement_id}/apply",
+    response_model=CreditCardStatementApplyResponse,
+)
+async def apply_statement(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+    statement_id: int,
+) -> CreditCardStatementApplyResponse:
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    stmt = await cc_repo.get_statement(conn, statement_id)
+    if stmt is None or stmt.credit_card_id != card_id:
+        raise HTTPException(status_code=404, detail="Statement not found")
+    if stmt.status == "applied":
+        raise HTTPException(status_code=409, detail="Statement already applied to transactions")
+
+    items = line_items_json_loads(stmt.line_items_json)
+    if not items:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No parsed line items — upload a PDF/CSV with transaction lines, "
+                "or add a CSV with date, amount, category."
+            ),
+        )
+
+    default_pm = infer_cc_payment_mode(card.issuer)
+    imported = 0
+    for it in items:
+        try:
+            d_raw = it.get("date")
+            if not d_raw:
+                continue
+            tx_date = parse_transaction_date(str(d_raw))
+            ap = int(it.get("amount_paise") or 0)
+            if ap <= 0:
+                continue
+            cat = Category.from_string(str(it.get("category") or "Other")).value
+            pm_raw = str(it.get("payment_mode") or default_pm)
+            pm = PaymentMode.from_string(pm_raw).value
+            desc = it.get("description")
+            merchant = str(desc)[:2000] if desc else None
+            await tx_repo.insert_transaction(
+                conn,
+                tx_date=tx_date,
+                amount_paise=Paise(ap),
+                category=cat,
+                merchant=merchant,
+                payment_mode=pm,
+                account=card.name,
+                notes=f"CC import · stmt #{statement_id}",
+                source="cc_statement_import",
+            )
+            imported += 1
+        except (ValueError, TypeError):
+            continue
+
+    await cc_repo.update_statement_status(conn, statement_id, status="applied")
+
+    summary = summary_json_loads(stmt.summary_json)
+    new_bal: int | None = None
+    if "closing_balance_paise" in summary:
+        new_bal = int(summary["closing_balance_paise"])
+    elif "total_due_paise" in summary:
+        new_bal = int(summary["total_due_paise"])
+
+    if new_bal is not None:
+        merged = replace(card, current_balance_paise=new_bal)
+        await cc_repo.update_credit_card_row(conn, merged)
+
+    return CreditCardStatementApplyResponse(imported_count=imported, updated_balance_paise=new_bal)
+
+
+@router.get("/{card_id}/emis", response_model=list[CreditCardEmiOut])
+async def list_emis(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+) -> list[CreditCardEmiOut]:
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    rows = await cc_repo.list_emis_for_card(conn, card_id)
+    return [_emi_out(r) for r in rows]
+
+
+@router.post("/{card_id}/emis", response_model=CreditCardEmiOut, status_code=201)
+async def create_emi(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+    body: CreditCardEmiCreateBody,
+) -> CreditCardEmiOut:
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    if body.installments_paid > body.tenure_months:
+        raise HTTPException(
+            status_code=400,
+            detail="installments_paid cannot exceed tenure_months",
+        )
+    eid = await cc_repo.insert_emi(
+        conn,
+        credit_card_id=card_id,
+        description=body.description.strip(),
+        limit_blocked_paise=body.limit_blocked_paise,
+        emi_amount_paise=body.emi_amount_paise,
+        tenure_months=body.tenure_months,
+        installments_paid=body.installments_paid,
+        is_active=body.is_active,
+        notes=body.notes.strip() if body.notes else None,
+        loan_type=_emi_opt_str(body.loan_type),
+        creation_date=_emi_opt_str(body.creation_date),
+        finish_date=_emi_opt_str(body.finish_date),
+        principal_paise=body.principal_paise,
+        outstanding_instalment_paise=body.outstanding_instalment_paise,
+    )
+    row = await cc_repo.get_emi(conn, eid)
+    if row is None:
+        raise HTTPException(status_code=500, detail="EMI not found after insert")
+    return _emi_out(row)
+
+
+@router.put("/{card_id}/emis/{emi_id}", response_model=CreditCardEmiOut)
+async def put_emi(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+    emi_id: int,
+    body: CreditCardEmiPutBody,
+) -> CreditCardEmiOut:
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    existing = await cc_repo.get_emi(conn, emi_id)
+    if existing is None or existing.credit_card_id != card_id:
+        raise HTTPException(status_code=404, detail="EMI not found")
+    merged = _merge_emi(existing, body)
+    if merged.installments_paid > merged.tenure_months:
+        raise HTTPException(
+            status_code=400,
+            detail="installments_paid cannot exceed tenure_months",
+        )
+    await cc_repo.update_emi_row(conn, merged)
+    return _emi_out(merged)
+
+
+@router.delete("/{card_id}/emis/{emi_id}", status_code=204)
+async def delete_emi(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+    emi_id: int,
+) -> None:
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    existing = await cc_repo.get_emi(conn, emi_id)
+    if existing is None or existing.credit_card_id != card_id:
+        raise HTTPException(status_code=404, detail="EMI not found")
+    await cc_repo.delete_emi(conn, emi_id)
+
+
+@router.delete("/{card_id}/statements/{statement_id}", status_code=204)
+async def delete_statement(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+    statement_id: int,
+) -> None:
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    stmt = await cc_repo.get_statement(conn, statement_id)
+    if stmt is None or stmt.credit_card_id != card_id:
+        raise HTTPException(status_code=404, detail="Statement not found")
+    await cc_repo.delete_statement(conn, statement_id)
