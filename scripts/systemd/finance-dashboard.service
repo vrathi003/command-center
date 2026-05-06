@@ -1,0 +1,18 @@
+[Unit]
+Description=Personal Finance OS Dashboard
+After=network-online.target finance-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+WorkingDirectory=__REPO_ROOT__/dashboard
+Environment=PATH=__NODE_BIN_DIR__:/usr/local/bin:/usr/bin:/bin
+ExecStartPre=__NPM_BIN__ run build
+ExecStart=__NPM_BIN__ run preview -- --host 127.0.0.1 --port 4173 --strictPort
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

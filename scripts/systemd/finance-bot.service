@@ -1,5 +1,5 @@
 [Unit]
-Description=Personal Finance OS API
+Description=Personal Finance OS Discord Bot
 After=network-online.target
 Wants=network-online.target
 
@@ -8,7 +8,7 @@ Type=simple
 User=__SERVICE_USER__
 WorkingDirectory=__REPO_ROOT__
 EnvironmentFile=__REPO_ROOT__/.env
-ExecStart=__UV_BIN__ run python -m uvicorn finance_api.main:app --host 127.0.0.1 --port 8000
+ExecStart=__UV_BIN__ run python -m finance_bot.main
 Restart=always
 RestartSec=5
 TimeoutStopSec=20

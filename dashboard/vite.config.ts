@@ -15,6 +15,10 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  preview: {
+    // Allow access via Tailscale HTTPS domain, e.g. *.tail*.ts.net
+    allowedHosts: ['.ts.net'],
+  },
   server: {
     port: 3000,
     proxy: {
