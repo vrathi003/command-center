@@ -434,7 +434,11 @@ async def statement_text_to_import_rows(
     *,
     client: AsyncOpenAI | None = None,
 ) -> list[dict[str, str]]:
-    """Plain text from a PDF (or similar) → import rows. Heuristic first; LM Studio if no rows."""
+    """Plain text from a PDF (or similar) → import rows.
+
+    Always runs PyMuPDF text + heuristic line parsing first. LM Studio is only used when
+    ``settings.lm_studio_active`` and heuristics return no rows.
+    """
     if not text.strip():
         raise BankStatementPdfError(
             "no text extracted from PDF — image-only statements need OCR (unsupported)",
@@ -446,11 +450,19 @@ async def statement_text_to_import_rows(
     if heuristic:
         return dedupe_import_rows(heuristic)[:MAX_BANK_STATEMENT_IMPORT_ROWS]
 
-    if not settings.lm_studio_url:
-        raise BankStatementPdfError(
-            "Could not parse transaction lines from extracted text. "
-            "Set LM_STUDIO_URL for local LM Studio on this PDF, or export CSV from your bank.",
-        )
+    if not settings.lm_studio_active:
+        if not settings.lm_studio_enabled:
+            hint = (
+                "Heuristic parsing found no transaction lines. "
+                "AI fallback is disabled (LM_STUDIO_ENABLED=false). "
+                "Export CSV from your bank, or set LM_STUDIO_ENABLED=true for complex layouts."
+            )
+        else:
+            hint = (
+                "Heuristic parsing found no transaction lines. "
+                "Set LM_STUDIO_URL to enable AI fallback, or export CSV from your bank."
+            )
+        raise BankStatementPdfError(hint)
 
     chunks = chunk_statement_text(text)
     if not chunks:

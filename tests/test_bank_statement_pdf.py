@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from finance_common.config import AppSettings
 from finance_common.parsing.bank_statement_pdf import (
+    BankStatementPdfError,
     chunk_statement_text,
     dedupe_import_rows,
     filter_trailing_boilerplate_pages,
@@ -96,10 +98,16 @@ def test_chunk_statement_text_splits() -> None:
 @pytest.mark.asyncio
 async def test_pdf_bytes_to_import_rows_uses_heuristic_without_llm() -> None:
     """PyMuPDF text + heuristic lines must not call LM Studio when lines match."""
-    settings = AppSettings()
+    settings = AppSettings.model_construct(
+        lm_studio_enabled=False,
+        lm_studio_url="http://127.0.0.1:1234/v1",
+        lm_studio_model="test",
+        db_path=Path("/tmp/finance-test.db"),
+        app_env="test",
+        log_level="INFO",
+    )
     text = "2025-01-15  UPI MERCHANT  500.00 Dr\n"
     with (
-        patch.object(settings, "lm_studio_url", None),
         patch(
             "finance_common.parsing.bank_statement_pdf.extract_text_from_pdf_bytes",
             return_value=text,
@@ -113,6 +121,36 @@ async def test_pdf_bytes_to_import_rows_uses_heuristic_without_llm() -> None:
     m_llm.assert_not_called()
     assert len(rows) == 1
     assert rows[0]["amount"] == "500.00"
+
+
+@pytest.mark.asyncio
+async def test_pdf_bytes_to_import_rows_skips_llm_when_disabled() -> None:
+    """When LM_STUDIO_ENABLED=false, heuristic failure must not call LM Studio."""
+    settings = AppSettings.model_construct(
+        lm_studio_enabled=False,
+        lm_studio_url="http://127.0.0.1:1234/v1",
+        lm_studio_model="test",
+        db_path=Path("/tmp/finance-test.db"),
+        app_env="test",
+        log_level="INFO",
+    )
+    with (
+        patch(
+            "finance_common.parsing.bank_statement_pdf.extract_text_from_pdf_bytes",
+            return_value="--- Page 1 ---\nunparseable blob",
+        ),
+        patch(
+            "finance_common.parsing.bank_statement_pdf.heuristic_rows_from_statement_text",
+            return_value=[],
+        ),
+        patch(
+            "finance_common.parsing.bank_statement_pdf._call_llm_for_chunk",
+            new_callable=AsyncMock,
+        ) as m_llm,
+    ):
+        with pytest.raises(BankStatementPdfError, match="Heuristic parsing found no transaction lines"):
+            await pdf_bytes_to_import_rows(b"%PDF-fake", settings)
+    m_llm.assert_not_called()
 
 
 @pytest.mark.asyncio

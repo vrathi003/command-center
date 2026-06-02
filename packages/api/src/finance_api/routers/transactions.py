@@ -142,6 +142,37 @@ async def update_transaction(
     except ValueError as e:
         raise HTTPException(status_code=422, detail="invalid date") from e
 
+    if row.transaction_type in ("debit", "credit") and (
+        body.from_account_id is not None and body.to_account_id is not None
+    ):
+        if body.from_account_id == body.to_account_id:
+            raise HTTPException(
+                status_code=400,
+                detail="from_account_id and to_account_id must differ",
+            )
+        from_a = await accounts_repo.get_account(conn, body.from_account_id)
+        to_a = await accounts_repo.get_account(conn, body.to_account_id)
+        if from_a is None or to_a is None:
+            raise HTTPException(status_code=404, detail="account not found")
+        converted = await tx_repo.convert_debit_credit_to_transfer_pair(
+            conn,
+            transaction_id,
+            tx_date=d,
+            amount_paise=body.amount_paise,
+            from_account_id=body.from_account_id,
+            to_account_id=body.to_account_id,
+            from_account_name=from_a.name,
+            to_account_name=to_a.name,
+            notes=body.notes,
+            tags=body.tags,
+        )
+        if converted is None:
+            raise HTTPException(
+                status_code=409,
+                detail="could not convert transaction to transfer (already paired?)",
+            )
+        return TransactionUpdated(id=transaction_id)
+
     if row.transaction_type == "transfer":
         if row.transfer_pair_id is None:
             if body.category is None or body.payment_mode is None:
@@ -306,7 +337,8 @@ async def import_transactions(
     (same field) together with ``file``.
 
     PDFs: text is extracted with PyMuPDF; simple line layouts are parsed without an LLM. If that
-    yields no rows, local LM Studio (`LM_STUDIO_URL`) is used — may take a minute for long PDFs.
+    yields no rows and `LM_STUDIO_ENABLED` is true, local LM Studio (`LM_STUDIO_URL`) is used —
+    may take a minute for long PDFs.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="file name is required")
@@ -327,9 +359,12 @@ async def import_transactions(
     except BankStatementPdfError as e:
         msg = str(e)
         client_error = (
-            "Could not parse transaction lines" in msg
+            "Heuristic parsing found no transaction lines" in msg
+            or "Could not parse transaction lines" in msg
             or "Refusing" in msg
             or "LM_STUDIO_URL" in msg
+            or "LM_STUDIO_ENABLED" in msg
+            or "LM Studio is disabled" in msg
             or "too large" in msg
             or "no text extracted" in msg
             or "unreadable PDF" in msg

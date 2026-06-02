@@ -7,6 +7,10 @@ from io import BytesIO
 import pytest
 from starlette.testclient import TestClient
 
+from finance_common.parsing.import_column_mapping import (
+    build_canonical_import_row,
+    normalize_header_key,
+)
 from finance_common.parsing.transaction_import import (
     categorize_from_merchant,
     detect_header_row,
@@ -57,6 +61,45 @@ def test_import_transactions_rejects_bad_extension(api_client: TestClient) -> No
         files={"file": ("bad.txt", BytesIO(b"x"), "text/plain")},
     )
     assert r.status_code == 400
+
+
+def test_normalize_header_strips_inr_suffix() -> None:
+    assert normalize_header_key("Withdrawal Amount(INR)") == "withdrawal_amount"
+    assert normalize_header_key("Deposit Amount(INR)") == "deposit_amount"
+    assert normalize_header_key("Balance(INR)") == "balance"
+
+
+def test_canonical_row_hdfc_inr_withdrawal_deposit_columns() -> None:
+    raw = {
+        "Value Date": "15/06/2025",
+        "Transaction Remarks": "UPI-BIGBASKET",
+        "Withdrawal Amount(INR)": "1500.50",
+        "Deposit Amount(INR)": "",
+    }
+    canon = build_canonical_import_row(raw)
+    assert canon["date"] == "15/06/2025"
+    assert canon["amount"] == "1500.50"
+    assert canon["merchant"] == "UPI-BIGBASKET"
+    assert canon["transaction_type"] == "debit"
+    assert canon["category"] == "Other"
+
+
+def test_import_transactions_hdfc_inr_column_names(api_client: TestClient) -> None:
+    """HDFC netbanking export: Value Date + Withdrawal/Deposit Amount(INR) + Transaction Remarks."""
+    csv_content = (
+        "S No.,Value Date,Transaction Date,Cheque Number,Transaction Remarks,"
+        "Withdrawal Amount(INR),Deposit Amount(INR),Balance(INR)\n"
+        "1,15/06/2025,15/06/2025,,UPI-BIGBASKET,1500.50,,45000\n"
+        "2,16/06/2025,16/06/2025,,SALARY CREDIT,,25000.00,70000\n"
+    )
+    r = api_client.post(
+        "/api/transactions/import",
+        files={"file": ("hdfc_inr.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["imported"] == 2
+    assert body["failed"] == 0
 
 
 def test_import_transactions_bank_debit_credit_without_category(api_client: TestClient) -> None:

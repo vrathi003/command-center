@@ -166,6 +166,69 @@ def test_put_paired_transfer_noncanonical_merchant(api_client: TestClient) -> No
     assert all(x["amount_paise"] == 7777 for x in legs)
 
 
+def test_put_converts_imported_debit_to_transfer_pair(api_client: TestClient) -> None:
+    """Dashboard edit: debit/credit row → transfer creates the matching leg."""
+    r1 = api_client.post("/api/accounts/", json={"name": "HDFC Main", "type": "savings", "currency": "INR"})
+    r2 = api_client.post("/api/accounts/", json={"name": "HDFC Savings", "type": "savings", "currency": "INR"})
+    assert r1.status_code == 201 and r2.status_code == 201
+    a1, a2 = r1.json()["id"], r2.json()["id"]
+
+    db_path = os.environ["DB_PATH"]
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        INSERT INTO transactions (
+            date, amount_paise, category, merchant, payment_mode, account, notes,
+            transaction_type, source, is_deleted, account_id, transfer_pair_id, tags,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        """,
+        (
+            "2025-06-15",
+            10_000,
+            "Other",
+            "SELF TRF",
+            "NEFT/IMPS",
+            "HDFC Main",
+            None,
+            "debit",
+            "import",
+            0,
+            a1,
+            None,
+            None,
+        ),
+    )
+    conn.commit()
+    tid = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+    conn.close()
+
+    r = api_client.put(
+        f"/api/transactions/{tid}",
+        json={
+            "date": "2025-06-15",
+            "amount_paise": 10_000,
+            "from_account_id": a1,
+            "to_account_id": a2,
+            "notes": "internal move",
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    out = api_client.get(f"/api/transactions/{tid}").json()
+    assert out["transaction_type"] == "transfer"
+    assert out["merchant"] == "Transfer out"
+    assert out["transfer_pair_id"] is not None
+    assert out["account_id"] == a1
+
+    sibling = out["transfer_sibling"]
+    assert sibling is not None
+    assert sibling["merchant"] == "Transfer in"
+    assert sibling["account_id"] == a2
+    assert sibling["transfer_pair_id"] == out["transfer_pair_id"]
+    assert sibling["amount_paise"] == 10_000
+
+
 def test_put_orphan_transfer_single_leg(api_client: TestClient) -> None:
     """Single-row transfer (no pair id) updates like a normal line."""
     r1 = api_client.post("/api/accounts/", json={"name": "Solo", "type": "savings", "currency": "INR"})

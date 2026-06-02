@@ -446,6 +446,156 @@ async def update_dashboard_debit_credit(
     return cur.rowcount > 0
 
 
+async def convert_debit_credit_to_transfer_pair(
+    conn: aiosqlite.Connection,
+    tx_id: int,
+    *,
+    tx_date: date,
+    amount_paise: int,
+    from_account_id: int,
+    to_account_id: int,
+    from_account_name: str,
+    to_account_name: str,
+    notes: str | None,
+    tags: str | None,
+) -> tuple[int, int, str] | None:
+    """Turn one debit/credit row into a transfer pair: update the row as one leg, insert the other.
+
+    Debit rows become **Transfer out** (from account); credit rows become **Transfer in** (to account).
+    Returns ``(existing_leg_id, new_leg_id, pair_id)`` or ``None`` if the row is missing or not eligible.
+    """
+    cur = await conn.execute(
+        """
+        SELECT transaction_type, transfer_pair_id FROM transactions
+        WHERE id = ? AND is_deleted = 0
+        """,
+        (tx_id,),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return None
+    tx_type = str(row[0]) if row[0] is not None else "debit"
+    if row[1] is not None or tx_type == "transfer":
+        return None
+
+    pid = str(uuid4())
+    cat = Category.TRANSFER.value
+    pm = PaymentMode.BANK_TRANSFER.value
+    date_s = tx_date.isoformat()
+
+    await conn.execute("BEGIN IMMEDIATE")
+    try:
+        if tx_type == "credit":
+            cur1 = await conn.execute(
+                """
+                UPDATE transactions SET
+                    date = ?, amount_paise = ?, category = ?, merchant = ?,
+                    payment_mode = ?, account = ?, notes = ?, transaction_type = ?,
+                    account_id = ?, transfer_pair_id = ?, tags = ?,
+                    updated_at = datetime('now')
+                WHERE id = ? AND is_deleted = 0
+                """,
+                (
+                    date_s,
+                    amount_paise,
+                    cat,
+                    "Transfer in",
+                    pm,
+                    to_account_name,
+                    notes,
+                    "transfer",
+                    to_account_id,
+                    pid,
+                    tags,
+                    tx_id,
+                ),
+            )
+            if (cur1.rowcount or 0) < 1:
+                await conn.rollback()
+                return None
+            cur2 = await conn.execute(
+                """
+                INSERT INTO transactions (
+                    date, amount_paise, category, merchant, payment_mode, account, notes,
+                    transaction_type, source, account_id, transfer_pair_id, tags,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'dashboard', ?, ?, ?, datetime('now'))
+                """,
+                (
+                    date_s,
+                    amount_paise,
+                    cat,
+                    "Transfer out",
+                    pm,
+                    from_account_name,
+                    notes,
+                    "transfer",
+                    from_account_id,
+                    pid,
+                    tags,
+                ),
+            )
+        else:
+            cur1 = await conn.execute(
+                """
+                UPDATE transactions SET
+                    date = ?, amount_paise = ?, category = ?, merchant = ?,
+                    payment_mode = ?, account = ?, notes = ?, transaction_type = ?,
+                    account_id = ?, transfer_pair_id = ?, tags = ?,
+                    updated_at = datetime('now')
+                WHERE id = ? AND is_deleted = 0
+                """,
+                (
+                    date_s,
+                    amount_paise,
+                    cat,
+                    "Transfer out",
+                    pm,
+                    from_account_name,
+                    notes,
+                    "transfer",
+                    from_account_id,
+                    pid,
+                    tags,
+                    tx_id,
+                ),
+            )
+            if (cur1.rowcount or 0) < 1:
+                await conn.rollback()
+                return None
+            cur2 = await conn.execute(
+                """
+                INSERT INTO transactions (
+                    date, amount_paise, category, merchant, payment_mode, account, notes,
+                    transaction_type, source, account_id, transfer_pair_id, tags,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'dashboard', ?, ?, ?, datetime('now'))
+                """,
+                (
+                    date_s,
+                    amount_paise,
+                    cat,
+                    "Transfer in",
+                    pm,
+                    to_account_name,
+                    notes,
+                    "transfer",
+                    to_account_id,
+                    pid,
+                    tags,
+                ),
+            )
+        new_id = cur2.lastrowid
+        if new_id is None:
+            await conn.rollback()
+            return None
+        await conn.commit()
+    except Exception:
+        await conn.rollback()
+        raise
+    return tx_id, int(new_id), pid
+
+
 async def update_transfer_pair_dashboard(
     conn: aiosqlite.Connection,
     *,

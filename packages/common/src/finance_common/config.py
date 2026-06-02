@@ -24,6 +24,7 @@ class AppSettings(BaseSettings):
     db_path: Path = Field(default=Path("~/finance/finance.db"), alias="DB_PATH")
     app_env: str = Field(default="development", alias="APP_ENV")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    lm_studio_enabled: bool = Field(default=True, alias="LM_STUDIO_ENABLED")
     lm_studio_url: str | None = Field(default=None, alias="LM_STUDIO_URL")
     lm_studio_model: str = Field(default="qwen/qwen3.5-9b", alias="LM_STUDIO_MODEL")
     lm_studio_timeout_seconds: float = Field(
@@ -40,6 +41,11 @@ class AppSettings(BaseSettings):
         ge=10.0,
         le=600.0,
     )
+
+    @property
+    def lm_studio_active(self) -> bool:
+        """True when LM Studio fallback is enabled and a local URL is configured."""
+        return self.lm_studio_enabled and bool(self.lm_studio_url)
 
     @field_validator("lm_studio_url", mode="before")
     @classmethod

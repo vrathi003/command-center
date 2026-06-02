@@ -68,7 +68,8 @@ API_HOST=127.0.0.1
 API_PORT=8000
 APP_ENV=development
 
-# Optional — enables AI-powered PDF bank statement parsing
+# Optional — AI-powered PDF bank statement parsing (heuristic parsing always runs first)
+LM_STUDIO_ENABLED=true
 LM_STUDIO_URL=http://localhost:1234/v1
 LM_STUDIO_MODEL=qwen/qwen3.5-9b
 LM_STUDIO_TIMEOUT_SECONDS=600

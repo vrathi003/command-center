@@ -52,6 +52,9 @@ def async_openai_for_lm_studio(
             the HTTP read timeout.  Use this for short-lived calls (e.g. narration
             enrichment) that should fail fast rather than hanging for minutes.
     """
+    if not settings.lm_studio_enabled:
+        msg = "LM Studio is disabled (LM_STUDIO_ENABLED=false)"
+        raise ValueError(msg)
     if not settings.lm_studio_url:
         msg = "LM_STUDIO_URL is not set — required when heuristic PDF parsing fails"
         raise ValueError(msg)

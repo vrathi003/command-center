@@ -9,7 +9,24 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from finance_common.parsing.account_mentions import narration_suggests_bank_transfer
+from finance_common.parsing.import_column_mapping import (
+    build_canonical_import_row,
+    normalize_header_key,
+    resolve_column_role,
+    score_header_row,
+)
 from finance_common.types import Category, PaymentMode, rupees_to_paise
+
+# Re-export for callers/tests that import from this module.
+__all__ = [
+    "normalize_header_key",
+    "resolve_column_role",
+    "detect_header_row",
+    "canonical_row_for_import",
+    "trim_trailer_rows",
+    "parse_import_row",
+    "iter_csv_dict_rows",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,144 +41,10 @@ class ParsedImportRow:
     transaction_type: str  # "debit", "credit", or "transfer"
 
 
-def normalize_header_key(key: str) -> str:
-    s = key.strip()
-    if s.startswith("\ufeff"):
-        s = s[1:]
-    s = s.lower().replace(" ", "_").replace("-", "_")
-    s = re.sub(r"[\(\)]", "", s)
-    return s
-
-
-# Maps normalized header -> canonical field name
-_HEADER_TO_CANONICAL: dict[str, str] = {
-    "date": "date",
-    "txn_date": "date",
-    "transaction_date": "date",
-    "posted_date": "date",
-    "value_date": "date",
-    "amount": "amount",
-    "rupees": "amount",
-    "inr": "amount",
-    "amt": "amount",
-    "debit": "amount",
-    "credit": "amount",
-    "value": "amount",
-    "category": "category",
-    "cat": "category",
-    "type": "category",
-    "category_name": "category",
-    "merchant": "merchant",
-    "payee": "merchant",
-    "description": "merchant",
-    "narration": "merchant",
-    "payment_mode": "payment_mode",
-    "payment": "payment_mode",
-    "mode": "payment_mode",
-    "instrument": "payment_mode",
-    "notes": "notes",
-    "note": "notes",
-    "memo": "notes",
-    "remarks": "notes",
-    "account": "account",
-    "bank_account": "account",
-    "booking_date": "date",
-    "book_date": "date",
-    "tran_date": "date",
-    "particulars": "merchant",
-    "particular": "merchant",
-    "counterparty": "merchant",
-    "payee_name": "merchant",
-    "details": "merchant",
-    "transaction_details": "merchant",
-    "txn_details": "merchant",
-    "txn_amount": "amount",
-    "net_amount": "amount",
-    "transaction_amount": "amount",
-    "amount_inr": "amount",
-}
-
-
-# Debit / credit column names (normalized keys) — coalesced into amount when no single
-# Amount column.
-_DEBIT_HEADER_KEYS = frozenset(
-    {
-        "debit",
-        "debit_amount",
-        "withdrawal",
-        "withdrawals",
-        "withdrawal_amt",
-        "withdrawal_amount",
-        "dr",
-        "dr_amount",
-    },
-)
-_CREDIT_HEADER_KEYS = frozenset(
-    {
-        "credit",
-        "credit_amount",
-        "deposit",
-        "deposits",
-        "deposit_amt",
-        "deposit_amount",
-        "cr",
-        "cr_amount",
-    },
-)
-
-# --- Bank statement header detection ---
-
-# Keys that map to the "date" canonical field — a valid header row must contain at least one.
-_DATE_HEADER_KEYS = frozenset(k for k, v in _HEADER_TO_CANONICAL.items() if v == "date")
-
-# All recognised column names (including non-mapped ones common in bank statements).
-_ALL_KNOWN_HEADER_KEYS = (
-    frozenset(_HEADER_TO_CANONICAL.keys())
-    | _DEBIT_HEADER_KEYS
-    | _CREDIT_HEADER_KEYS
-    | frozenset(
-        {
-            "balance",
-            "closing_balance",
-            "running_balance",
-            "available_balance",
-            "chq_no",
-            "cheque_no",
-            "cheque_number",
-            "ref_no",
-            "reference_no",
-            "reference_number",
-            "sr_no",
-            "sl_no",
-            "s_no",
-            "serial_no",
-            "transaction_id",
-            "txn_id",
-            "utr_no",
-            "utr",
-        }
-    )
-)
-
 # Keywords that indicate a trailer/summary row rather than a real transaction.
 _TRAILER_KEYWORDS = frozenset(
     {"total", "totals", "statement", "generated", "disclaimer", "page", "opening", "closing"}
 )
-
-
-def _score_header_row(cells: list[str]) -> tuple[int, bool]:
-    """Return (count_of_known_headers, has_date_header)."""
-    count = 0
-    has_date = False
-    for cell in cells:
-        nk = normalize_header_key(cell)
-        if not nk:
-            continue
-        if nk in _ALL_KNOWN_HEADER_KEYS:
-            count += 1
-        if nk in _DATE_HEADER_KEYS:
-            has_date = True
-    return count, has_date
 
 
 def detect_header_row(rows: list[list[str]], *, max_scan: int = 20) -> int | None:
@@ -174,7 +57,7 @@ def detect_header_row(rows: list[list[str]], *, max_scan: int = 20) -> int | Non
     best_idx: int | None = None
     best_score = 0
     for i, row in enumerate(rows[:max_scan]):
-        score, has_date = _score_header_row(row)
+        score, has_date = score_header_row(row)
         if score >= 2 and has_date and score > best_score:
             best_score = score
             best_idx = i
@@ -192,7 +75,7 @@ def trim_trailer_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
         date_val = ""
         for k, v in row.items():
             nk = normalize_header_key(k)
-            if nk in _DATE_HEADER_KEYS:
+            if resolve_column_role(nk) == "date":
                 date_val = (v or "").strip()
                 break
         if not date_val:
@@ -207,72 +90,9 @@ def trim_trailer_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     return rows[:end]
 
 
-def _coalesce_amount_from_debit_credit(raw: dict[str, str]) -> tuple[str, str] | None:
-    """Return (amount_str, transaction_type) from separate Debit/Credit columns, or None."""
-    debit_s = ""
-    credit_s = ""
-    for k, v in raw.items():
-        nk = normalize_header_key(k)
-        val = (v or "").strip()
-        if not val:
-            continue
-        if nk in _DEBIT_HEADER_KEYS:
-            debit_s = val
-        elif nk in _CREDIT_HEADER_KEYS:
-            credit_s = val
-    if debit_s:
-        return debit_s, "debit"
-    if credit_s:
-        return credit_s, "credit"
-    return None
-
-
-def row_dict_to_canonical(raw: dict[str, str]) -> dict[str, str]:
-    """Map a single row with arbitrary header keys to canonical keys."""
-    out: dict[str, str] = {}
-    for k, v in raw.items():
-        nk = normalize_header_key(k)
-        canon = _HEADER_TO_CANONICAL.get(nk)
-        if canon is None:
-            continue
-        val = (v or "").strip()
-        if val == "":
-            continue
-        if canon in out and out[canon] == val:
-            continue
-        out[canon] = val
-    return out
-
-
-def _detect_transaction_type(raw: dict[str, str]) -> str:
-    """Determine if the row is a debit or credit based on which column has a value."""
-    for k, v in raw.items():
-        nk = normalize_header_key(k)
-        val = (v or "").strip()
-        if not val:
-            continue
-        if nk in _DEBIT_HEADER_KEYS:
-            return "debit"
-        if nk in _CREDIT_HEADER_KEYS:
-            return "credit"
-    return "debit"
-
-
 def canonical_row_for_import(raw: dict[str, str]) -> dict[str, str]:
     """Map export row to canonical fields; fills amount from debit/credit columns."""
-    canon = row_dict_to_canonical(raw)
-    if "amount" not in canon:
-        result = _coalesce_amount_from_debit_credit(raw)
-        if result:
-            amt, tx_type = result
-            canon = {**canon, "amount": amt, "transaction_type": tx_type}
-    else:
-        # Check if the amount came from a debit/credit header specifically.
-        tx_type = _detect_transaction_type(raw)
-        canon = {**canon, "transaction_type": tx_type}
-    if "date" in canon and "amount" in canon and "category" not in canon:
-        canon = {**canon, "category": "Other"}
-    return canon
+    return build_canonical_import_row(raw)
 
 
 def parse_transaction_date(s: str) -> date:

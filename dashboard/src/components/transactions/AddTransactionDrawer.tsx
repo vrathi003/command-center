@@ -246,7 +246,7 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
 
     if (isEdit && transactionIdToEdit != null) {
       if (kind === 'transfer') {
-        if (!editDraft?.row.transfer_pair_id) {
+        if (isOrphanTransferEdit) {
           const aid = accountId ? Number.parseInt(accountId, 10) : undefined
           updateOne.mutate({
             id: transactionIdToEdit,
@@ -335,8 +335,16 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
     editDraft?.row.transaction_type === 'transfer' &&
     editDraft.peer == null
 
-  const needsPairedTransferAccounts =
-    kind === 'transfer' && (!isEdit || Boolean(editDraft?.row.transfer_pair_id))
+  /** Import marked transfer but only one leg — edit category/merchant, not from/to pair. */
+  const isOrphanTransferEdit =
+    isEdit &&
+    editDraft?.row.transaction_type === 'transfer' &&
+    !editDraft?.row.transfer_pair_id
+
+  const needsPairedTransferAccounts = kind === 'transfer' && !isOrphanTransferEdit
+
+  /** Paired transfers already have two legs; other rows can switch type (e.g. debit → transfer). */
+  const kindSwitchDisabled = isEdit && Boolean(editDraft?.row.transfer_pair_id)
 
   if (!open) {
     return null
@@ -408,13 +416,18 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
               <button
                 key={k}
                 type="button"
-                disabled={isEdit}
-                onClick={() => setKind(k)}
+                disabled={kindSwitchDisabled}
+                onClick={() => {
+                  setKind(k)
+                  if (k === 'transfer' && isEdit && editDraft?.row.account_id != null) {
+                    setFromAccountId(String(editDraft.row.account_id))
+                  }
+                }}
                 className={`flex-1 rounded-lg border px-2 py-2 text-sm font-medium ${
                   kind === k
                     ? 'border-emerald-600 bg-emerald-50 text-emerald-900'
                     : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
-                } ${isEdit ? 'cursor-not-allowed opacity-60' : ''}`}
+                } ${kindSwitchDisabled ? 'cursor-not-allowed opacity-60' : ''}`}
               >
                 {k === 'debit' ? 'Debit' : k === 'credit' ? 'Credit' : 'Transfer'}
               </button>
@@ -479,9 +492,11 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
                 </select>
               </label>
               <p className="mb-3 text-xs text-zinc-500">
-                {isEdit
+                {isEdit && editDraft?.row.transfer_pair_id
                   ? 'Updates both legs of this internal transfer.'
-                  : 'Creates two linked rows excluded from spend totals and budgets.'}
+                  : isEdit
+                    ? 'Converts this row to a transfer and creates the matching credit leg.'
+                    : 'Creates two linked rows excluded from spend totals and budgets.'}
               </p>
             </>
           ) : (

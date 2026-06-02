@@ -11,15 +11,22 @@ from finance_common.config import AppSettings
 from finance_common.parsing.llm_openai_compat import async_openai_for_lm_studio
 
 
-def _settings_with_lm_url(url: str) -> AppSettings:
+def _settings_with_lm_url(url: str, *, enabled: bool = True) -> AppSettings:
     """Bypass `.env` so tests control the URL."""
     return AppSettings.model_construct(
+        lm_studio_enabled=enabled,
         lm_studio_url=url,
         lm_studio_model="test",
         db_path=Path("/tmp/finance-test.db"),
         app_env="test",
         log_level="INFO",
     )
+
+
+def test_rejects_when_disabled() -> None:
+    s = _settings_with_lm_url("http://127.0.0.1:1234/v1", enabled=False)
+    with pytest.raises(ValueError, match="LM_STUDIO_ENABLED=false"):
+        async_openai_for_lm_studio(s)
 
 
 def test_rejects_openai_api_host() -> None:
