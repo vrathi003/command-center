@@ -62,6 +62,41 @@ function apiBase(): string {
   return import.meta.env.VITE_API_URL?.replace(/\/$/, '') ?? ''
 }
 
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+
+const AUTH_STORAGE_KEY = 'finance_api_key'
+
+export function getStoredApiKey(): string {
+  return localStorage.getItem(AUTH_STORAGE_KEY) ?? ''
+}
+
+export function storeApiKey(key: string): void {
+  if (key) localStorage.setItem(AUTH_STORAGE_KEY, key)
+  else localStorage.removeItem(AUTH_STORAGE_KEY)
+}
+
+export function clearApiKey(): void {
+  localStorage.removeItem(AUTH_STORAGE_KEY)
+}
+
+function authHeaders(): Record<string, string> {
+  const key = getStoredApiKey()
+  return key ? { Authorization: `Bearer ${key}` } : {}
+}
+
+async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  const res = await apiFetch(url, {
+    ...init,
+    headers: { ...init?.headers, ...authHeaders() },
+  })
+  if (res.status === 401) {
+    window.dispatchEvent(new CustomEvent('finance:unauthorized'))
+  }
+  return res
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function parseJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text()
@@ -71,7 +106,7 @@ async function parseJson<T>(res: Response): Promise<T> {
 }
 
 export async function fetchJournalEntry(entryDate: string): Promise<JournalEntryOut | null> {
-  const res = await fetch(`${apiBase()}/api/journal/${encodeURIComponent(entryDate)}`)
+  const res = await apiFetch(`${apiBase()}/api/journal/${encodeURIComponent(entryDate)}`)
   if (res.status === 404) {
     return null
   }
@@ -80,12 +115,12 @@ export async function fetchJournalEntry(entryDate: string): Promise<JournalEntry
 
 export async function fetchJournalRange(from: string, to: string): Promise<JournalEntryOut[]> {
   const params = new URLSearchParams({ from, to })
-  const res = await fetch(`${apiBase()}/api/journal/?${params}`)
+  const res = await apiFetch(`${apiBase()}/api/journal/?${params}`)
   return parseJson<JournalEntryOut[]>(res)
 }
 
 export async function putJournalEntry(entryDate: string, body: string): Promise<JournalEntryOut | null> {
-  const res = await fetch(`${apiBase()}/api/journal/${encodeURIComponent(entryDate)}`, {
+  const res = await apiFetch(`${apiBase()}/api/journal/${encodeURIComponent(entryDate)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body }),
@@ -97,12 +132,12 @@ export async function putJournalEntry(entryDate: string, body: string): Promise<
 }
 
 export async function fetchDashboardSummary(): Promise<DashboardSummary> {
-  const res = await fetch(`${apiBase()}/api/dashboard/summary`)
+  const res = await apiFetch(`${apiBase()}/api/dashboard/summary`)
   return parseJson<DashboardSummary>(res)
 }
 
 export async function fetchDashboardAlerts(): Promise<DashboardAlerts> {
-  const res = await fetch(`${apiBase()}/api/dashboard/alerts`)
+  const res = await apiFetch(`${apiBase()}/api/dashboard/alerts`)
   return parseJson<DashboardAlerts>(res)
 }
 
@@ -114,12 +149,12 @@ export async function fetchTransactions(
   if (options?.startDate) params.set('start_date', options.startDate)
   if (options?.endDate) params.set('end_date', options.endDate)
   if (options?.account) params.set('account', options.account)
-  const res = await fetch(`${apiBase()}/api/transactions/?${params}`)
+  const res = await apiFetch(`${apiBase()}/api/transactions/?${params}`)
   return parseJson<TransactionRow[]>(res)
 }
 
 export async function fetchTransaction(id: number): Promise<TransactionDetailOut> {
-  const res = await fetch(`${apiBase()}/api/transactions/${id}`)
+  const res = await apiFetch(`${apiBase()}/api/transactions/${id}`)
   return parseJson<TransactionDetailOut>(res)
 }
 
@@ -139,7 +174,7 @@ export async function putTransaction(
     to_account_id?: number | null
   },
 ): Promise<{ id: number }> {
-  const res = await fetch(`${apiBase()}/api/transactions/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/transactions/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -160,7 +195,7 @@ export async function postManualTransaction(body: {
   tags?: string | null
   source?: string
 }): Promise<{ id: number }> {
-  const res = await fetch(`${apiBase()}/api/transactions/`, {
+  const res = await apiFetch(`${apiBase()}/api/transactions/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -176,7 +211,7 @@ export async function postTransfer(body: {
   notes?: string | null
   tags?: string | null
 }): Promise<TransferCreateResponse> {
-  const res = await fetch(`${apiBase()}/api/transactions/transfer`, {
+  const res = await apiFetch(`${apiBase()}/api/transactions/transfer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -198,7 +233,7 @@ export async function importTransactionsFile(
   if (options?.accountName) {
     form.append('account_name', options.accountName)
   }
-  const res = await fetch(`${apiBase()}/api/transactions/import`, {
+  const res = await apiFetch(`${apiBase()}/api/transactions/import`, {
     method: 'POST',
     body: form,
   })
@@ -208,7 +243,7 @@ export async function importTransactionsFile(
 // --- Transaction templates (quick-add presets) ---
 
 export async function fetchTransactionTemplates(): Promise<TransactionTemplateOut[]> {
-  const res = await fetch(`${apiBase()}/api/transaction-templates/`)
+  const res = await apiFetch(`${apiBase()}/api/transaction-templates/`)
   return parseJson<TransactionTemplateOut[]>(res)
 }
 
@@ -223,7 +258,7 @@ export async function postTransactionTemplate(body: {
   notes: string | null
   tags: string | null
 }): Promise<TransactionTemplateOut> {
-  const res = await fetch(`${apiBase()}/api/transaction-templates/`, {
+  const res = await apiFetch(`${apiBase()}/api/transaction-templates/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -245,7 +280,7 @@ export async function putTransactionTemplate(
     tags: string | null
   },
 ): Promise<TransactionTemplateOut> {
-  const res = await fetch(`${apiBase()}/api/transaction-templates/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/transaction-templates/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -254,7 +289,7 @@ export async function putTransactionTemplate(
 }
 
 export async function deleteTransactionTemplate(id: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/transaction-templates/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/transaction-templates/${id}`, {
     method: 'DELETE',
   })
   if (!res.ok) {
@@ -267,12 +302,12 @@ export async function deleteTransactionTemplate(id: number): Promise<void> {
 
 export async function fetchAccounts(activeOnly = false): Promise<AccountOut[]> {
   const q = activeOnly ? '?active_only=true' : ''
-  const res = await fetch(`${apiBase()}/api/accounts/${q}`)
+  const res = await apiFetch(`${apiBase()}/api/accounts/${q}`)
   return parseJson<AccountOut[]>(res)
 }
 
 export async function fetchAccountTypes(): Promise<string[]> {
-  const res = await fetch(`${apiBase()}/api/accounts/types`)
+  const res = await apiFetch(`${apiBase()}/api/accounts/types`)
   return parseJson<string[]>(res)
 }
 
@@ -282,7 +317,7 @@ export async function postAccount(body: {
   institution: string | null
   currency: string
 }): Promise<AccountOut> {
-  const res = await fetch(`${apiBase()}/api/accounts/`, {
+  const res = await apiFetch(`${apiBase()}/api/accounts/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -300,7 +335,7 @@ export async function putAccount(
     is_active: boolean
   },
 ): Promise<AccountOut> {
-  const res = await fetch(`${apiBase()}/api/accounts/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/accounts/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -309,7 +344,7 @@ export async function putAccount(
 }
 
 export async function deleteAccount(id: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/accounts/${id}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/accounts/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -323,7 +358,7 @@ export async function bulkDeleteTransactions(ids: number[]): Promise<{ deleted: 
   let deleted = 0
   for (let i = 0; i < ids.length; i += BULK_DELETE_TRANSACTIONS_MAX) {
     const chunk = ids.slice(i, i + BULK_DELETE_TRANSACTIONS_MAX)
-    const res = await fetch(`${apiBase()}/api/transactions/bulk-delete`, {
+    const res = await apiFetch(`${apiBase()}/api/transactions/bulk-delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: chunk }),
@@ -336,7 +371,7 @@ export async function bulkDeleteTransactions(ids: number[]): Promise<{ deleted: 
 
 export async function fetchBudgetVsActual(year: number, month: number): Promise<BudgetVsActualResponse> {
   const q = new URLSearchParams({ year: String(year), month: String(month) })
-  const res = await fetch(`${apiBase()}/api/budget/vs-actual?${q}`)
+  const res = await apiFetch(`${apiBase()}/api/budget/vs-actual?${q}`)
   return parseJson<BudgetVsActualResponse>(res)
 }
 
@@ -345,7 +380,7 @@ export async function putBudgetCategory(
   monthly_amount_paise: number,
 ): Promise<void> {
   const enc = encodeURIComponent(category)
-  const res = await fetch(`${apiBase()}/api/budget/category/${enc}`, {
+  const res = await apiFetch(`${apiBase()}/api/budget/category/${enc}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ monthly_amount_paise }),
@@ -358,7 +393,7 @@ export async function putBudgetCategory(
 
 export async function deleteBudgetCategory(category: string): Promise<void> {
   const enc = encodeURIComponent(category)
-  const res = await fetch(`${apiBase()}/api/budget/category/${enc}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/budget/category/${enc}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -366,7 +401,7 @@ export async function deleteBudgetCategory(category: string): Promise<void> {
 }
 
 export async function renameBudgetCategory(oldCategory: string, newCategory: string): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/budget/rename-category`, {
+  const res = await apiFetch(`${apiBase()}/api/budget/rename-category`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -395,7 +430,7 @@ export async function postDebt(body: {
   first_emi_date?: string | null
   full_emi_start_date?: string | null
 }): Promise<DebtOut> {
-  const res = await fetch(`${apiBase()}/api/debt/`, {
+  const res = await apiFetch(`${apiBase()}/api/debt/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -421,7 +456,7 @@ export async function putDebt(
     full_emi_start_date?: string | null
   },
 ): Promise<DebtOut> {
-  const res = await fetch(`${apiBase()}/api/debt/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/debt/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -430,7 +465,7 @@ export async function putDebt(
 }
 
 export async function deleteDebt(id: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/debt/${id}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/debt/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -438,27 +473,27 @@ export async function deleteDebt(id: number): Promise<void> {
 }
 
 export async function fetchDebtSummary(): Promise<DebtSummaryOut> {
-  const res = await fetch(`${apiBase()}/api/debt/summary`)
+  const res = await apiFetch(`${apiBase()}/api/debt/summary`)
   return parseJson<DebtSummaryOut>(res)
 }
 
 export async function fetchDebts(): Promise<DebtOut[]> {
-  const res = await fetch(`${apiBase()}/api/debt/`)
+  const res = await apiFetch(`${apiBase()}/api/debt/`)
   return parseJson<DebtOut[]>(res)
 }
 
 export async function fetchDebtAmortization(debtId: number): Promise<AmortizationResponse> {
-  const res = await fetch(`${apiBase()}/api/debt/${debtId}/amortization`)
+  const res = await apiFetch(`${apiBase()}/api/debt/${debtId}/amortization`)
   return parseJson<AmortizationResponse>(res)
 }
 
 export async function fetchPortfolioSummary(): Promise<PortfolioSummaryOut> {
-  const res = await fetch(`${apiBase()}/api/investments/portfolio-summary`)
+  const res = await apiFetch(`${apiBase()}/api/investments/portfolio-summary`)
   return parseJson<PortfolioSummaryOut>(res)
 }
 
 export async function fetchInvestments(): Promise<InvestmentOut[]> {
-  const res = await fetch(`${apiBase()}/api/investments/`)
+  const res = await apiFetch(`${apiBase()}/api/investments/`)
   return parseJson<InvestmentOut[]>(res)
 }
 
@@ -472,7 +507,7 @@ export async function postInvestment(body: {
   sector?: string | null
   equity_tax_class?: string | null
 }): Promise<InvestmentOut> {
-  const res = await fetch(`${apiBase()}/api/investments/`, {
+  const res = await apiFetch(`${apiBase()}/api/investments/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -493,7 +528,7 @@ export async function putInvestment(
     equity_tax_class?: string | null
   },
 ): Promise<InvestmentOut> {
-  const res = await fetch(`${apiBase()}/api/investments/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/investments/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -502,7 +537,7 @@ export async function putInvestment(
 }
 
 export async function deleteInvestment(id: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/investments/${id}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/investments/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -510,12 +545,12 @@ export async function deleteInvestment(id: number): Promise<void> {
 }
 
 export async function fetchFixedIncomeSummary(): Promise<FixedIncomeSummaryOut> {
-  const res = await fetch(`${apiBase()}/api/fixed-income/summary`)
+  const res = await apiFetch(`${apiBase()}/api/fixed-income/summary`)
   return parseJson<FixedIncomeSummaryOut>(res)
 }
 
 export async function fetchFixedIncome(): Promise<FixedIncomeOut[]> {
-  const res = await fetch(`${apiBase()}/api/fixed-income/`)
+  const res = await apiFetch(`${apiBase()}/api/fixed-income/`)
   return parseJson<FixedIncomeOut[]>(res)
 }
 
@@ -527,7 +562,7 @@ export async function postFixedIncome(body: {
   start_date: string | null
   maturity_date: string | null
 }): Promise<FixedIncomeOut> {
-  const res = await fetch(`${apiBase()}/api/fixed-income/`, {
+  const res = await apiFetch(`${apiBase()}/api/fixed-income/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -546,7 +581,7 @@ export async function putFixedIncome(
     maturity_date?: string | null
   },
 ): Promise<FixedIncomeOut> {
-  const res = await fetch(`${apiBase()}/api/fixed-income/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/fixed-income/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -555,7 +590,7 @@ export async function putFixedIncome(
 }
 
 export async function deleteFixedIncome(id: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/fixed-income/${id}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/fixed-income/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -563,12 +598,12 @@ export async function deleteFixedIncome(id: number): Promise<void> {
 }
 
 export async function fetchNetWorthHistory(limit = 365): Promise<NetWorthSnapshotOut[]> {
-  const res = await fetch(`${apiBase()}/api/net-worth/history?limit=${limit}`)
+  const res = await apiFetch(`${apiBase()}/api/net-worth/history?limit=${limit}`)
   return parseJson<NetWorthSnapshotOut[]>(res)
 }
 
 export async function postNetWorthSnapshotComputed(): Promise<NetWorthSnapshotOut> {
-  const res = await fetch(`${apiBase()}/api/net-worth/snapshot`, {
+  const res = await apiFetch(`${apiBase()}/api/net-worth/snapshot`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ computed_from_holdings: true }),
@@ -577,7 +612,7 @@ export async function postNetWorthSnapshotComputed(): Promise<NetWorthSnapshotOu
 }
 
 export async function fetchGoals(): Promise<GoalOut[]> {
-  const res = await fetch(`${apiBase()}/api/goals/`)
+  const res = await apiFetch(`${apiBase()}/api/goals/`)
   return parseJson<GoalOut[]>(res)
 }
 
@@ -589,7 +624,7 @@ export async function postGoal(body: {
   monthly_contribution_paise: number | null
   target_date: string | null
 }): Promise<GoalOut> {
-  const res = await fetch(`${apiBase()}/api/goals/`, {
+  const res = await apiFetch(`${apiBase()}/api/goals/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -608,7 +643,7 @@ export async function putGoal(
     target_date: string | null
   },
 ): Promise<GoalOut> {
-  const res = await fetch(`${apiBase()}/api/goals/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/goals/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -617,7 +652,7 @@ export async function putGoal(
 }
 
 export async function deleteGoal(id: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/goals/${id}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/goals/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -625,7 +660,7 @@ export async function deleteGoal(id: number): Promise<void> {
 }
 
 export async function fetchHomeInventorySummary(): Promise<HomeInventorySummaryOut> {
-  const res = await fetch(`${apiBase()}/api/home-items/summary`)
+  const res = await apiFetch(`${apiBase()}/api/home-items/summary`)
   return parseJson<HomeInventorySummaryOut>(res)
 }
 
@@ -637,12 +672,12 @@ export async function fetchHomeItems(params?: {
   if (params?.category) q.set('category', params.category)
   if (params?.room) q.set('room', params.room)
   const qs = q.toString()
-  const res = await fetch(`${apiBase()}/api/home-items${qs ? `?${qs}` : '/'}`)
+  const res = await apiFetch(`${apiBase()}/api/home-items${qs ? `?${qs}` : '/'}`)
   return parseJson<HomeItemSummaryOut[]>(res)
 }
 
 export async function fetchHomeItem(id: number): Promise<HomeItemOut> {
-  const res = await fetch(`${apiBase()}/api/home-items/${id}`)
+  const res = await apiFetch(`${apiBase()}/api/home-items/${id}`)
   return parseJson<HomeItemOut>(res)
 }
 
@@ -661,7 +696,7 @@ export async function postHomeItem(body: {
   condition_status?: string
   notes?: string | null
 }): Promise<HomeItemOut> {
-  const res = await fetch(`${apiBase()}/api/home-items/`, {
+  const res = await apiFetch(`${apiBase()}/api/home-items/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -687,7 +722,7 @@ export async function putHomeItem(
     notes?: string | null
   },
 ): Promise<HomeItemOut> {
-  const res = await fetch(`${apiBase()}/api/home-items/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/home-items/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -696,7 +731,7 @@ export async function putHomeItem(
 }
 
 export async function deleteHomeItem(id: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/home-items/${id}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/home-items/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -704,7 +739,7 @@ export async function deleteHomeItem(id: number): Promise<void> {
 }
 
 export async function fetchHomeItemServiceEvents(itemId: number): Promise<HomeItemServiceEventOut[]> {
-  const res = await fetch(`${apiBase()}/api/home-items/${itemId}/service-events`)
+  const res = await apiFetch(`${apiBase()}/api/home-items/${itemId}/service-events`)
   return parseJson<HomeItemServiceEventOut[]>(res)
 }
 
@@ -720,7 +755,7 @@ export async function postHomeItemServiceEvent(
     notes?: string | null
   },
 ): Promise<HomeItemServiceEventOut> {
-  const res = await fetch(`${apiBase()}/api/home-items/${itemId}/service-events`, {
+  const res = await apiFetch(`${apiBase()}/api/home-items/${itemId}/service-events`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -741,7 +776,7 @@ export async function putHomeItemServiceEvent(
     notes?: string | null
   },
 ): Promise<HomeItemServiceEventOut> {
-  const res = await fetch(`${apiBase()}/api/home-items/${itemId}/service-events/${eventId}`, {
+  const res = await apiFetch(`${apiBase()}/api/home-items/${itemId}/service-events/${eventId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -750,7 +785,7 @@ export async function putHomeItemServiceEvent(
 }
 
 export async function deleteHomeItemServiceEvent(itemId: number, eventId: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/home-items/${itemId}/service-events/${eventId}`, {
+  const res = await apiFetch(`${apiBase()}/api/home-items/${itemId}/service-events/${eventId}`, {
     method: 'DELETE',
   })
   if (!res.ok) {
@@ -760,13 +795,13 @@ export async function deleteHomeItemServiceEvent(itemId: number, eventId: number
 }
 
 export async function fetchIncomeSummary(): Promise<IncomeSummaryOut> {
-  const res = await fetch(`${apiBase()}/api/income/summary`)
+  const res = await apiFetch(`${apiBase()}/api/income/summary`)
   return parseJson<IncomeSummaryOut>(res)
 }
 
 export async function fetchIncomeStreams(includeInactive = false): Promise<IncomeOut[]> {
   const base = `${apiBase()}/api/income/`
-  const res = await fetch(includeInactive ? `${base}?include_inactive=true` : base)
+  const res = await apiFetch(includeInactive ? `${base}?include_inactive=true` : base)
   return parseJson<IncomeOut[]>(res)
 }
 
@@ -778,7 +813,7 @@ export async function postIncomeStream(body: {
   taxability: string
   is_active?: boolean
 }): Promise<IncomeOut> {
-  const res = await fetch(`${apiBase()}/api/income/`, {
+  const res = await apiFetch(`${apiBase()}/api/income/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -797,7 +832,7 @@ export async function putIncomeStream(
     is_active: boolean
   },
 ): Promise<IncomeOut> {
-  const res = await fetch(`${apiBase()}/api/income/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/income/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -806,7 +841,7 @@ export async function putIncomeStream(
 }
 
 export async function deleteIncomeStream(id: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/income/${id}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/income/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -814,7 +849,7 @@ export async function deleteIncomeStream(id: number): Promise<void> {
 }
 
 export async function fetchSettings(): Promise<SettingsOut> {
-  const res = await fetch(`${apiBase()}/api/settings/`)
+  const res = await apiFetch(`${apiBase()}/api/settings/`)
   return parseJson<SettingsOut>(res)
 }
 
@@ -824,7 +859,7 @@ export async function putSettings(body: {
   tax_80c_annual_paise?: number | null
   tax_80d_annual_paise?: number | null
 }): Promise<SettingsOut> {
-  const res = await fetch(`${apiBase()}/api/settings/`, {
+  const res = await apiFetch(`${apiBase()}/api/settings/`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -834,24 +869,24 @@ export async function putSettings(body: {
 
 export async function fetchFYSpending(fy?: string): Promise<FYSpendingReport> {
   const q = fy ? `?fy=${encodeURIComponent(fy)}` : ''
-  const res = await fetch(`${apiBase()}/api/reports/fy-spending${q}`)
+  const res = await apiFetch(`${apiBase()}/api/reports/fy-spending${q}`)
   return parseJson<FYSpendingReport>(res)
 }
 
 export async function fetchFYSummary(fy?: string): Promise<FYSummaryReport> {
   const q = fy ? `?fy=${encodeURIComponent(fy)}` : ''
-  const res = await fetch(`${apiBase()}/api/reports/fy-summary${q}`)
+  const res = await apiFetch(`${apiBase()}/api/reports/fy-summary${q}`)
   return parseJson<FYSummaryReport>(res)
 }
 
 export async function fetchCreditCards(activeOnly = false): Promise<CreditCardOut[]> {
   const q = activeOnly ? '?active_only=true' : ''
-  const res = await fetch(`${apiBase()}/api/credit-cards/${q}`)
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${q}`)
   return parseJson<CreditCardOut[]>(res)
 }
 
 export async function fetchCreditCard(id: number): Promise<CreditCardOut> {
-  const res = await fetch(`${apiBase()}/api/credit-cards/${id}`)
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${id}`)
   return parseJson<CreditCardOut>(res)
 }
 
@@ -864,7 +899,7 @@ export async function postCreditCard(body: {
   notes: string | null
   is_active: boolean
 }): Promise<CreditCardOut> {
-  const res = await fetch(`${apiBase()}/api/credit-cards/`, {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -884,7 +919,7 @@ export async function putCreditCard(
     is_active?: boolean
   },
 ): Promise<CreditCardOut> {
-  const res = await fetch(`${apiBase()}/api/credit-cards/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -893,7 +928,7 @@ export async function putCreditCard(
 }
 
 export async function deleteCreditCard(id: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/credit-cards/${id}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -901,7 +936,7 @@ export async function deleteCreditCard(id: number): Promise<void> {
 }
 
 export async function fetchCreditCardEmis(cardId: number): Promise<CreditCardEmiOut[]> {
-  const res = await fetch(`${apiBase()}/api/credit-cards/${cardId}/emis`)
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${cardId}/emis`)
   return parseJson<CreditCardEmiOut[]>(res)
 }
 
@@ -922,7 +957,7 @@ export async function postCreditCardEmi(
     outstanding_instalment_paise?: number | null
   },
 ): Promise<CreditCardEmiOut> {
-  const res = await fetch(`${apiBase()}/api/credit-cards/${cardId}/emis`, {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${cardId}/emis`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -948,7 +983,7 @@ export async function putCreditCardEmi(
     outstanding_instalment_paise?: number | null
   },
 ): Promise<CreditCardEmiOut> {
-  const res = await fetch(`${apiBase()}/api/credit-cards/${cardId}/emis/${emiId}`, {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${cardId}/emis/${emiId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -957,7 +992,7 @@ export async function putCreditCardEmi(
 }
 
 export async function deleteCreditCardEmi(cardId: number, emiId: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/credit-cards/${cardId}/emis/${emiId}`, {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${cardId}/emis/${emiId}`, {
     method: 'DELETE',
   })
   if (!res.ok) {
@@ -967,7 +1002,7 @@ export async function deleteCreditCardEmi(cardId: number, emiId: number): Promis
 }
 
 export async function fetchCreditCardStatements(cardId: number): Promise<CreditCardStatementOut[]> {
-  const res = await fetch(`${apiBase()}/api/credit-cards/${cardId}/statements`)
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${cardId}/statements`)
   return parseJson<CreditCardStatementOut[]>(res)
 }
 
@@ -975,7 +1010,7 @@ export async function fetchCreditCardStatement(
   cardId: number,
   statementId: number,
 ): Promise<CreditCardStatementOut> {
-  const res = await fetch(`${apiBase()}/api/credit-cards/${cardId}/statements/${statementId}`)
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${cardId}/statements/${statementId}`)
   return parseJson<CreditCardStatementOut>(res)
 }
 
@@ -989,7 +1024,7 @@ export async function uploadCreditCardStatement(
   if (pdfPassword) {
     form.append('pdf_password', pdfPassword)
   }
-  const res = await fetch(`${apiBase()}/api/credit-cards/${cardId}/statements`, {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${cardId}/statements`, {
     method: 'POST',
     body: form,
   })
@@ -1000,7 +1035,7 @@ export async function applyCreditCardStatement(
   cardId: number,
   statementId: number,
 ): Promise<CreditCardStatementApplyResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${apiBase()}/api/credit-cards/${cardId}/statements/${statementId}/apply`,
     { method: 'POST' },
   )
@@ -1008,7 +1043,7 @@ export async function applyCreditCardStatement(
 }
 
 export async function deleteCreditCardStatement(cardId: number, statementId: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/credit-cards/${cardId}/statements/${statementId}`, {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${cardId}/statements/${statementId}`, {
     method: 'DELETE',
   })
   if (!res.ok) {
@@ -1019,7 +1054,7 @@ export async function deleteCreditCardStatement(cardId: number, statementId: num
 
 export async function fetchSubscriptions(activeOnly = false): Promise<SubscriptionOut[]> {
   const q = activeOnly ? '?active_only=true' : ''
-  const res = await fetch(`${apiBase()}/api/subscriptions/${q}`)
+  const res = await apiFetch(`${apiBase()}/api/subscriptions/${q}`)
   return parseJson<SubscriptionOut[]>(res)
 }
 
@@ -1033,7 +1068,7 @@ export async function postSubscription(body: {
   notes: string | null
   is_active: boolean
 }): Promise<SubscriptionOut> {
-  const res = await fetch(`${apiBase()}/api/subscriptions/`, {
+  const res = await apiFetch(`${apiBase()}/api/subscriptions/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1054,7 +1089,7 @@ export async function putSubscription(
     is_active?: boolean
   },
 ): Promise<SubscriptionOut> {
-  const res = await fetch(`${apiBase()}/api/subscriptions/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/subscriptions/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1063,7 +1098,7 @@ export async function putSubscription(
 }
 
 export async function deleteSubscription(id: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/subscriptions/${id}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/subscriptions/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -1073,7 +1108,7 @@ export async function deleteSubscription(id: number): Promise<void> {
 // ── Loan disbursals ──────────────────────────────────────────────────────────
 
 export async function fetchDisbursals(debtId: number): Promise<LoanDisbursalOut[]> {
-  const res = await fetch(`${apiBase()}/api/debt/${debtId}/disbursals`)
+  const res = await apiFetch(`${apiBase()}/api/debt/${debtId}/disbursals`)
   return parseJson<LoanDisbursalOut[]>(res)
 }
 
@@ -1081,7 +1116,7 @@ export async function postDisbursal(
   debtId: number,
   body: { disbursal_date: string; amount_paise: number; notes?: string | null },
 ): Promise<LoanDisbursalOut> {
-  const res = await fetch(`${apiBase()}/api/debt/${debtId}/disbursals`, {
+  const res = await apiFetch(`${apiBase()}/api/debt/${debtId}/disbursals`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1090,25 +1125,25 @@ export async function postDisbursal(
 }
 
 export async function deleteDisbursal(debtId: number, disbursalId: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/debt/${debtId}/disbursals/${disbursalId}`, {
+  const res = await apiFetch(`${apiBase()}/api/debt/${debtId}/disbursals/${disbursalId}`, {
     method: 'DELETE',
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
 }
 
 export async function syncDebtBalance(debtId: number): Promise<DebtOut> {
-  const res = await fetch(`${apiBase()}/api/debt/${debtId}/sync-balance`, { method: 'POST' })
+  const res = await apiFetch(`${apiBase()}/api/debt/${debtId}/sync-balance`, { method: 'POST' })
   return parseJson<DebtOut>(res)
 }
 
 export async function syncAllDebtBalances(): Promise<DebtOut[]> {
-  const res = await fetch(`${apiBase()}/api/debt/sync-all-balances`, { method: 'POST' })
+  const res = await apiFetch(`${apiBase()}/api/debt/sync-all-balances`, { method: 'POST' })
   return parseJson<DebtOut[]>(res)
 }
 
 export async function downloadFYSummaryPdf(fy?: string): Promise<void> {
   const q = fy ? `?fy=${encodeURIComponent(fy)}` : ''
-  const res = await fetch(`${apiBase()}/api/reports/fy-summary.pdf${q}`)
+  const res = await apiFetch(`${apiBase()}/api/reports/fy-summary.pdf${q}`)
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -1131,22 +1166,22 @@ export async function downloadFYSummaryPdf(fy?: string): Promise<void> {
 // ── Assets ────────────────────────────────────────────────────────────────────
 
 export async function fetchAssets(): Promise<AssetOut[]> {
-  const res = await fetch(`${apiBase()}/api/assets/`)
+  const res = await apiFetch(`${apiBase()}/api/assets/`)
   return parseJson<AssetOut[]>(res)
 }
 
 export async function fetchAssetSummary(): Promise<AssetSummaryOut> {
-  const res = await fetch(`${apiBase()}/api/assets/summary`)
+  const res = await apiFetch(`${apiBase()}/api/assets/summary`)
   return parseJson<AssetSummaryOut>(res)
 }
 
 export async function fetchAssetDetail(id: number): Promise<AssetDetailOut> {
-  const res = await fetch(`${apiBase()}/api/assets/${id}`)
+  const res = await apiFetch(`${apiBase()}/api/assets/${id}`)
   return parseJson<AssetDetailOut>(res)
 }
 
 export async function postAsset(body: Partial<AssetOut>): Promise<AssetOut> {
-  const res = await fetch(`${apiBase()}/api/assets/`, {
+  const res = await apiFetch(`${apiBase()}/api/assets/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1155,7 +1190,7 @@ export async function postAsset(body: Partial<AssetOut>): Promise<AssetOut> {
 }
 
 export async function putAsset(id: number, body: Partial<AssetOut>): Promise<AssetOut> {
-  const res = await fetch(`${apiBase()}/api/assets/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/assets/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1164,7 +1199,7 @@ export async function putAsset(id: number, body: Partial<AssetOut>): Promise<Ass
 }
 
 export async function deleteAsset(id: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/assets/${id}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/assets/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -1172,7 +1207,7 @@ export async function deleteAsset(id: number): Promise<void> {
 }
 
 export async function putRealEstate(assetId: number, body: Partial<RealEstateOut>): Promise<RealEstateOut> {
-  const res = await fetch(`${apiBase()}/api/assets/${assetId}/real-estate`, {
+  const res = await apiFetch(`${apiBase()}/api/assets/${assetId}/real-estate`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1181,7 +1216,7 @@ export async function putRealEstate(assetId: number, body: Partial<RealEstateOut
 }
 
 export async function putVehicle(assetId: number, body: Partial<VehicleOut>): Promise<VehicleOut> {
-  const res = await fetch(`${apiBase()}/api/assets/${assetId}/vehicle`, {
+  const res = await apiFetch(`${apiBase()}/api/assets/${assetId}/vehicle`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1193,7 +1228,7 @@ export async function postAssetCost(
   assetId: number,
   body: { cost_type: string; amount_paise: number; paid_date?: string | null; description?: string | null; is_paid?: boolean },
 ): Promise<AssetCostOut> {
-  const res = await fetch(`${apiBase()}/api/assets/${assetId}/costs`, {
+  const res = await apiFetch(`${apiBase()}/api/assets/${assetId}/costs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1206,7 +1241,7 @@ export async function putAssetCost(
   costId: number,
   body: { cost_type: string; amount_paise: number; paid_date?: string | null; description?: string | null; is_paid?: boolean },
 ): Promise<AssetCostOut> {
-  const res = await fetch(`${apiBase()}/api/assets/${assetId}/costs/${costId}`, {
+  const res = await apiFetch(`${apiBase()}/api/assets/${assetId}/costs/${costId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1215,7 +1250,7 @@ export async function putAssetCost(
 }
 
 export async function deleteAssetCost(assetId: number, costId: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/assets/${assetId}/costs/${costId}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/assets/${assetId}/costs/${costId}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -1233,7 +1268,7 @@ export async function postAssetLoan(
     notes?: string | null
   },
 ): Promise<AssetLoanOut> {
-  const res = await fetch(`${apiBase()}/api/assets/${assetId}/loans`, {
+  const res = await apiFetch(`${apiBase()}/api/assets/${assetId}/loans`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1242,7 +1277,7 @@ export async function postAssetLoan(
 }
 
 export async function deleteAssetLoan(assetId: number, loanId: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/assets/${assetId}/loans/${loanId}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/assets/${assetId}/loans/${loanId}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -1268,7 +1303,7 @@ export async function postAssetPayment(
   assetId: number,
   body: AssetPaymentBody,
 ): Promise<AssetPaymentOut> {
-  const res = await fetch(`${apiBase()}/api/assets/${assetId}/payments`, {
+  const res = await apiFetch(`${apiBase()}/api/assets/${assetId}/payments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1281,7 +1316,7 @@ export async function putAssetPayment(
   paymentId: number,
   body: AssetPaymentBody,
 ): Promise<AssetPaymentOut> {
-  const res = await fetch(`${apiBase()}/api/assets/${assetId}/payments/${paymentId}`, {
+  const res = await apiFetch(`${apiBase()}/api/assets/${assetId}/payments/${paymentId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1290,7 +1325,7 @@ export async function putAssetPayment(
 }
 
 export async function deleteAssetPayment(assetId: number, paymentId: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/assets/${assetId}/payments/${paymentId}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/assets/${assetId}/payments/${paymentId}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -1300,17 +1335,17 @@ export async function deleteAssetPayment(assetId: number, paymentId: number): Pr
 // ── Insurance ────────────────────────────────────────────────────────────────
 
 export async function fetchInsurancePolicies(): Promise<InsurancePolicyOut[]> {
-  const res = await fetch(`${apiBase()}/api/insurance/`)
+  const res = await apiFetch(`${apiBase()}/api/insurance/`)
   return parseJson<InsurancePolicyOut[]>(res)
 }
 
 export async function fetchInsuranceSummary(): Promise<InsuranceSummaryOut> {
-  const res = await fetch(`${apiBase()}/api/insurance/summary`)
+  const res = await apiFetch(`${apiBase()}/api/insurance/summary`)
   return parseJson<InsuranceSummaryOut>(res)
 }
 
 export async function postInsurancePolicy(body: Record<string, unknown>): Promise<InsurancePolicyOut> {
-  const res = await fetch(`${apiBase()}/api/insurance/`, {
+  const res = await apiFetch(`${apiBase()}/api/insurance/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1319,7 +1354,7 @@ export async function postInsurancePolicy(body: Record<string, unknown>): Promis
 }
 
 export async function putInsurancePolicy(id: number, body: Record<string, unknown>): Promise<InsurancePolicyOut> {
-  const res = await fetch(`${apiBase()}/api/insurance/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/insurance/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1328,7 +1363,7 @@ export async function putInsurancePolicy(id: number, body: Record<string, unknow
 }
 
 export async function deleteInsurancePolicy(id: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/insurance/${id}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/insurance/${id}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -1336,7 +1371,7 @@ export async function deleteInsurancePolicy(id: number): Promise<void> {
 }
 
 export async function fetchInsurancePremiums(policyId: number): Promise<InsurancePremiumOut[]> {
-  const res = await fetch(`${apiBase()}/api/insurance/${policyId}/premiums`)
+  const res = await apiFetch(`${apiBase()}/api/insurance/${policyId}/premiums`)
   return parseJson<InsurancePremiumOut[]>(res)
 }
 
@@ -1352,7 +1387,7 @@ export async function postInsurancePremium(
     notes?: string | null
   },
 ): Promise<InsurancePremiumOut> {
-  const res = await fetch(`${apiBase()}/api/insurance/${policyId}/premiums`, {
+  const res = await apiFetch(`${apiBase()}/api/insurance/${policyId}/premiums`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1361,7 +1396,7 @@ export async function postInsurancePremium(
 }
 
 export async function deleteInsurancePremium(policyId: number, premiumId: number): Promise<void> {
-  const res = await fetch(`${apiBase()}/api/insurance/${policyId}/premiums/${premiumId}`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/insurance/${policyId}/premiums/${premiumId}`, { method: 'DELETE' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
@@ -1369,14 +1404,14 @@ export async function deleteInsurancePremium(policyId: number, premiumId: number
 }
 
 export async function fetchConstructionProjects(): Promise<ConstructionProjectOut[]> {
-  const res = await fetch(`${apiBase()}/api/construction/projects`)
+  const res = await apiFetch(`${apiBase()}/api/construction/projects`)
   return parseJson<ConstructionProjectOut[]>(res)
 }
 
 export async function uploadConstructionPdf(file: File): Promise<ConstructionUploadResponse> {
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch(`${apiBase()}/api/construction/upload`, {
+  const res = await apiFetch(`${apiBase()}/api/construction/upload`, {
     method: 'POST',
     body: form,
   })
@@ -1385,14 +1420,14 @@ export async function uploadConstructionPdf(file: File): Promise<ConstructionUpl
 
 export async function fetchConstructionSnapshots(projectId?: number): Promise<ConstructionSnapshotOut[]> {
   const q = projectId != null ? `?project_id=${projectId}` : ''
-  const res = await fetch(`${apiBase()}/api/construction/snapshots${q}`)
+  const res = await apiFetch(`${apiBase()}/api/construction/snapshots${q}`)
   return parseJson<ConstructionSnapshotOut[]>(res)
 }
 
 export async function fetchConstructionSnapshotDetail(
   snapshotId: number,
 ): Promise<ConstructionSnapshotDetailOut> {
-  const res = await fetch(`${apiBase()}/api/construction/snapshots/${snapshotId}`)
+  const res = await apiFetch(`${apiBase()}/api/construction/snapshots/${snapshotId}`)
   return parseJson<ConstructionSnapshotDetailOut>(res)
 }
 
@@ -1403,7 +1438,7 @@ export async function fetchConstructionSeries(
 ): Promise<ConstructionSeriesOut> {
   const params = new URLSearchParams({ zone_key: zoneKey, activity_raw: activityRaw })
   if (projectId != null) params.set('project_id', String(projectId))
-  const res = await fetch(`${apiBase()}/api/construction/series?${params}`)
+  const res = await apiFetch(`${apiBase()}/api/construction/series?${params}`)
   return parseJson<ConstructionSeriesOut>(res)
 }
 
@@ -1414,13 +1449,13 @@ export async function fetchConstructionTowerDashboard(
   const params = new URLSearchParams({ zone_key: zoneKey })
   if (options?.projectId != null) params.set('project_id', String(options.projectId))
   if (options?.totalFloors != null) params.set('total_floors', String(options.totalFloors))
-  const res = await fetch(`${apiBase()}/api/construction/tower-dashboard?${params}`)
+  const res = await apiFetch(`${apiBase()}/api/construction/tower-dashboard?${params}`)
   return parseJson<ConstructionTowerDashboardOut>(res)
 }
 
 export async function fetchConstructionZones(projectId?: number): Promise<string[]> {
   const q = projectId != null ? `?project_id=${projectId}` : ''
-  const res = await fetch(`${apiBase()}/api/construction/zones${q}`)
+  const res = await apiFetch(`${apiBase()}/api/construction/zones${q}`)
   return parseJson<string[]>(res)
 }
 
@@ -1431,7 +1466,7 @@ export async function fetchConstructionZoneActivities(
   const params = new URLSearchParams()
   if (projectId != null) params.set('project_id', String(projectId))
   const q = params.toString()
-  const res = await fetch(
+  const res = await apiFetch(
     `${apiBase()}/api/construction/zones/${encodeURIComponent(zoneKey)}/activities${q ? `?${q}` : ''}`,
   )
   return parseJson<string[]>(res)
@@ -1439,7 +1474,7 @@ export async function fetchConstructionZoneActivities(
 
 export async function fetchConstructionZoneLabels(projectId?: number): Promise<ZoneLabelsOut> {
   const q = projectId != null ? `?project_id=${projectId}` : ''
-  const res = await fetch(`${apiBase()}/api/construction/zone-labels${q}`)
+  const res = await apiFetch(`${apiBase()}/api/construction/zone-labels${q}`)
   return parseJson<ZoneLabelsOut>(res)
 }
 
@@ -1448,7 +1483,7 @@ export async function putConstructionZoneLabels(
   projectId?: number,
 ): Promise<ZoneLabelsOut> {
   const q = projectId != null ? `?project_id=${projectId}` : ''
-  const res = await fetch(`${apiBase()}/api/construction/zone-labels${q}`, {
+  const res = await apiFetch(`${apiBase()}/api/construction/zone-labels${q}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ labels }),
@@ -1457,14 +1492,14 @@ export async function putConstructionZoneLabels(
 }
 
 export async function deleteConstructionAllData(): Promise<ConstructionDeleteAllOut> {
-  const res = await fetch(`${apiBase()}/api/construction/all-data`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/construction/all-data`, { method: 'DELETE' })
   return parseJson<ConstructionDeleteAllOut>(res)
 }
 
 // ── Email Inbox ───────────────────────────────────────────────────────────────
 
 export async function fetchEmailInboxStats(): Promise<EmailInboxStats> {
-  const res = await fetch(`${apiBase()}/api/email-inbox/stats`)
+  const res = await apiFetch(`${apiBase()}/api/email-inbox/stats`)
   return parseJson<EmailInboxStats>(res)
 }
 
@@ -1472,12 +1507,12 @@ export async function fetchEmailInbox(status?: string): Promise<StagedEmailTrans
   const url = status
     ? `${apiBase()}/api/email-inbox/?status=${encodeURIComponent(status)}`
     : `${apiBase()}/api/email-inbox/`
-  const res = await fetch(url)
+  const res = await apiFetch(url)
   return parseJson<StagedEmailTransaction[]>(res)
 }
 
 export async function syncGmailNow(): Promise<{ new_items: number }> {
-  const res = await fetch(`${apiBase()}/api/email-inbox/sync`, { method: 'POST' })
+  const res = await apiFetch(`${apiBase()}/api/email-inbox/sync`, { method: 'POST' })
   return parseJson<{ new_items: number }>(res)
 }
 
@@ -1493,7 +1528,7 @@ export async function updateStagedEmail(
     suggested_account_id?: number | null
   },
 ): Promise<StagedEmailTransaction> {
-  const res = await fetch(`${apiBase()}/api/email-inbox/${id}`, {
+  const res = await apiFetch(`${apiBase()}/api/email-inbox/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(fields),
@@ -1514,7 +1549,7 @@ export async function approveEmailTransaction(
     notes?: string | null
   },
 ): Promise<StagedEmailTransaction> {
-  const res = await fetch(`${apiBase()}/api/email-inbox/${id}/approve`, {
+  const res = await apiFetch(`${apiBase()}/api/email-inbox/${id}/approve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(overrides ?? {}),
@@ -1523,12 +1558,12 @@ export async function approveEmailTransaction(
 }
 
 export async function rejectEmailTransaction(id: number): Promise<StagedEmailTransaction> {
-  const res = await fetch(`${apiBase()}/api/email-inbox/${id}/reject`, { method: 'POST' })
+  const res = await apiFetch(`${apiBase()}/api/email-inbox/${id}/reject`, { method: 'POST' })
   return parseJson<StagedEmailTransaction>(res)
 }
 
 export async function clearRejectedEmails(): Promise<{ deleted: number }> {
-  const res = await fetch(`${apiBase()}/api/email-inbox/rejected`, { method: 'DELETE' })
+  const res = await apiFetch(`${apiBase()}/api/email-inbox/rejected`, { method: 'DELETE' })
   return parseJson<{ deleted: number }>(res)
 }
 
@@ -1541,7 +1576,7 @@ export async function approveAsTransfer(body: {
   amount_paise?: number | null
   notes?: string | null
 }): Promise<ApproveAsTransferResult> {
-  const res = await fetch(`${apiBase()}/api/email-inbox/approve-as-transfer`, {
+  const res = await apiFetch(`${apiBase()}/api/email-inbox/approve-as-transfer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1553,7 +1588,7 @@ export async function historicalSyncGmail(
   from_date: string,
   to_date: string,
 ): Promise<HistoricalSyncResult> {
-  const res = await fetch(`${apiBase()}/api/email-inbox/historical-sync`, {
+  const res = await apiFetch(`${apiBase()}/api/email-inbox/historical-sync`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ from_date, to_date }),

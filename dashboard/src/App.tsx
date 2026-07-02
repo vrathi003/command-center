@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppShell } from '@/components/layout/AppShell'
@@ -26,8 +27,12 @@ import { ReportsPage } from '@/pages/ReportsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { TransactionTemplatesPage } from '@/pages/TransactionTemplatesPage'
 import { TransactionsPage } from '@/pages/TransactionsPage'
+import { LoginPage } from '@/pages/LoginPage'
+import { clearApiKey, getStoredApiKey } from '@/lib/api'
 
-export default function App() {
+type AuthStatus = 'checking' | 'no-auth' | 'authenticated' | 'needs-login'
+
+function AppRoutes() {
   return (
     <BrowserRouter>
       <Routes>
@@ -65,4 +70,57 @@ export default function App() {
       </Routes>
     </BrowserRouter>
   )
+}
+
+export default function App() {
+  const [authStatus, setAuthStatus] = useState<AuthStatus>('checking')
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function check() {
+      try {
+        const res = await fetch('/health')
+        const data = await res.json() as { auth_required?: boolean }
+
+        if (cancelled) return
+
+        if (!data.auth_required) {
+          setAuthStatus('no-auth')
+          return
+        }
+        // Auth required — check if we have a key stored
+        setAuthStatus(getStoredApiKey() ? 'authenticated' : 'needs-login')
+      } catch {
+        if (!cancelled) setAuthStatus('needs-login')
+      }
+    }
+
+    void check()
+    return () => { cancelled = true }
+  }, [])
+
+  // Listen for 401 responses from any API call
+  useEffect(() => {
+    function onUnauthorized() {
+      clearApiKey()
+      setAuthStatus('needs-login')
+    }
+    window.addEventListener('finance:unauthorized', onUnauthorized)
+    return () => window.removeEventListener('finance:unauthorized', onUnauthorized)
+  }, [])
+
+  if (authStatus === 'checking') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50">
+        <div className="size-6 animate-spin rounded-full border-2 border-zinc-200 border-t-emerald-600" />
+      </div>
+    )
+  }
+
+  if (authStatus === 'needs-login') {
+    return <LoginPage onLogin={() => setAuthStatus('authenticated')} />
+  }
+
+  return <AppRoutes />
 }

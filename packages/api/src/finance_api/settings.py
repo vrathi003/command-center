@@ -18,6 +18,9 @@ class ApiSettings(AppSettings):
     discord_bot_token: str | None = Field(default=None, alias="DISCORD_BOT_TOKEN")
     discord_user_id: str | None = Field(default=None, alias="DISCORD_USER_ID")
 
+    # Auth — static API key for dashboard access (empty = disabled)
+    app_secret_key: str = Field(default="", alias="APP_SECRET_KEY")
+
     # Gmail sync
     gmail_credentials_path: Path | None = Field(default=None, alias="GMAIL_CREDENTIALS_PATH")
     gmail_token_path: Path = Field(

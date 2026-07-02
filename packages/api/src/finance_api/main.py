@@ -9,6 +9,8 @@ from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.requests import Request
+from fastapi.responses import JSONResponse
 
 from finance_api.routers import (
     accounts,
@@ -45,8 +47,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    _ = app
     api_settings = ApiSettings()
+    app.state.settings = api_settings
     await ensure_database(api_settings.db_path)
 
     scheduler = AsyncIOScheduler()
@@ -58,22 +60,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         scheduler.shutdown(wait=False)
 
 
+async def _auth_middleware(request: Request, call_next):
+    # Skip auth for health check and CORS preflight
+    if request.url.path == "/health" or request.method == "OPTIONS":
+        return await call_next(request)
+
+    settings: ApiSettings = request.app.state.settings
+    secret = settings.app_secret_key.strip()
+    if not secret:
+        return await call_next(request)  # auth disabled
+
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or auth[7:] != secret:
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+
+    return await call_next(request)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Personal Finance OS API",
         version="1.0.0",
         lifespan=lifespan,
     )
+    # Auth disabled → CORS restricted to localhost.
+    # Auth enabled → any origin is fine; Bearer token is the real gate.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://127.0.0.1:3000",
-            "http://localhost:3000",
-        ],
-        allow_credentials=True,
+        allow_origins=["*"],
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.middleware("http")(_auth_middleware)
     app.include_router(health.router)
     app.include_router(accounts.router, prefix="/api")
     app.include_router(dashboard.router, prefix="/api")
