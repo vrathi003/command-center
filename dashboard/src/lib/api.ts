@@ -85,7 +85,7 @@ function authHeaders(): Record<string, string> {
 }
 
 async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
-  const res = await apiFetch(url, {
+  const res = await fetch(url, {
     ...init,
     headers: { ...init?.headers, ...authHeaders() },
   })
