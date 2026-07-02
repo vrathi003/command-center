@@ -181,6 +181,22 @@ async def delete_by_status(conn: aiosqlite.Connection, status: str) -> int:
     return cur.rowcount or 0
 
 
+async def reset_by_transaction_ids(conn: aiosqlite.Connection, tx_ids: list[int]) -> int:
+    """Reset staging entries whose linked transaction was just deleted, back to pending.
+    Lets the user re-approve the email with corrected details."""
+    if not tx_ids:
+        return 0
+    placeholders = ",".join("?" * len(tx_ids))
+    cur = await conn.execute(
+        f"UPDATE email_transaction_staging "
+        f"SET status = 'pending', created_transaction_id = NULL "
+        f"WHERE created_transaction_id IN ({placeholders})",
+        tuple(tx_ids),
+    )
+    await conn.commit()
+    return int(cur.rowcount)
+
+
 async def count_by_status(conn: aiosqlite.Connection) -> dict[str, int]:
     cur = await conn.execute(
         "SELECT status, COUNT(*) FROM email_transaction_staging GROUP BY status"

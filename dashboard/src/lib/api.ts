@@ -1562,6 +1562,11 @@ export async function rejectEmailTransaction(id: number): Promise<StagedEmailTra
   return parseJson<StagedEmailTransaction>(res)
 }
 
+export async function deleteApprovedEmail(id: number): Promise<StagedEmailTransaction> {
+  const res = await apiFetch(`${apiBase()}/api/email-inbox/${id}`, { method: 'DELETE' })
+  return parseJson<StagedEmailTransaction>(res)
+}
+
 export async function clearRejectedEmails(): Promise<{ deleted: number }> {
   const res = await apiFetch(`${apiBase()}/api/email-inbox/rejected`, { method: 'DELETE' })
   return parseJson<{ deleted: number }>(res)

@@ -32,6 +32,7 @@ from finance_common.parsing.bank_statement_pdf import (
     pdf_bytes_to_import_rows,
 )
 from finance_common.repositories import accounts as accounts_repo
+from finance_common.repositories import email_staging as staging_repo
 from finance_common.repositories import transactions as tx_repo
 from finance_common.types import Paise
 
@@ -316,6 +317,8 @@ async def bulk_delete_transactions(
     if any(i <= 0 for i in unique):
         raise HTTPException(status_code=422, detail="ids must be positive integers")
     n = await tx_repo.soft_delete_by_ids(conn, unique)
+    # Reset any email staging entries for deleted transactions back to pending
+    await staging_repo.reset_by_transaction_ids(conn, unique)
     return TransactionBulkDeleteResponse(deleted=n)
 
 

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, CalendarSearch, CheckCircle, RefreshCw, Trash2, XCircle, Zap } from 'lucide-react'
+import { ArrowRight, CalendarSearch, CheckCircle, RefreshCw, RotateCcw, Trash2, XCircle, Zap } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { PageHero } from '@/components/ui/PageHero'
@@ -10,6 +10,7 @@ import {
   approveAsTransfer,
   approveEmailTransaction,
   clearRejectedEmails,
+  deleteApprovedEmail,
   fetchAccounts,
   fetchEmailInbox,
   fetchEmailInboxStats,
@@ -345,6 +346,8 @@ function TransferApprovalModal({
 interface PendingCardProps {
   item: StagedEmailTransaction
   transferPair: TransferPair | undefined
+  selected: boolean
+  onToggleSelect: (id: number) => void
   onApprove: (item: StagedEmailTransaction, overrides: EditState) => void
   onReject: (item: StagedEmailTransaction) => void
   onApproveAsTransfer: (pair: TransferPair) => void
@@ -355,6 +358,8 @@ interface PendingCardProps {
 function PendingCard({
   item,
   transferPair,
+  selected,
+  onToggleSelect,
   onApprove,
   onReject,
   onApproveAsTransfer,
@@ -376,10 +381,17 @@ function PendingCard({
       className={[
         'rounded-lg border bg-white p-4 shadow-sm',
         isTransferPair ? 'border-amber-200 ring-1 ring-amber-100' : 'border-zinc-200',
+        selected ? 'ring-2 ring-emerald-400' : '',
       ].join(' ')}
     >
       {/* Header row */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelect(item.id)}
+          className="mt-0.5 size-4 shrink-0 cursor-pointer rounded border-zinc-300 accent-emerald-600"
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-xs text-zinc-400">
             <span>{item.email_from ?? '—'}</span>
@@ -568,10 +580,31 @@ function PendingCard({
 
 // ── Read-only card (approved / rejected tabs) ─────────────────────────────────
 
-function ReadOnlyCard({ item }: { item: StagedEmailTransaction }) {
+interface ReadOnlyCardProps {
+  item: StagedEmailTransaction
+  selected?: boolean
+  onToggleSelect?: (id: number) => void
+  onUndo?: (item: StagedEmailTransaction) => void
+  undoing?: boolean
+}
+
+function ReadOnlyCard({ item, selected, onToggleSelect, onUndo, undoing }: ReadOnlyCardProps) {
   return (
-    <div className="rounded-lg border border-zinc-100 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
+    <div
+      className={[
+        'rounded-lg border bg-white p-4 shadow-sm',
+        selected ? 'border-zinc-300 ring-2 ring-emerald-400' : 'border-zinc-100',
+      ].join(' ')}
+    >
+      <div className="flex items-start gap-3">
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            checked={selected ?? false}
+            onChange={() => onToggleSelect(item.id)}
+            className="mt-0.5 size-4 shrink-0 cursor-pointer rounded border-zinc-300 accent-emerald-600"
+          />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-xs text-zinc-400">
             <span>{item.email_from ?? '—'}</span>
@@ -583,26 +616,39 @@ function ReadOnlyCard({ item }: { item: StagedEmailTransaction }) {
               {item.email_subject}
             </p>
           )}
+          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            <span className="text-zinc-400">
+              {item.parsed_date ?? '—'} ·{' '}
+              {item.parsed_amount_paise != null ? formatPaise(item.parsed_amount_paise) : '—'} ·{' '}
+              {item.parsed_merchant ?? '—'} · {item.parsed_category ?? '—'}
+            </span>
+          </div>
         </div>
-        {item.parsed_transaction_type && (
-          <span
-            className={[
-              'shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold uppercase',
-              item.parsed_transaction_type === 'credit'
-                ? 'bg-emerald-50 text-emerald-700'
-                : 'bg-red-50 text-red-700',
-            ].join(' ')}
-          >
-            {item.parsed_transaction_type === 'credit' ? 'CR' : 'DR'}
-          </span>
-        )}
-      </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        <span className="text-zinc-400">
-          {item.parsed_date ?? '—'} ·{' '}
-          {item.parsed_amount_paise != null ? formatPaise(item.parsed_amount_paise) : '—'} ·{' '}
-          {item.parsed_merchant ?? '—'} · {item.parsed_category ?? '—'}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          {item.parsed_transaction_type && (
+            <span
+              className={[
+                'rounded px-1.5 py-0.5 text-xs font-semibold uppercase',
+                item.parsed_transaction_type === 'credit'
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : 'bg-red-50 text-red-700',
+              ].join(' ')}
+            >
+              {item.parsed_transaction_type === 'credit' ? 'CR' : 'DR'}
+            </span>
+          )}
+          {onUndo && (
+            <button
+              onClick={() => onUndo(item)}
+              disabled={undoing}
+              title="Undo approval — deletes the transaction and returns to Pending"
+              className="flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-50 hover:text-zinc-700 disabled:opacity-50"
+            >
+              <RotateCcw className="size-3" />
+              Undo
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -759,6 +805,8 @@ export function EmailInboxPage() {
   const [tab, setTab] = useState<Tab>('pending')
   const [activeMutations, setActiveMutations] = useState<Record<number, 'approving' | 'rejecting'>>({})
   const [transferModalPair, setTransferModalPair] = useState<TransferPair | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [undoingIds, setUndoingIds] = useState<Set<number>>(new Set())
 
   const statsQ = useQuery({
     queryKey: ['email-inbox-stats'],
@@ -839,6 +887,36 @@ export function EmailInboxPage() {
 
   const clearMut = useMutation({ mutationFn: clearRejectedEmails, onSuccess: invalidate })
 
+  const bulkApproveMut = useMutation({
+    mutationFn: async (ids: number[]) => {
+      await Promise.all(ids.map((id) => approveEmailTransaction(id, {})))
+    },
+    onSuccess: () => { setSelectedIds(new Set()); invalidate() },
+  })
+
+  const bulkRejectMut = useMutation({
+    mutationFn: async (ids: number[]) => {
+      await Promise.all(ids.map((id) => rejectEmailTransaction(id)))
+    },
+    onSuccess: () => { setSelectedIds(new Set()); invalidate() },
+  })
+
+  const bulkUndoMut = useMutation({
+    mutationFn: async (ids: number[]) => {
+      await Promise.all(ids.map((id) => deleteApprovedEmail(id)))
+    },
+    onSuccess: () => { setSelectedIds(new Set()); invalidate() },
+  })
+
+  const undoOneMut = useMutation({
+    mutationFn: (id: number) => deleteApprovedEmail(id),
+    onMutate: (id) => setUndoingIds((p) => new Set([...p, id])),
+    onSettled: (_, __, id) => {
+      setUndoingIds((p) => { const n = new Set(p); n.delete(id); return n })
+      invalidate()
+    },
+  })
+
   const items = listQ.data ?? []
   const stats = statsQ.data
   const accounts = accountsQ.data ?? []
@@ -854,6 +932,22 @@ export function EmailInboxPage() {
     () => new Map(items.map((i) => [i.id, i])),
     [items],
   )
+
+  // Selection helpers — reset when tab changes
+  function switchTab(t: Tab) { setTab(t); setSelectedIds(new Set()) }
+  function toggleSelect(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+  const selectableIds = items.map((i) => i.id)
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id))
+  const someSelected = selectedIds.size > 0
+  function toggleSelectAll() {
+    setSelectedIds(allSelected ? new Set() : new Set(selectableIds))
+  }
 
   const TABS: { key: Tab; label: string; count: number | undefined }[] = [
     { key: 'pending', label: 'Pending', count: stats?.pending },
@@ -897,7 +991,7 @@ export function EmailInboxPage() {
         {TABS.map(({ key, label, count }) => (
           <button
             key={key}
-            onClick={() => setTab(key)}
+            onClick={() => switchTab(key)}
             className={[
               'flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition-colors',
               tab === key
@@ -950,7 +1044,7 @@ export function EmailInboxPage() {
       {listQ.isPending ? (
         <PageLoading />
       ) : listQ.isError ? (
-        <PageError title="Failed to load email inbox" message="Could not fetch staged emails. Check that the API is running and Gmail is configured." />
+        <PageError message="Failed to load email inbox" />
       ) : items.length === 0 ? (
         <Panel>
           <p className="py-8 text-center text-sm text-zinc-400">
@@ -961,12 +1055,66 @@ export function EmailInboxPage() {
         </Panel>
       ) : (
         <div className="flex flex-col gap-3">
+          {/* Select-all bar */}
+          {tab !== 'rejected' && (
+            <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2.5">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected }}
+                onChange={toggleSelectAll}
+                className="size-4 cursor-pointer rounded border-zinc-300 accent-emerald-600"
+              />
+              <span className="text-xs text-zinc-500">
+                {someSelected ? `${selectedIds.size} of ${items.length} selected` : `Select all (${items.length})`}
+              </span>
+
+              {/* Bulk actions — pending tab */}
+              {someSelected && tab === 'pending' && (
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    onClick={() => bulkApproveMut.mutate([...selectedIds])}
+                    disabled={bulkApproveMut.isPending || bulkRejectMut.isPending}
+                    className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    <CheckCircle className="size-3.5" />
+                    {bulkApproveMut.isPending ? 'Approving…' : `Approve ${selectedIds.size}`}
+                  </button>
+                  <button
+                    onClick={() => bulkRejectMut.mutate([...selectedIds])}
+                    disabled={bulkApproveMut.isPending || bulkRejectMut.isPending}
+                    className="flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    <XCircle className="size-3.5" />
+                    {bulkRejectMut.isPending ? 'Rejecting…' : `Reject ${selectedIds.size}`}
+                  </button>
+                </div>
+              )}
+
+              {/* Bulk actions — approved tab */}
+              {someSelected && tab === 'approved' && (
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    onClick={() => bulkUndoMut.mutate([...selectedIds])}
+                    disabled={bulkUndoMut.isPending}
+                    className="flex items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+                  >
+                    <RotateCcw className="size-3.5" />
+                    {bulkUndoMut.isPending ? 'Undoing…' : `Undo ${selectedIds.size} (delete transactions)`}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {tab === 'pending'
             ? items.map((item) => (
                 <PendingCard
                   key={item.id}
                   item={item}
                   transferPair={transferPairs.get(item.id)}
+                  selected={selectedIds.has(item.id)}
+                  onToggleSelect={toggleSelect}
                   approving={activeMutations[item.id] === 'approving'}
                   rejecting={activeMutations[item.id] === 'rejecting'}
                   onApprove={(it, form) => approveMut.mutate({ id: it.id, form })}
@@ -974,7 +1122,16 @@ export function EmailInboxPage() {
                   onApproveAsTransfer={setTransferModalPair}
                 />
               ))
-            : items.map((item) => <ReadOnlyCard key={item.id} item={item} />)}
+            : items.map((item) => (
+                <ReadOnlyCard
+                  key={item.id}
+                  item={item}
+                  selected={tab === 'approved' ? selectedIds.has(item.id) : undefined}
+                  onToggleSelect={tab === 'approved' ? toggleSelect : undefined}
+                  onUndo={tab === 'approved' ? (it) => undoOneMut.mutate(it.id) : undefined}
+                  undoing={undoingIds.has(item.id)}
+                />
+              ))}
         </div>
       )}
 

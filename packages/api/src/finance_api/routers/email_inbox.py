@@ -384,6 +384,25 @@ async def reject_staged(
     return _to_out(updated)
 
 
+@router.delete("/{item_id}", response_model=StagedEmailOut)
+async def undo_approved(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    item_id: int,
+) -> StagedEmailOut:
+    """Undo an approved item: soft-deletes the linked transaction and resets to pending."""
+    row = await staging_repo.get_staged(conn, item_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if row.status != "approved":
+        raise HTTPException(status_code=409, detail="Only approved items can be undone this way")
+    if row.created_transaction_id is not None:
+        await tx_repo.soft_delete_by_id(conn, row.created_transaction_id)
+    await staging_repo.set_status(conn, item_id, "pending", created_transaction_id=None)
+    updated = await staging_repo.get_staged(conn, item_id)
+    assert updated is not None
+    return _to_out(updated)
+
+
 @router.delete("/rejected", response_model=dict)
 async def clear_rejected(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
