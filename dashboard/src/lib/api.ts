@@ -919,6 +919,11 @@ export async function putCreditCard(
     current_balance_paise?: number | null
     notes?: string | null
     is_active?: boolean
+    account_id?: number | null
+    statement_day?: number | null
+    due_day?: number | null
+    minimum_due_pct?: number | null
+    reward_rate_pct?: number | null
   },
 ): Promise<CreditCardOut> {
   const res = await apiFetch(`${apiBase()}/api/credit-cards/${id}`, {

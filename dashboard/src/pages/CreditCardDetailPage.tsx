@@ -13,16 +13,19 @@ import { SectionTitle } from '@/components/ui/SectionTitle'
 import {
   deleteCreditCard,
   deleteCreditCardEmi,
+  fetchAccounts,
+  fetchCcLiveBalance,
   fetchCreditCard,
   fetchCreditCardEmis,
   fetchCreditCardStatements,
+  payCcBill,
   postCreditCardEmi,
   putCreditCard,
   putCreditCardEmi,
   uploadCreditCardStatement,
 } from '@/lib/api'
 import { formatPaiseCompact } from '@/lib/format'
-import type { CreditCardEmiOut, CreditCardOut } from '@/types/api'
+import type { AccountOut, CreditCardEmiOut, CreditCardOut } from '@/types/api'
 
 
 function rupeesToPaise(s: string): number | null {
@@ -66,6 +69,10 @@ function CreditCardEditForm({
   )
   const [notes, setNotes] = useState(card.notes ?? '')
   const [active, setActive] = useState(card.is_active)
+  const [stmtDay, setStmtDay] = useState(card.statement_day != null ? String(card.statement_day) : '')
+  const [dueDay, setDueDay] = useState(card.due_day != null ? String(card.due_day) : '')
+  const [minDuePct, setMinDuePct] = useState(card.minimum_due_pct != null ? String(card.minimum_due_pct) : '')
+  const [rewardRate, setRewardRate] = useState(card.reward_rate_pct != null ? String(card.reward_rate_pct) : '')
   const [detailsExpanded, setDetailsExpanded] = useState(false)
 
   const save = useMutation({
@@ -78,6 +85,10 @@ function CreditCardEditForm({
       if (balRupees.trim() !== '' && bal == null) {
         throw new Error('Invalid balance')
       }
+      const sd = stmtDay.trim() ? Number.parseInt(stmtDay, 10) : null
+      const dd = dueDay.trim() ? Number.parseInt(dueDay, 10) : null
+      const mdp = minDuePct.trim() ? Number.parseFloat(minDuePct) : null
+      const rr = rewardRate.trim() ? Number.parseFloat(rewardRate) : null
       return putCreditCard(cardId, {
         name: name.trim() || undefined,
         issuer: issuer.trim() || null,
@@ -86,6 +97,10 @@ function CreditCardEditForm({
         current_balance_paise: bal,
         notes: notes.trim() || null,
         is_active: active,
+        statement_day: sd,
+        due_day: dd,
+        minimum_due_pct: mdp,
+        reward_rate_pct: rr,
       })
     },
     onSuccess: () => {
@@ -228,6 +243,51 @@ function CreditCardEditForm({
                 onChange={(e) => setNotes(e.target.value)}
               />
             </label>
+            <div className="sm:col-span-2 lg:col-span-3 border-t border-zinc-100 pt-3">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Billing settings</p>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <label className="text-xs font-medium text-zinc-700">
+                  Statement day
+                  <input
+                    className="mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    inputMode="numeric"
+                    value={stmtDay}
+                    onChange={(e) => setStmtDay(e.target.value.replace(/\D/g, '').slice(0, 2))}
+                    placeholder="e.g. 15"
+                  />
+                </label>
+                <label className="text-xs font-medium text-zinc-700">
+                  Due day
+                  <input
+                    className="mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    inputMode="numeric"
+                    value={dueDay}
+                    onChange={(e) => setDueDay(e.target.value.replace(/\D/g, '').slice(0, 2))}
+                    placeholder="e.g. 5"
+                  />
+                </label>
+                <label className="text-xs font-medium text-zinc-700">
+                  Min due %
+                  <input
+                    className="mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm tabular-nums"
+                    inputMode="decimal"
+                    value={minDuePct}
+                    onChange={(e) => setMinDuePct(e.target.value)}
+                    placeholder="5"
+                  />
+                </label>
+                <label className="text-xs font-medium text-zinc-700">
+                  Reward rate %
+                  <input
+                    className="mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm tabular-nums"
+                    inputMode="decimal"
+                    value={rewardRate}
+                    onChange={(e) => setRewardRate(e.target.value)}
+                    placeholder="1.5"
+                  />
+                </label>
+              </div>
+            </div>
             <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-3">
               <button
                 type="submit"
@@ -963,16 +1023,156 @@ function CreditCardEmiBlock({
   )
 }
 
+function PayBillDrawer({
+  cardId,
+  cardName,
+  accounts,
+  onClose,
+  queryClient,
+}: {
+  cardId: number
+  cardName: string
+  accounts: AccountOut[]
+  onClose: () => void
+  queryClient: QueryClient
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [fromAccountId, setFromAccountId] = useState('')
+  const [amountR, setAmountR] = useState('')
+  const [date, setDate] = useState(today)
+  const [notes, setNotes] = useState('')
+
+  const payable = accounts.filter((a) => a.type !== 'credit_card' && a.is_active)
+
+  const pay = useMutation({
+    mutationFn: () => {
+      const aid = Number.parseInt(fromAccountId, 10)
+      if (!aid) throw new Error('Select a bank account')
+      const amount = rupeesToPaise(amountR)
+      if (amount == null || amount <= 0) throw new Error('Enter a valid amount')
+      return payCcBill(cardId, { from_account_id: aid, amount_paise: amount, date, notes: notes.trim() || null })
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['credit-card', cardId] })
+      void queryClient.invalidateQueries({ queryKey: ['cc-live-balance', cardId] })
+      void queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] })
+      void queryClient.invalidateQueries({ queryKey: ['net-worth'] })
+      onClose()
+    },
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-end sm:items-start" role="dialog" aria-modal>
+      <button type="button" className="absolute inset-0 bg-black/30" onClick={onClose} aria-label="Close" />
+      <div className="relative z-10 w-full max-w-md rounded-t-2xl bg-white shadow-2xl sm:mt-16 sm:mr-6 sm:rounded-2xl">
+        <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
+          <h2 className="text-base font-semibold text-zinc-900">Pay bill — {cardName}</h2>
+          <button type="button" onClick={onClose} className="rounded p-1 text-zinc-500 hover:bg-zinc-100">✕</button>
+        </div>
+        <form
+          className="flex flex-col gap-4 p-5"
+          onSubmit={(e) => { e.preventDefault(); pay.mutate() }}
+        >
+          <label className="text-xs font-medium text-zinc-700">
+            Pay from account
+            <select
+              className="mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+              value={fromAccountId}
+              onChange={(e) => setFromAccountId(e.target.value)}
+              required
+            >
+              <option value="">Select account…</option>
+              {payable.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.institution ? ` · ${a.institution}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-xs font-medium text-zinc-700">
+              Amount (₹)
+              <input
+                className="mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-right text-sm tabular-nums"
+                inputMode="decimal"
+                value={amountR}
+                onChange={(e) => setAmountR(e.target.value)}
+                placeholder="0.00"
+                required
+              />
+            </label>
+            <label className="text-xs font-medium text-zinc-700">
+              Date
+              <input
+                type="date"
+                className="mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                required
+              />
+            </label>
+          </div>
+          <label className="text-xs font-medium text-zinc-700">
+            Notes (optional)
+            <input
+              className="mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={`CC bill payment · ${cardName}`}
+            />
+          </label>
+          {pay.isError ? (
+            <p className="text-sm text-red-600">{String(pay.error)}</p>
+          ) : null}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={pay.isPending}
+              className="flex-1 rounded-lg bg-emerald-700 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+            >
+              {pay.isPending ? 'Recording…' : 'Record payment'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-zinc-200 px-4 py-2.5 text-sm text-zinc-700 hover:bg-zinc-50"
+            >
+              Cancel
+            </button>
+          </div>
+          <p className="text-xs text-zinc-500">
+            Records as a transfer from the selected account to the CC linked account. Shows in Transactions as a transfer (excluded from spend totals).
+          </p>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export function CreditCardDetailPage() {
   const { cardId: cardIdParam } = useParams<{ cardId: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const cardId = Number.parseInt(cardIdParam ?? '', 10)
 
+  const [payBillOpen, setPayBillOpen] = useState(false)
+
   const card = useQuery({
     queryKey: ['credit-card', cardId],
     queryFn: () => fetchCreditCard(cardId),
     enabled: Number.isFinite(cardId) && cardId > 0,
+  })
+
+  const liveBalance = useQuery({
+    queryKey: ['cc-live-balance', cardId],
+    queryFn: () => fetchCcLiveBalance(cardId),
+    enabled: Number.isFinite(cardId) && cardId > 0 && (card.data?.account_id ?? 0) > 0,
+  })
+
+  const accounts = useQuery({
+    queryKey: ['accounts'],
+    queryFn: () => fetchAccounts(),
   })
 
   const statements = useQuery({
@@ -1027,35 +1227,68 @@ export function CreditCardDetailPage() {
   const emiBlocked = c.emi_limit_blocked_paise ?? 0
   const emiMonthly = c.emi_monthly_due_paise ?? 0
   const totalUsed = c.total_limit_used_paise ?? (c.current_balance_paise ?? 0) + emiBlocked
+  const liveBal = liveBalance.data?.live_balance_paise ?? null
+  const hasLinkedAccount = (c.account_id ?? 0) > 0
 
   return (
     <div className="space-y-10">
-      <div>
-        <Link
-          to="/credit-cards"
-          className="text-xs font-medium text-emerald-700 hover:underline"
-        >
-          ← All credit cards
-        </Link>
-        <PageHero
-          eyebrow="Credit card"
-          title={c.name}
-          description={
-            <>
-              {c.issuer ? `${c.issuer} · ` : null}
-              {c.last_four ? `···${c.last_four}` : 'Manage limit, utilisation, and statement imports.'}
-            </>
-          }
+      {payBillOpen ? (
+        <PayBillDrawer
+          cardId={cardId}
+          cardName={c.name}
+          accounts={accounts.data ?? []}
+          onClose={() => setPayBillOpen(false)}
+          queryClient={qc}
         />
+      ) : null}
+
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <Link
+            to="/credit-cards"
+            className="text-xs font-medium text-emerald-700 hover:underline"
+          >
+            ← All credit cards
+          </Link>
+          <PageHero
+            eyebrow="Credit card"
+            title={c.name}
+            description={
+              <>
+                {c.issuer ? `${c.issuer} · ` : null}
+                {c.last_four ? `···${c.last_four}` : 'Manage limit, utilisation, and statement imports.'}
+              </>
+            }
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setPayBillOpen(true)}
+          className="shrink-0 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800"
+        >
+          Pay bill
+        </button>
       </div>
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard tone="neutral" label="Credit limit" value={formatPaiseCompact(c.credit_limit_paise)} />
         <KpiCard
           tone="balance"
-          label="Revolving balance"
+          label="Live balance"
+          value={
+            liveBalance.isPending && hasLinkedAccount
+              ? '…'
+              : liveBal != null
+                ? formatPaiseCompact(liveBal)
+                : '—'
+          }
+          hint={hasLinkedAccount ? 'From transaction history on linked account' : 'No linked account yet'}
+        />
+        <KpiCard
+          tone="balance"
+          label="Statement balance"
           value={c.current_balance_paise != null ? formatPaiseCompact(c.current_balance_paise) : '—'}
-          hint="Statement / revolving (excl. EMI block if you track below)"
+          hint="Last updated from statement import"
         />
         <KpiCard
           tone="neutral"
@@ -1076,6 +1309,22 @@ export function CreditCardDetailPage() {
           value={util != null ? `${util.toFixed(1)}%` : '—'}
           hint={c.credit_limit_paise > 0 ? 'Total used ÷ limit' : undefined}
         />
+        {c.statement_day || c.due_day ? (
+          <KpiCard
+            tone="neutral"
+            label="Billing cycle"
+            value={c.statement_day && c.due_day ? `${c.statement_day}→${c.due_day}` : c.statement_day ? `Stmt ${c.statement_day}` : `Due ${c.due_day}`}
+            hint={`Statement day ${c.statement_day ?? '?'} · Payment due day ${c.due_day ?? '?'}`}
+          />
+        ) : null}
+        {c.reward_rate_pct != null ? (
+          <KpiCard
+            tone="neutral"
+            label="Reward rate"
+            value={`${c.reward_rate_pct}%`}
+            hint="Per ₹100 spend"
+          />
+        ) : null}
       </section>
 
       {util != null && c.credit_limit_paise > 0 ? (
