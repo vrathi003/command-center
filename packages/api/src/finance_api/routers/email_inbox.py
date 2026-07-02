@@ -84,6 +84,24 @@ class HistoricalSyncResult(BaseModel):
     to_date: str
 
 
+class ApproveAsTransferBody(BaseModel):
+    debit_id: int             # staging item that is the debit side (money out = from_account)
+    credit_id: int            # staging item that is the credit side (money in = to_account)
+    from_account_id: int | None = None
+    to_account_id: int | None = None
+    tx_date: str | None = None        # overrides debit item's parsed_date if provided
+    amount_paise: int | None = None   # overrides parsed amount if provided
+    notes: str | None = None
+
+
+class ApproveAsTransferResult(BaseModel):
+    transfer_pair_id: str
+    debit_transaction_id: int
+    credit_transaction_id: int
+    debit_item: StagedEmailOut
+    credit_item: StagedEmailOut
+
+
 def _to_out(row: StagedEmailRow) -> StagedEmailOut:
     return StagedEmailOut(
         id=row.id,
@@ -199,6 +217,81 @@ async def historical_sync(
         total_scanned=result["total_scanned"],
         from_date=from_date.isoformat(),
         to_date=to_date.isoformat(),
+    )
+
+
+@router.post("/approve-as-transfer", response_model=ApproveAsTransferResult)
+async def approve_as_transfer(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    body: ApproveAsTransferBody,
+) -> ApproveAsTransferResult:
+    """Approve two staged email items as a linked transfer pair."""
+    debit_row = await staging_repo.get_staged(conn, body.debit_id)
+    credit_row = await staging_repo.get_staged(conn, body.credit_id)
+
+    if debit_row is None or credit_row is None:
+        raise HTTPException(status_code=404, detail="One or both staging items not found")
+    if debit_row.status != "pending" or credit_row.status != "pending":
+        raise HTTPException(status_code=409, detail="Both items must be in pending status")
+    if debit_row.id == credit_row.id:
+        raise HTTPException(status_code=422, detail="debit_id and credit_id must be different")
+
+    # Determine amount and date — body overrides take precedence, then fall back to parsed values
+    amount_paise = body.amount_paise or debit_row.parsed_amount_paise or credit_row.parsed_amount_paise
+    if not amount_paise or amount_paise <= 0:
+        raise HTTPException(status_code=422, detail="amount_paise is required (set it on the item or pass in body)")
+
+    date_str = body.tx_date or debit_row.parsed_date or credit_row.parsed_date
+    if not date_str:
+        raise HTTPException(status_code=422, detail="tx_date is required (set parsed_date on the item or pass in body)")
+    try:
+        tx_date = date.fromisoformat(date_str)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail="invalid tx_date") from e
+
+    # Resolve accounts
+    from_account_id = body.from_account_id or debit_row.suggested_account_id
+    to_account_id = body.to_account_id or credit_row.suggested_account_id
+
+    if not from_account_id or not to_account_id:
+        raise HTTPException(
+            status_code=422,
+            detail="from_account_id and to_account_id are required (pass them in the body or set suggested_account_id on each item)",
+        )
+    if from_account_id == to_account_id:
+        raise HTTPException(status_code=422, detail="from_account_id and to_account_id must be different accounts")
+
+    from_acc = await accounts_repo.get_account(conn, from_account_id)
+    to_acc = await accounts_repo.get_account(conn, to_account_id)
+    if from_acc is None or to_acc is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    out_id, in_id, pair_id = await tx_repo.insert_transfer_pair(
+        conn,
+        amount_paise=Paise(amount_paise),
+        tx_date=tx_date,
+        from_account_id=from_account_id,
+        to_account_id=to_account_id,
+        from_account_name=from_acc.name,
+        to_account_name=to_acc.name,
+        notes=body.notes,
+        tags=None,
+        source="gmail",
+    )
+
+    await staging_repo.set_status(conn, body.debit_id, "approved", created_transaction_id=out_id)
+    await staging_repo.set_status(conn, body.credit_id, "approved", created_transaction_id=in_id)
+
+    updated_debit = await staging_repo.get_staged(conn, body.debit_id)
+    updated_credit = await staging_repo.get_staged(conn, body.credit_id)
+    assert updated_debit and updated_credit
+
+    return ApproveAsTransferResult(
+        transfer_pair_id=pair_id,
+        debit_transaction_id=out_id,
+        credit_transaction_id=in_id,
+        debit_item=_to_out(updated_debit),
+        credit_item=_to_out(updated_credit),
     )
 
 

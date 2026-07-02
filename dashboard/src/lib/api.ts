@@ -55,6 +55,7 @@ import type {
   StagedEmailTransaction,
   EmailInboxStats,
   HistoricalSyncResult,
+  ApproveAsTransferResult,
 } from '@/types/api'
 
 function apiBase(): string {
@@ -1529,6 +1530,23 @@ export async function rejectEmailTransaction(id: number): Promise<StagedEmailTra
 export async function clearRejectedEmails(): Promise<{ deleted: number }> {
   const res = await fetch(`${apiBase()}/api/email-inbox/rejected`, { method: 'DELETE' })
   return parseJson<{ deleted: number }>(res)
+}
+
+export async function approveAsTransfer(body: {
+  debit_id: number
+  credit_id: number
+  from_account_id?: number | null
+  to_account_id?: number | null
+  tx_date?: string | null
+  amount_paise?: number | null
+  notes?: string | null
+}): Promise<ApproveAsTransferResult> {
+  const res = await fetch(`${apiBase()}/api/email-inbox/approve-as-transfer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<ApproveAsTransferResult>(res)
 }
 
 export async function historicalSyncGmail(

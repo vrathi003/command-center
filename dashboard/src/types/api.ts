@@ -655,3 +655,11 @@ export type HistoricalSyncResult = {
   from_date: string
   to_date: string
 }
+
+export type ApproveAsTransferResult = {
+  transfer_pair_id: string
+  debit_transaction_id: number
+  credit_transaction_id: number
+  debit_item: StagedEmailTransaction
+  credit_item: StagedEmailTransaction
+}

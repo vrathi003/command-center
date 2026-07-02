@@ -1,14 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarSearch, CheckCircle, RefreshCw, Trash2, XCircle } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowRight, CalendarSearch, CheckCircle, RefreshCw, Trash2, XCircle, Zap } from 'lucide-react'
+import { useMemo, useState } from 'react'
 
 import { PageHero } from '@/components/ui/PageHero'
 import { Panel } from '@/components/ui/Panel'
 import { PageError, PageLoading } from '@/components/ui/PageStatus'
 import { MANUAL_TX_CATEGORIES, PAYMENT_MODE_OPTIONS } from '@/constants/transactionForm'
 import {
+  approveAsTransfer,
   approveEmailTransaction,
   clearRejectedEmails,
+  fetchAccounts,
   fetchEmailInbox,
   fetchEmailInboxStats,
   historicalSyncGmail,
@@ -17,11 +19,13 @@ import {
   updateStagedEmail,
 } from '@/lib/api'
 import { formatPaise } from '@/lib/format'
-import type { HistoricalSyncResult, StagedEmailTransaction } from '@/types/api'
+import type { AccountOut, HistoricalSyncResult, StagedEmailTransaction } from '@/types/api'
 
 const MAX_HISTORICAL_DAYS = 90
 
 type Tab = 'pending' | 'approved' | 'rejected'
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatEmailDate(d: string): string {
   try {
@@ -47,7 +51,66 @@ function paiseToRupees(p: number): string {
   return (p / 100).toFixed(2)
 }
 
-// ── Inline edit form ─────────────────────────────────────────────────────────
+// ── Transfer pair detection ───────────────────────────────────────────────────
+
+interface TransferPair {
+  debitId: number
+  creditId: number
+}
+
+/**
+ * Greedy O(n²) matcher: same amount, opposite type (one debit + one credit),
+ * parsed dates within ±1 calendar day. Each item matched at most once.
+ * Returns Map<itemId, TransferPair> for every item that is part of a pair.
+ */
+function detectTransferPairs(items: StagedEmailTransaction[]): Map<number, TransferPair> {
+  const eligible = items.filter(
+    (i) =>
+      i.status === 'pending' &&
+      i.parsed_amount_paise != null &&
+      i.parsed_date != null &&
+      (i.parsed_transaction_type === 'debit' || i.parsed_transaction_type === 'credit'),
+  )
+
+  const debits = eligible.filter((i) => i.parsed_transaction_type === 'debit')
+  const credits = eligible.filter((i) => i.parsed_transaction_type === 'credit')
+
+  const result = new Map<number, TransferPair>()
+  const usedCredits = new Set<number>()
+
+  for (const debit of debits) {
+    if (result.has(debit.id)) continue
+
+    let bestCredit: StagedEmailTransaction | null = null
+    let bestDiff = Infinity
+
+    for (const credit of credits) {
+      if (usedCredits.has(credit.id)) continue
+      if (credit.parsed_amount_paise !== debit.parsed_amount_paise) continue
+
+      const diffMs =
+        Math.abs(new Date(credit.parsed_date!).getTime() - new Date(debit.parsed_date!).getTime())
+      const diffDays = diffMs / 86_400_000
+
+      if (diffDays > 1) continue
+      if (diffDays < bestDiff) {
+        bestCredit = credit
+        bestDiff = diffDays
+      }
+    }
+
+    if (bestCredit) {
+      const pair: TransferPair = { debitId: debit.id, creditId: bestCredit.id }
+      result.set(debit.id, pair)
+      result.set(bestCredit.id, pair)
+      usedCredits.add(bestCredit.id)
+    }
+  }
+
+  return result
+}
+
+// ── Inline edit form ──────────────────────────────────────────────────────────
 
 interface EditState {
   parsed_date: string
@@ -69,17 +132,236 @@ function itemToEditState(item: StagedEmailTransaction): EditState {
   }
 }
 
-// ── Item card ────────────────────────────────────────────────────────────────
+// ── Transfer approval modal ───────────────────────────────────────────────────
 
-interface ItemCardProps {
+interface TransferModalProps {
+  pair: TransferPair
+  itemsById: Map<number, StagedEmailTransaction>
+  accounts: AccountOut[]
+  onConfirm: (args: {
+    debitId: number
+    creditId: number
+    fromAccountId: number | null
+    toAccountId: number | null
+    txDate: string
+    amountPaise: number
+    notes: string
+  }) => void
+  onClose: () => void
+  isPending: boolean
+}
+
+function TransferApprovalModal({
+  pair,
+  itemsById,
+  accounts,
+  onConfirm,
+  onClose,
+  isPending,
+}: TransferModalProps) {
+  const debit = itemsById.get(pair.debitId)
+  const credit = itemsById.get(pair.creditId)
+
+  const [fromAccountId, setFromAccountId] = useState<string>(
+    String(debit?.suggested_account_id ?? ''),
+  )
+  const [toAccountId, setToAccountId] = useState<string>(
+    String(credit?.suggested_account_id ?? ''),
+  )
+  const [txDate, setTxDate] = useState(debit?.parsed_date ?? credit?.parsed_date ?? '')
+  const [amountStr, setAmountStr] = useState(
+    debit?.parsed_amount_paise ? paiseToRupees(debit.parsed_amount_paise) : '',
+  )
+  const [notes, setNotes] = useState('')
+
+  const amountPaise = rupeesToPaise(amountStr)
+  const canSubmit =
+    fromAccountId &&
+    toAccountId &&
+    fromAccountId !== toAccountId &&
+    txDate &&
+    amountPaise &&
+    amountPaise > 0
+
+  if (!debit || !credit) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+        {/* Header */}
+        <div className="border-b border-zinc-100 px-6 py-4">
+          <div className="flex items-center gap-2">
+            <Zap className="size-4 text-amber-500" />
+            <h2 className="text-base font-semibold text-zinc-900">Approve as Transfer</h2>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            These two emails look like the same transfer between accounts. This creates a proper
+            linked transfer pair (excluded from spend totals).
+          </p>
+        </div>
+
+        {/* Email pair preview */}
+        <div className="flex items-center gap-3 border-b border-zinc-100 bg-zinc-50 px-6 py-4">
+          <div className="min-w-0 flex-1 rounded-lg border border-red-100 bg-white p-3">
+            <div className="flex items-center gap-1.5">
+              <span className="rounded px-1 py-0.5 text-xs font-bold text-red-600 bg-red-50">DR</span>
+              <span className="truncate text-xs text-zinc-500">{debit.email_from}</span>
+            </div>
+            <p className="mt-1 truncate text-sm font-medium text-zinc-800">
+              {debit.email_subject ?? '(no subject)'}
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-400">{debit.parsed_date}</p>
+          </div>
+
+          <ArrowRight className="size-4 shrink-0 text-zinc-400" />
+
+          <div className="min-w-0 flex-1 rounded-lg border border-emerald-100 bg-white p-3">
+            <div className="flex items-center gap-1.5">
+              <span className="rounded px-1 py-0.5 text-xs font-bold text-emerald-600 bg-emerald-50">CR</span>
+              <span className="truncate text-xs text-zinc-500">{credit.email_from}</span>
+            </div>
+            <p className="mt-1 truncate text-sm font-medium text-zinc-800">
+              {credit.email_subject ?? '(no subject)'}
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-400">{credit.parsed_date}</p>
+          </div>
+        </div>
+
+        {/* Form */}
+        <div className="grid grid-cols-2 gap-4 px-6 py-5">
+          <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
+            From account (money left)
+            <select
+              value={fromAccountId}
+              onChange={(e) => setFromAccountId(e.target.value)}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="">Select account…</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={String(a.id)}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
+            To account (money arrived)
+            <select
+              value={toAccountId}
+              onChange={(e) => setToAccountId(e.target.value)}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="">Select account…</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={String(a.id)}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
+            Date
+            <input
+              type="date"
+              value={txDate}
+              onChange={(e) => setTxDate(e.target.value)}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
+            Amount (₹)
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={amountStr}
+              onChange={(e) => setAmountStr(e.target.value)}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </label>
+
+          <label className="col-span-2 flex flex-col gap-1 text-xs font-medium text-zinc-600">
+            Notes (optional)
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="e.g. HDFC to SBI transfer"
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </label>
+
+          {fromAccountId && toAccountId && fromAccountId === toAccountId && (
+            <p className="col-span-2 text-xs text-red-600">From and To accounts must be different.</p>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3 border-t border-zinc-100 px-6 py-4">
+          <button
+            onClick={onClose}
+            disabled={isPending}
+            className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() =>
+              onConfirm({
+                debitId: pair.debitId,
+                creditId: pair.creditId,
+                fromAccountId: fromAccountId ? Number(fromAccountId) : null,
+                toAccountId: toAccountId ? Number(toAccountId) : null,
+                txDate,
+                amountPaise: amountPaise!,
+                notes,
+              })
+            }
+            disabled={!canSubmit || isPending}
+            className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-40"
+          >
+            {isPending ? (
+              <>
+                <RefreshCw className="size-3.5 animate-spin" />
+                Approving…
+              </>
+            ) : (
+              <>
+                <Zap className="size-3.5" />
+                Approve as Transfer
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Pending card ──────────────────────────────────────────────────────────────
+
+interface PendingCardProps {
   item: StagedEmailTransaction
+  transferPair: TransferPair | undefined
   onApprove: (item: StagedEmailTransaction, overrides: EditState) => void
   onReject: (item: StagedEmailTransaction) => void
+  onApproveAsTransfer: (pair: TransferPair) => void
   approving: boolean
   rejecting: boolean
 }
 
-function PendingCard({ item, onApprove, onReject, approving, rejecting }: ItemCardProps) {
+function PendingCard({
+  item,
+  transferPair,
+  onApprove,
+  onReject,
+  onApproveAsTransfer,
+  approving,
+  rejecting,
+}: PendingCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<EditState>(() => itemToEditState(item))
@@ -88,8 +370,15 @@ function PendingCard({ item, onApprove, onReject, approving, rejecting }: ItemCa
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
+  const isTransferPair = !!transferPair
+
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+    <div
+      className={[
+        'rounded-lg border bg-white p-4 shadow-sm',
+        isTransferPair ? 'border-amber-200 ring-1 ring-amber-100' : 'border-zinc-200',
+      ].join(' ')}
+    >
       {/* Header row */}
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
@@ -97,6 +386,13 @@ function PendingCard({ item, onApprove, onReject, approving, rejecting }: ItemCa
             <span>{item.email_from ?? '—'}</span>
             <span>·</span>
             <span>{formatEmailDate(item.email_date)}</span>
+            {/* Transfer pair badge */}
+            {isTransferPair && (
+              <span className="ml-1 flex items-center gap-0.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                <Zap className="size-3" />
+                Possible transfer
+              </span>
+            )}
           </div>
           {item.email_subject && (
             <p className="mt-0.5 truncate text-sm font-medium text-zinc-700">
@@ -121,8 +417,7 @@ function PendingCard({ item, onApprove, onReject, approving, rejecting }: ItemCa
       {/* Parsed summary */}
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
         <span className="text-zinc-500">
-          Date:{' '}
-          <span className="font-medium text-zinc-800">{item.parsed_date ?? '—'}</span>
+          Date: <span className="font-medium text-zinc-800">{item.parsed_date ?? '—'}</span>
         </span>
         <span className="text-zinc-500">
           Amount:{' '}
@@ -131,12 +426,10 @@ function PendingCard({ item, onApprove, onReject, approving, rejecting }: ItemCa
           </span>
         </span>
         <span className="text-zinc-500">
-          Merchant:{' '}
-          <span className="font-medium text-zinc-800">{item.parsed_merchant ?? '—'}</span>
+          Merchant: <span className="font-medium text-zinc-800">{item.parsed_merchant ?? '—'}</span>
         </span>
         <span className="text-zinc-500">
-          Category:{' '}
-          <span className="font-medium text-zinc-800">{item.parsed_category ?? '—'}</span>
+          Category: <span className="font-medium text-zinc-800">{item.parsed_category ?? '—'}</span>
         </span>
       </div>
 
@@ -232,21 +525,35 @@ function PendingCard({ item, onApprove, onReject, approving, rejecting }: ItemCa
       )}
 
       {/* Action buttons */}
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {/* Transfer pair action — shown first and prominently if pair detected */}
+        {isTransferPair && (
+          <button
+            onClick={() => onApproveAsTransfer(transferPair)}
+            disabled={approving || rejecting}
+            className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+          >
+            <Zap className="size-3.5" />
+            Approve as Transfer
+          </button>
+        )}
+
         <button
           onClick={() => onApprove(item, form)}
           disabled={approving || rejecting}
           className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
         >
           <CheckCircle className="size-3.5" />
-          {approving ? 'Approving…' : 'Approve'}
+          {approving ? 'Approving…' : 'Approve individually'}
         </button>
+
         <button
           onClick={() => setEditing((p) => !p)}
           className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
         >
           {editing ? 'Done editing' : 'Edit'}
         </button>
+
         <button
           onClick={() => onReject(item)}
           disabled={approving || rejecting}
@@ -259,6 +566,8 @@ function PendingCard({ item, onApprove, onReject, approving, rejecting }: ItemCa
     </div>
   )
 }
+
+// ── Read-only card (approved / rejected tabs) ─────────────────────────────────
 
 function ReadOnlyCard({ item }: { item: StagedEmailTransaction }) {
   return (
@@ -316,11 +625,7 @@ function daysBetween(a: string, b: string): number {
   return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000)
 }
 
-interface HistoricalImportPanelProps {
-  onComplete: () => void
-}
-
-function HistoricalImportPanel({ onComplete }: HistoricalImportPanelProps) {
+function HistoricalImportPanel({ onComplete }: { onComplete: () => void }) {
   const [open, setOpen] = useState(false)
   const [fromDate, setFromDate] = useState(daysAgoIso(30))
   const [toDate, setToDate] = useState(todayIso())
@@ -340,26 +645,12 @@ function HistoricalImportPanel({ onComplete }: HistoricalImportPanelProps) {
 
   const importMut = useMutation({
     mutationFn: () => historicalSyncGmail(fromDate, toDate),
-    onSuccess: (data) => {
-      setResult(data)
-      setConfirming(false)
-      onComplete()
-    },
-    onError: (err: Error) => {
-      setError(err.message)
-      setConfirming(false)
-    },
+    onSuccess: (data) => { setResult(data); setConfirming(false); onComplete() },
+    onError: (err: Error) => { setError(err.message); setConfirming(false) },
   })
-
-  function handleConfirm() {
-    setError(null)
-    setResult(null)
-    importMut.mutate()
-  }
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
-      {/* Collapsible header */}
       <button
         onClick={() => { setOpen((p) => !p); setResult(null); setError(null) }}
         className="flex w-full items-center gap-2 px-5 py-4 text-left"
@@ -375,7 +666,6 @@ function HistoricalImportPanel({ onComplete }: HistoricalImportPanelProps) {
             Pull older emails by date range. Max {MAX_HISTORICAL_DAYS} days per import — run
             multiple times for longer periods. Does not affect the automatic 3-hour sync.
           </p>
-
           <div className="flex flex-wrap items-end gap-4">
             <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
               From
@@ -398,14 +688,12 @@ function HistoricalImportPanel({ onComplete }: HistoricalImportPanelProps) {
               />
             </label>
             {fromDate && toDate && !rangeError && (
-              <span className="mb-2 text-xs text-zinc-400">{days} day{days !== 1 ? 's' : ''}</span>
+              <span className="mb-2 text-xs text-zinc-400">
+                {days} day{days !== 1 ? 's' : ''}
+              </span>
             )}
           </div>
-
-          {rangeError && (
-            <p className="mt-2 text-xs text-red-600">{rangeError}</p>
-          )}
-
+          {rangeError && <p className="mt-2 text-xs text-red-600">{rangeError}</p>}
           <button
             onClick={() => setConfirming(true)}
             disabled={!!rangeError || importMut.isPending}
@@ -414,8 +702,6 @@ function HistoricalImportPanel({ onComplete }: HistoricalImportPanelProps) {
             <CalendarSearch className="size-3.5" />
             Import emails from this range
           </button>
-
-          {/* Result banner */}
           {result && (
             <div className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
               Done — {result.new_items} new item(s) staged from {result.total_scanned} email(s)
@@ -423,25 +709,25 @@ function HistoricalImportPanel({ onComplete }: HistoricalImportPanelProps) {
             </div>
           )}
           {error && (
-            <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
+            <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
           )}
         </div>
       )}
 
-      {/* Confirmation dialog */}
       {confirming && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
             <h2 className="text-base font-semibold text-zinc-900">Confirm historical import</h2>
             <p className="mt-2 text-sm text-zinc-600">
-              This will scan <span className="font-medium">{days} day{days !== 1 ? 's' : ''}</span>{' '}
+              This will scan{' '}
+              <span className="font-medium">
+                {days} day{days !== 1 ? 's' : ''}
+              </span>{' '}
               of Gmail ({fromDate} → {toDate}) for bank and merchant transaction emails.
             </p>
             <p className="mt-1 text-sm text-zinc-600">
-              Found emails will be added to the <span className="font-medium">Pending</span> tab
-              for your review. Duplicates (already staged) are skipped automatically.
+              Found emails will be added to the <span className="font-medium">Pending</span> tab.
+              Duplicates are skipped automatically.
             </p>
             <div className="mt-5 flex justify-end gap-3">
               <button
@@ -451,18 +737,13 @@ function HistoricalImportPanel({ onComplete }: HistoricalImportPanelProps) {
                 Cancel
               </button>
               <button
-                onClick={handleConfirm}
+                onClick={() => { setError(null); setResult(null); importMut.mutate() }}
                 disabled={importMut.isPending}
                 className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 {importMut.isPending ? (
-                  <>
-                    <RefreshCw className="size-3.5 animate-spin" />
-                    Importing…
-                  </>
-                ) : (
-                  'Yes, import'
-                )}
+                  <><RefreshCw className="size-3.5 animate-spin" />Importing…</>
+                ) : 'Yes, import'}
               </button>
             </div>
           </div>
@@ -472,12 +753,13 @@ function HistoricalImportPanel({ onComplete }: HistoricalImportPanelProps) {
   )
 }
 
-// ── Main page ────────────────────────────────────────────────────────────────
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export function EmailInboxPage() {
   const qc = useQueryClient()
   const [tab, setTab] = useState<Tab>('pending')
   const [activeMutations, setActiveMutations] = useState<Record<number, 'approving' | 'rejecting'>>({})
+  const [transferModalPair, setTransferModalPair] = useState<TransferPair | null>(null)
 
   const statsQ = useQuery({
     queryKey: ['email-inbox-stats'],
@@ -490,24 +772,20 @@ export function EmailInboxPage() {
     queryFn: () => fetchEmailInbox(tab),
   })
 
+  const accountsQ = useQuery({
+    queryKey: ['accounts'],
+    queryFn: () => fetchAccounts(),
+  })
+
   function invalidate() {
     qc.invalidateQueries({ queryKey: ['email-inbox'] })
     qc.invalidateQueries({ queryKey: ['email-inbox-stats'] })
   }
 
-  const syncMut = useMutation({
-    mutationFn: syncGmailNow,
-    onSuccess: invalidate,
-  })
+  const syncMut = useMutation({ mutationFn: syncGmailNow, onSuccess: invalidate })
 
   const approveMut = useMutation({
-    mutationFn: ({
-      id,
-      form,
-    }: {
-      id: number
-      form: EditState
-    }) => {
+    mutationFn: ({ id, form }: { id: number; form: EditState }) => {
       const amount_paise = rupeesToPaise(form.parsed_amount)
       return approveEmailTransaction(id, {
         parsed_date: form.parsed_date || null,
@@ -520,11 +798,7 @@ export function EmailInboxPage() {
     },
     onMutate: ({ id }) => setActiveMutations((p) => ({ ...p, [id]: 'approving' })),
     onSettled: (_, __, { id }) => {
-      setActiveMutations((p) => {
-        const n = { ...p }
-        delete n[id]
-        return n
-      })
+      setActiveMutations((p) => { const n = { ...p }; delete n[id]; return n })
       invalidate()
     },
   })
@@ -533,22 +807,50 @@ export function EmailInboxPage() {
     mutationFn: ({ id }: { id: number }) => rejectEmailTransaction(id),
     onMutate: ({ id }) => setActiveMutations((p) => ({ ...p, [id]: 'rejecting' })),
     onSettled: (_, __, { id }) => {
-      setActiveMutations((p) => {
-        const n = { ...p }
-        delete n[id]
-        return n
-      })
+      setActiveMutations((p) => { const n = { ...p }; delete n[id]; return n })
       invalidate()
     },
   })
 
-  const clearMut = useMutation({
-    mutationFn: clearRejectedEmails,
-    onSuccess: invalidate,
+  const transferMut = useMutation({
+    mutationFn: (args: {
+      debitId: number
+      creditId: number
+      fromAccountId: number | null
+      toAccountId: number | null
+      txDate: string
+      amountPaise: number
+      notes: string
+    }) =>
+      approveAsTransfer({
+        debit_id: args.debitId,
+        credit_id: args.creditId,
+        from_account_id: args.fromAccountId,
+        to_account_id: args.toAccountId,
+        tx_date: args.txDate,
+        amount_paise: args.amountPaise,
+        notes: args.notes || null,
+      }),
+    onSuccess: () => { setTransferModalPair(null); invalidate() },
   })
 
-  const stats = statsQ.data
+  const clearMut = useMutation({ mutationFn: clearRejectedEmails, onSuccess: invalidate })
+
   const items = listQ.data ?? []
+  const stats = statsQ.data
+  const accounts = accountsQ.data ?? []
+
+  // Compute transfer pairs only for pending items
+  const transferPairs = useMemo(
+    () => (tab === 'pending' ? detectTransferPairs(items) : new Map<number, TransferPair>()),
+    [items, tab],
+  )
+
+  // Build a Map<id, item> for the transfer modal
+  const itemsById = useMemo(
+    () => new Map(items.map((i) => [i.id, i])),
+    [items],
+  )
 
   const TABS: { key: Tab; label: string; count: number | undefined }[] = [
     { key: 'pending', label: 'Pending', count: stats?.pending },
@@ -579,7 +881,6 @@ export function EmailInboxPage() {
           Sync complete — {syncMut.data.new_items} new item(s) added.
         </div>
       )}
-
       {syncMut.isError && (
         <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
           Sync failed. Make sure Gmail is configured with a valid credentials file.
@@ -606,9 +907,7 @@ export function EmailInboxPage() {
               <span
                 className={[
                   'rounded-full px-1.5 py-0.5 text-xs font-semibold',
-                  tab === key
-                    ? 'bg-emerald-100 text-emerald-700'
-                    : 'bg-zinc-100 text-zinc-500',
+                  tab === key ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-500',
                   key === 'pending' && count > 0 ? 'bg-orange-100 text-orange-700' : '',
                 ].join(' ')}
               >
@@ -630,6 +929,20 @@ export function EmailInboxPage() {
         )}
       </div>
 
+      {/* Transfer pair legend */}
+      {tab === 'pending' && transferPairs.size > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
+          <Zap className="size-3.5 shrink-0" />
+          <span>
+            <span className="font-semibold">{transferPairs.size / 2}</span> possible transfer
+            pair{transferPairs.size / 2 !== 1 ? 's' : ''} detected — emails with the same amount
+            and opposite debit/credit type within ±1 day. Use{' '}
+            <span className="font-semibold">Approve as Transfer</span> to create a linked pair
+            (excluded from spend totals).
+          </span>
+        </div>
+      )}
+
       {/* Content */}
       {listQ.isPending ? (
         <PageLoading />
@@ -650,14 +963,28 @@ export function EmailInboxPage() {
                 <PendingCard
                   key={item.id}
                   item={item}
+                  transferPair={transferPairs.get(item.id)}
                   approving={activeMutations[item.id] === 'approving'}
                   rejecting={activeMutations[item.id] === 'rejecting'}
                   onApprove={(it, form) => approveMut.mutate({ id: it.id, form })}
                   onReject={(it) => rejectMut.mutate({ id: it.id })}
+                  onApproveAsTransfer={setTransferModalPair}
                 />
               ))
             : items.map((item) => <ReadOnlyCard key={item.id} item={item} />)}
         </div>
+      )}
+
+      {/* Transfer approval modal */}
+      {transferModalPair && (
+        <TransferApprovalModal
+          pair={transferModalPair}
+          itemsById={itemsById}
+          accounts={accounts}
+          onConfirm={(args) => transferMut.mutate(args)}
+          onClose={() => setTransferModalPair(null)}
+          isPending={transferMut.isPending}
+        />
       )}
     </div>
   )
