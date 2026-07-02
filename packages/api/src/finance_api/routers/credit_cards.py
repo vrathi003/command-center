@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
 from typing import Annotated
 
 import aiosqlite
@@ -18,6 +19,8 @@ from finance_api.schemas.credit_card import (
     CreditCardPutBody,
     CreditCardStatementApplyResponse,
     CreditCardStatementOut,
+    LiveBalanceResponse,
+    PayBillBody,
 )
 from finance_api.services.credit_card_statement_service import (
     build_credit_card_statement_payload,
@@ -31,6 +34,7 @@ from finance_common.parsing.credit_card_statement import (
     summary_json_loads,
 )
 from finance_common.parsing.transaction_import import parse_transaction_date
+from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import credit_cards as cc_repo
 from finance_common.repositories import transactions as tx_repo
 from finance_common.repositories.credit_cards import (
@@ -56,6 +60,7 @@ def _util_pct(limit: int, total_used: int) -> float | None:
 def _card_out(
     row: CreditCardRow,
     emi: tuple[int, int, int] = (0, 0, 0),
+    live_balance: int | None = None,
 ) -> CreditCardOut:
     blocked, monthly, count = emi
     total = _total_limit_used(row.current_balance_paise, blocked)
@@ -73,6 +78,12 @@ def _card_out(
         emi_monthly_due_paise=monthly,
         emi_active_plan_count=count,
         total_limit_used_paise=total,
+        account_id=row.account_id,
+        statement_day=row.statement_day,
+        due_day=row.due_day,
+        minimum_due_pct=row.minimum_due_pct,
+        reward_rate_pct=row.reward_rate_pct,
+        live_balance_paise=live_balance,
     )
 
 
@@ -181,15 +192,29 @@ async def create_card(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
     body: CreditCardCreateBody,
 ) -> CreditCardOut:
+    card_name = body.name.strip()
+    linked_account_id = body.account_id
+    if linked_account_id is None:
+        linked_account_id = await accounts_repo.create_account(
+            conn,
+            name=card_name,
+            type="credit_card",
+            institution=body.issuer.strip() if body.issuer else None,
+        )
     cid = await cc_repo.insert_credit_card(
         conn,
-        name=body.name.strip(),
+        name=card_name,
         issuer=body.issuer.strip() if body.issuer else None,
         last_four=body.last_four.strip() if body.last_four else None,
         credit_limit_paise=body.credit_limit_paise,
         current_balance_paise=body.current_balance_paise,
         notes=body.notes.strip() if body.notes else None,
         is_active=body.is_active,
+        account_id=linked_account_id,
+        statement_day=body.statement_day,
+        due_day=body.due_day,
+        minimum_due_pct=body.minimum_due_pct,
+        reward_rate_pct=body.reward_rate_pct,
     )
     row = await cc_repo.get_credit_card(conn, cid)
     if row is None:
@@ -220,6 +245,19 @@ async def put_card(
         raise HTTPException(status_code=404, detail="Credit card not found")
     merged = _merge_card(existing, body)
     await cc_repo.update_credit_card_row(conn, merged)
+    # Sync name change to the linked accounts entry
+    if body.name is not None and existing.account_id is not None and body.name.strip() != existing.name:
+        acc = await accounts_repo.get_account(conn, existing.account_id)
+        if acc is not None:
+            await accounts_repo.update_account(
+                conn,
+                existing.account_id,
+                name=merged.name,
+                type=acc.type,
+                institution=acc.institution,
+                currency=acc.currency,
+                is_active=acc.is_active,
+            )
     totals = await cc_repo.emi_totals_by_card(conn)
     return _card_out(merged, totals.get(card_id, (0, 0, 0)))
 
@@ -232,6 +270,72 @@ async def delete_card(
     ok = await cc_repo.delete_credit_card(conn, card_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Credit card not found")
+
+
+@router.get("/{card_id}/live-balance", response_model=LiveBalanceResponse)
+async def get_live_balance(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+) -> LiveBalanceResponse:
+    """Compute live CC outstanding from transaction history on the linked account."""
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    if card.account_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="No linked account — create a new card to auto-link or set account_id",
+        )
+    balance = await tx_repo.cc_live_balance(conn, card.account_id)
+    return LiveBalanceResponse(live_balance_paise=balance, account_id=card.account_id)
+
+
+@router.post("/{card_id}/pay-bill", response_model=dict, status_code=201)
+async def pay_bill(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+    body: PayBillBody,
+) -> dict:
+    """Record a CC bill payment as a transfer from bank account to the CC's linked account."""
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    if card.account_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="No linked account on this card — cannot record bill payment",
+        )
+    if body.from_account_id == card.account_id:
+        raise HTTPException(
+            status_code=400,
+            detail="from_account_id cannot be the same as the CC linked account",
+        )
+    try:
+        tx_date = date.fromisoformat(body.date)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail="invalid date") from e
+    from_acc = await accounts_repo.get_account(conn, body.from_account_id)
+    if from_acc is None:
+        raise HTTPException(status_code=404, detail="from_account_id not found")
+    cc_acc = await accounts_repo.get_account(conn, card.account_id)
+    if cc_acc is None:
+        raise HTTPException(status_code=404, detail="CC linked account not found")
+    out_id, in_id, pair_id = await tx_repo.insert_transfer_pair(
+        conn,
+        amount_paise=Paise(body.amount_paise),
+        tx_date=tx_date,
+        from_account_id=body.from_account_id,
+        to_account_id=card.account_id,
+        from_account_name=from_acc.name,
+        to_account_name=cc_acc.name,
+        notes=body.notes or f"CC bill payment · {card.name}",
+        source="dashboard",
+    )
+    return {
+        "transfer_pair_id": pair_id,
+        "debit_transaction_id": out_id,
+        "credit_transaction_id": in_id,
+    }
 
 
 @router.get("/{card_id}/statements", response_model=list[CreditCardStatementOut])
@@ -360,6 +464,8 @@ async def apply_statement(
             pm = PaymentMode.from_string(pm_raw).value
             desc = it.get("description")
             merchant = str(desc)[:2000] if desc else None
+            tx_type_raw = it.get("transaction_type") or "debit"
+            tx_type = str(tx_type_raw) if tx_type_raw in ("debit", "credit") else "debit"
             await tx_repo.insert_transaction(
                 conn,
                 tx_date=tx_date,
@@ -370,6 +476,8 @@ async def apply_statement(
                 account=card.name,
                 notes=f"CC import · stmt #{statement_id}",
                 source="cc_statement_import",
+                transaction_type=tx_type,
+                account_id=card.account_id,
             )
             imported += 1
         except (ValueError, TypeError):

@@ -21,6 +21,12 @@ class CreditCardOut(BaseModel):
     emi_monthly_due_paise: int = 0
     emi_active_plan_count: int = 0
     total_limit_used_paise: int = 0
+    account_id: int | None = None
+    statement_day: int | None = None
+    due_day: int | None = None
+    minimum_due_pct: float | None = None
+    reward_rate_pct: float | None = None
+    live_balance_paise: int | None = None
 
 
 class CreditCardCreateBody(BaseModel):
@@ -31,6 +37,11 @@ class CreditCardCreateBody(BaseModel):
     current_balance_paise: int | None = Field(default=None, ge=0)
     notes: str | None = Field(default=None, max_length=2000)
     is_active: bool = True
+    account_id: int | None = None
+    statement_day: int | None = Field(default=None, ge=1, le=31)
+    due_day: int | None = Field(default=None, ge=1, le=31)
+    minimum_due_pct: float | None = Field(default=None, ge=0, le=100)
+    reward_rate_pct: float | None = Field(default=None, ge=0)
 
 
 class CreditCardPutBody(BaseModel):
@@ -41,6 +52,23 @@ class CreditCardPutBody(BaseModel):
     current_balance_paise: int | None = None
     notes: str | None = Field(default=None, max_length=2000)
     is_active: bool | None = None
+    account_id: int | None = None
+    statement_day: int | None = Field(default=None, ge=1, le=31)
+    due_day: int | None = Field(default=None, ge=1, le=31)
+    minimum_due_pct: float | None = Field(default=None, ge=0, le=100)
+    reward_rate_pct: float | None = Field(default=None, ge=0)
+
+
+class PayBillBody(BaseModel):
+    from_account_id: int
+    amount_paise: int = Field(ge=1)
+    date: str = Field(min_length=1, max_length=32)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class LiveBalanceResponse(BaseModel):
+    live_balance_paise: int
+    account_id: int
 
 
 class CreditCardStatementOut(BaseModel):

@@ -788,6 +788,24 @@ async def sum_by_account(
     return {str(r[0]): int(r[1]) for r in rows}
 
 
+async def cc_live_balance(conn: aiosqlite.Connection, account_id: int) -> int:
+    """Live CC outstanding = net debits minus credits on the linked account (paise)."""
+    cur = await conn.execute(
+        """
+        SELECT COALESCE(SUM(
+            CASE WHEN transaction_type = 'debit' THEN amount_paise
+                 ELSE -amount_paise END
+        ), 0)
+        FROM transactions
+        WHERE account_id = ? AND is_deleted = 0
+          AND transaction_type IN ('debit', 'credit')
+        """,
+        (account_id,),
+    )
+    r = await cur.fetchone()
+    return max(0, int(r[0])) if r else 0
+
+
 async def list_accounts_with_transaction_count(
     conn: aiosqlite.Connection,
 ) -> list[dict[str, object]]:

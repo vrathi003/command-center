@@ -152,6 +152,24 @@ export type CreditCardOut = {
   emi_monthly_due_paise: number
   emi_active_plan_count: number
   total_limit_used_paise: number
+  account_id: number | null
+  statement_day: number | null
+  due_day: number | null
+  minimum_due_pct: number | null
+  reward_rate_pct: number | null
+  live_balance_paise: number | null
+}
+
+export type LiveBalanceResponse = {
+  live_balance_paise: number
+  account_id: number
+}
+
+export type PayBillBody = {
+  from_account_id: number
+  amount_paise: number
+  date: string
+  notes?: string | null
 }
 
 export type CreditCardEmiOut = {

@@ -18,6 +18,11 @@ class CreditCardRow:
     current_balance_paise: int | None
     notes: str | None
     is_active: bool
+    account_id: int | None = None
+    statement_day: int | None = None
+    due_day: int | None = None
+    minimum_due_pct: float | None = None
+    reward_rate_pct: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +49,11 @@ def _card_from_tuple(r: tuple[Any, ...]) -> CreditCardRow:
         current_balance_paise=int(r[5]) if r[5] is not None else None,
         notes=str(r[6]) if r[6] is not None else None,
         is_active=bool(int(r[7])),
+        account_id=int(r[8]) if len(r) > 8 and r[8] is not None else None,
+        statement_day=int(r[9]) if len(r) > 9 and r[9] is not None else None,
+        due_day=int(r[10]) if len(r) > 10 and r[10] is not None else None,
+        minimum_due_pct=float(r[11]) if len(r) > 11 and r[11] is not None else None,
+        reward_rate_pct=float(r[12]) if len(r) > 12 and r[12] is not None else None,
     )
 
 
@@ -71,7 +81,8 @@ async def list_credit_cards(
         cur = await conn.execute(
             """
             SELECT id, name, issuer, last_four, credit_limit_paise, current_balance_paise,
-                   notes, is_active
+                   notes, is_active, account_id, statement_day, due_day,
+                   minimum_due_pct, reward_rate_pct
             FROM credit_cards WHERE is_active = 1 ORDER BY name
             """,
         )
@@ -79,7 +90,8 @@ async def list_credit_cards(
         cur = await conn.execute(
             """
             SELECT id, name, issuer, last_four, credit_limit_paise, current_balance_paise,
-                   notes, is_active
+                   notes, is_active, account_id, statement_day, due_day,
+                   minimum_due_pct, reward_rate_pct
             FROM credit_cards ORDER BY is_active DESC, name
             """,
         )
@@ -110,13 +122,20 @@ async def insert_credit_card(
     current_balance_paise: int | None,
     notes: str | None,
     is_active: bool = True,
+    account_id: int | None = None,
+    statement_day: int | None = None,
+    due_day: int | None = None,
+    minimum_due_pct: float | None = None,
+    reward_rate_pct: float | None = None,
 ) -> int:
     cur = await conn.execute(
         """
         INSERT INTO credit_cards (
             name, issuer, last_four, credit_limit_paise,
-            current_balance_paise, notes, is_active, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            current_balance_paise, notes, is_active,
+            account_id, statement_day, due_day, minimum_due_pct, reward_rate_pct,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         """,
         (
             name,
@@ -126,6 +145,11 @@ async def insert_credit_card(
             current_balance_paise,
             notes,
             1 if is_active else 0,
+            account_id,
+            statement_day,
+            due_day,
+            minimum_due_pct,
+            reward_rate_pct,
         ),
     )
     await conn.commit()
@@ -142,6 +166,8 @@ async def update_credit_card_row(conn: aiosqlite.Connection, row: CreditCardRow)
         UPDATE credit_cards SET
             name = ?, issuer = ?, last_four = ?, credit_limit_paise = ?,
             current_balance_paise = ?, notes = ?, is_active = ?,
+            account_id = ?, statement_day = ?, due_day = ?,
+            minimum_due_pct = ?, reward_rate_pct = ?,
             updated_at = datetime('now')
         WHERE id = ?
         """,
@@ -153,10 +179,40 @@ async def update_credit_card_row(conn: aiosqlite.Connection, row: CreditCardRow)
             row.current_balance_paise,
             row.notes,
             1 if row.is_active else 0,
+            row.account_id,
+            row.statement_day,
+            row.due_day,
+            row.minimum_due_pct,
+            row.reward_rate_pct,
             row.id,
         ),
     )
     await conn.commit()
+
+
+async def set_account_id(
+    conn: aiosqlite.Connection,
+    card_id: int,
+    account_id: int,
+) -> None:
+    await conn.execute(
+        "UPDATE credit_cards SET account_id = ?, updated_at = datetime('now') WHERE id = ?",
+        (account_id, card_id),
+    )
+    await conn.commit()
+
+
+async def total_outstanding_balance(conn: aiosqlite.Connection) -> int:
+    """Sum of current_balance_paise across all active credit cards (for net worth liabilities)."""
+    cur = await conn.execute(
+        """
+        SELECT COALESCE(SUM(current_balance_paise), 0)
+        FROM credit_cards
+        WHERE is_active = 1 AND current_balance_paise > 0
+        """
+    )
+    r = await cur.fetchone()
+    return int(r[0]) if r else 0
 
 
 async def delete_credit_card(conn: aiosqlite.Connection, card_id: int) -> bool:

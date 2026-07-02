@@ -35,6 +35,8 @@ import type {
   CreditCardEmiOut,
   CreditCardOut,
   CreditCardStatementApplyResponse,
+  LiveBalanceResponse,
+  PayBillBody,
   ConstructionDeleteAllOut,
   ConstructionProjectOut,
   ConstructionSeriesOut,
@@ -1050,6 +1052,23 @@ export async function deleteCreditCardStatement(cardId: number, statementId: num
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
   }
+}
+
+export async function fetchCcLiveBalance(cardId: number): Promise<LiveBalanceResponse> {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${cardId}/live-balance`)
+  return parseJson<LiveBalanceResponse>(res)
+}
+
+export async function payCcBill(
+  cardId: number,
+  body: PayBillBody,
+): Promise<{ transfer_pair_id: string; debit_transaction_id: number; credit_transaction_id: number }> {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${cardId}/pay-bill`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson(res)
 }
 
 export async function fetchSubscriptions(activeOnly = false): Promise<SubscriptionOut[]> {

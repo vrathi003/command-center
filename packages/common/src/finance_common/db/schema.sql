@@ -174,6 +174,11 @@ CREATE TABLE IF NOT EXISTS credit_cards (
     current_balance_paise INTEGER,
     notes TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
+    account_id INTEGER REFERENCES accounts(id),
+    statement_day INTEGER,
+    due_day INTEGER,
+    minimum_due_pct REAL DEFAULT 5.0,
+    reward_rate_pct REAL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

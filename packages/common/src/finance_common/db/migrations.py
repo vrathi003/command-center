@@ -521,6 +521,25 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
         )
         await conn.commit()
 
+    # ── Credit card enhancements: account link + billing fields ─────────────────
+    cc_cols = await _column_names(conn, "credit_cards")
+    if cc_cols:
+        if "account_id" not in cc_cols:
+            await conn.execute(
+                "ALTER TABLE credit_cards ADD COLUMN account_id INTEGER REFERENCES accounts(id)"
+            )
+        if "statement_day" not in cc_cols:
+            await conn.execute("ALTER TABLE credit_cards ADD COLUMN statement_day INTEGER")
+        if "due_day" not in cc_cols:
+            await conn.execute("ALTER TABLE credit_cards ADD COLUMN due_day INTEGER")
+        if "minimum_due_pct" not in cc_cols:
+            await conn.execute(
+                "ALTER TABLE credit_cards ADD COLUMN minimum_due_pct REAL DEFAULT 5.0"
+            )
+        if "reward_rate_pct" not in cc_cols:
+            await conn.execute("ALTER TABLE credit_cards ADD COLUMN reward_rate_pct REAL")
+        await conn.commit()
+
     cur = await conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='journal_entries'"
     )
