@@ -25,9 +25,11 @@ from finance_common.db import open_db
 from finance_common.fy import date_to_fy
 from finance_common.reports_fy import build_fy_spending, build_fy_summary
 from finance_common.repositories import budgets as budget_repo
+from finance_common.repositories import credit_cards as cc_repo
 from finance_common.repositories import debts as debt_repo
 from finance_common.repositories import net_worth as nw_repo
 from finance_common.repositories import settings_repo
+from finance_common.repositories import transactions as tx_repo
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +148,48 @@ async def job_emi_reminders(db_path: Path, api: ApiSettings) -> None:
         bot_token=token,
         user_id=uid,
         content="**Finance OS — EMI reminder**\n" + "\n".join(msgs[:20]),
+    )
+
+
+async def job_cc_due_date_alerts(db_path: Path, api: ApiSettings) -> None:
+    """Daily 8:05 AM — alert when a CC bill is due today or tomorrow."""
+    token = api.discord_bot_token
+    uid = api.discord_user_id
+    if not token or not uid:
+        return
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+    async with open_db(db_path) as conn:
+        cards = await cc_repo.list_credit_cards(conn, active_only=True)
+        state = await _load_json_state(conn, "job_cc_due_state")
+        msgs: list[str] = []
+        for card in cards:
+            if card.due_day is None:
+                continue
+            for check_date in (today, tomorrow):
+                if check_date.day != card.due_day:
+                    continue
+                due_str = check_date.isoformat()
+                key = f"cc_due|{card.id}|{due_str}"
+                if state.get(key):
+                    continue
+                state[key] = "1"
+                # Get live balance if linked
+                live_bal_str = ""
+                if card.account_id is not None:
+                    bal = await tx_repo.cc_live_balance(conn, card.account_id)
+                    if bal > 0:
+                        live_bal_str = f" — outstanding {_rupees(bal)}"
+                when = "today" if check_date == today else "tomorrow"
+                msgs.append(f"**{card.name}** bill due {when} ({due_str}){live_bal_str}")
+        await _save_json_state(conn, "job_cc_due_state", state)
+
+    if not msgs:
+        return
+    await send_discord_dm(
+        bot_token=token,
+        user_id=uid,
+        content="**Finance OS — CC bill due**\n" + "\n".join(msgs[:10]),
     )
 
 
@@ -360,6 +404,13 @@ def register_background_jobs(scheduler: AsyncIOScheduler, api: ApiSettings) -> N
         trig(hour=9, minute=0),
         args=[db_path],
         id="emi_auto_advance_9am",
+        **common,
+    )
+    scheduler.add_job(
+        job_cc_due_date_alerts,
+        trig(hour=8, minute=5),
+        args=[db_path, api],
+        id="cc_due_alerts_8am",
         **common,
     )
     scheduler.add_job(

@@ -1065,6 +1065,11 @@ export async function fetchCcLiveBalance(cardId: number): Promise<LiveBalanceRes
   return parseJson<LiveBalanceResponse>(res)
 }
 
+export async function fetchCcInterestLeakage(cardId: number): Promise<{ all_time_paise: number; fy_paise: number }> {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${cardId}/interest-leakage`)
+  return parseJson(res)
+}
+
 export async function payCcBill(
   cardId: number,
   body: PayBillBody,

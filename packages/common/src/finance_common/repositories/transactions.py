@@ -810,6 +810,70 @@ async def cc_live_balance(conn: aiosqlite.Connection, account_id: int) -> int:
     return max(0, int(r[0])) if r else 0
 
 
+async def cc_live_balances_batch(
+    conn: aiosqlite.Connection,
+    account_ids: list[int],
+) -> dict[int, int]:
+    """Batch live CC outstanding: {account_id: paise} for all given account_ids."""
+    if not account_ids:
+        return {}
+    placeholders = ",".join("?" * len(account_ids))
+    cur = await conn.execute(
+        f"""
+        SELECT account_id, MAX(0, COALESCE(SUM(
+            CASE WHEN transaction_type = 'debit' THEN amount_paise
+                 ELSE -amount_paise END
+        ), 0))
+        FROM transactions
+        WHERE account_id IN ({placeholders})
+          AND is_deleted = 0
+          AND transaction_type IN ('debit', 'credit')
+        GROUP BY account_id
+        """,
+        tuple(account_ids),
+    )
+    rows = await cur.fetchall()
+    return {int(r[0]): max(0, int(r[1])) for r in rows}
+
+
+async def cc_interest_leakage(
+    conn: aiosqlite.Connection,
+    account_id: int,
+    *,
+    fy_start: str | None = None,
+) -> dict[str, int]:
+    """Total interest/fee spend on a CC account — all-time and since fy_start."""
+    clauses = [
+        "account_id = ?",
+        "is_deleted = 0",
+        "transaction_type = 'debit'",
+        "(LOWER(merchant) LIKE '%interest%' OR LOWER(merchant) LIKE '%finance charge%'"
+        " OR LOWER(merchant) LIKE '%late fee%' OR LOWER(merchant) LIKE '%annual fee%'"
+        " OR LOWER(merchant) LIKE '%membership fee%' OR LOWER(merchant) LIKE '%overlimit%'"
+        " OR LOWER(merchant) LIKE '%over limit%' OR LOWER(merchant) LIKE '%cash advance fee%'"
+        " OR LOWER(merchant) LIKE '%forex%fee%' OR LOWER(merchant) LIKE '%gst on interest%'"
+        " OR LOWER(merchant) LIKE '%penalty%')",
+    ]
+    cur = await conn.execute(
+        f"SELECT COALESCE(SUM(amount_paise),0) FROM transactions WHERE {' AND '.join(clauses)}",
+        (account_id,),
+    )
+    r = await cur.fetchone()
+    total = int(r[0]) if r else 0
+
+    fy_total = 0
+    if fy_start:
+        cur2 = await conn.execute(
+            f"SELECT COALESCE(SUM(amount_paise),0) FROM transactions "
+            f"WHERE {' AND '.join(clauses)} AND date >= ?",
+            (account_id, fy_start),
+        )
+        r2 = await cur2.fetchone()
+        fy_total = int(r2[0]) if r2 else 0
+
+    return {"all_time_paise": total, "fy_paise": fy_total}
+
+
 async def list_accounts_with_transaction_count(
     conn: aiosqlite.Connection,
 ) -> list[dict[str, object]]:

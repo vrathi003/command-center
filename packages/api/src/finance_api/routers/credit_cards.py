@@ -42,6 +42,7 @@ from finance_common.repositories.credit_cards import (
     CreditCardRow,
     CreditCardStatementRow,
 )
+from finance_common.fy import current_fy_from_date, fy_start
 from finance_common.types import Category, Paise, PaymentMode
 
 router = APIRouter(prefix="/credit-cards", tags=["credit-cards"])
@@ -184,7 +185,12 @@ async def list_cards(
 ) -> list[CreditCardOut]:
     totals = await cc_repo.emi_totals_by_card(conn)
     rows = await cc_repo.list_credit_cards(conn, active_only=active_only)
-    return [_card_out(r, totals.get(r.id, (0, 0, 0))) for r in rows]
+    linked_ids = [r.account_id for r in rows if r.account_id is not None]
+    live_bals = await tx_repo.cc_live_balances_batch(conn, linked_ids)
+    return [
+        _card_out(r, totals.get(r.id, (0, 0, 0)), live_bals.get(r.account_id) if r.account_id else None)
+        for r in rows
+    ]
 
 
 @router.post("/", response_model=CreditCardOut, status_code=201)
@@ -231,7 +237,10 @@ async def get_card(
     if row is None:
         raise HTTPException(status_code=404, detail="Credit card not found")
     totals = await cc_repo.emi_totals_by_card(conn)
-    return _card_out(row, totals.get(card_id, (0, 0, 0)))
+    live_bal: int | None = None
+    if row.account_id is not None:
+        live_bal = await tx_repo.cc_live_balance(conn, row.account_id)
+    return _card_out(row, totals.get(card_id, (0, 0, 0)), live_bal)
 
 
 @router.put("/{card_id}", response_model=CreditCardOut)
@@ -270,6 +279,22 @@ async def delete_card(
     ok = await cc_repo.delete_credit_card(conn, card_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Credit card not found")
+
+
+@router.get("/{card_id}/interest-leakage")
+async def get_interest_leakage(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+) -> dict[str, int]:
+    """Total interest + fees paid on this card — all-time and current FY."""
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    if card.account_id is None:
+        return {"all_time_paise": 0, "fy_paise": 0}
+    fy = current_fy_from_date()
+    fy_s = fy_start(fy).isoformat()
+    return await tx_repo.cc_interest_leakage(conn, card.account_id, fy_start=fy_s)
 
 
 @router.get("/{card_id}/live-balance", response_model=LiveBalanceResponse)

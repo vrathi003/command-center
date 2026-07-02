@@ -14,6 +14,7 @@ import {
   deleteCreditCard,
   deleteCreditCardEmi,
   fetchAccounts,
+  fetchCcInterestLeakage,
   fetchCcLiveBalance,
   fetchCreditCard,
   fetchCreditCardEmis,
@@ -1327,6 +1328,13 @@ export function CreditCardDetailPage() {
     enabled: Number.isFinite(cardId) && cardId > 0 && (card.data?.account_id ?? 0) > 0,
   })
 
+  const leakage = useQuery({
+    queryKey: ['cc-interest-leakage', cardId],
+    queryFn: () => fetchCcInterestLeakage(cardId),
+    enabled: Number.isFinite(cardId) && cardId > 0 && (card.data?.account_id ?? 0) > 0,
+    staleTime: 5 * 60_000,
+  })
+
   const accounts = useQuery({
     queryKey: ['accounts'],
     queryFn: () => fetchAccounts(),
@@ -1482,7 +1490,31 @@ export function CreditCardDetailPage() {
             hint="Per ₹100 spend"
           />
         ) : null}
+        {hasLinkedAccount && leakage.data ? (
+          <>
+            <KpiCard
+              tone="spending"
+              label="Interest/fees this FY"
+              value={leakage.data.fy_paise > 0 ? formatPaiseCompact(leakage.data.fy_paise) : '₹0'}
+              hint="Interest charges + fees detected in transactions"
+            />
+            <KpiCard
+              tone="spending"
+              label="Interest/fees all-time"
+              value={leakage.data.all_time_paise > 0 ? formatPaiseCompact(leakage.data.all_time_paise) : '₹0'}
+              hint="Total leakage since first transaction"
+            />
+          </>
+        ) : null}
       </section>
+
+      {hasLinkedAccount && leakage.data && leakage.data.fy_paise > 0 ? (
+        <div className="rounded-xl border border-red-200 bg-red-50/60 px-4 py-3 text-sm text-red-900">
+          <span className="font-semibold">Interest leakage detected</span> — you've paid{' '}
+          <span className="font-semibold tabular-nums">{formatPaiseCompact(leakage.data.fy_paise)}</span>{' '}
+          in interest and fees on this card this financial year. Consider paying the full outstanding balance before the due date to avoid future charges.
+        </div>
+      ) : null}
 
       {util != null && c.credit_limit_paise > 0 ? (
         <div className="max-w-xl">
