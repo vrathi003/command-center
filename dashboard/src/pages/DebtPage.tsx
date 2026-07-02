@@ -14,6 +14,7 @@ import {
   fetchDebtSummary,
   postDebt,
   putDebt,
+  syncAllDebtBalances,
   syncDebtBalance,
 } from '@/lib/api'
 import type { AmortizationRow, DebtOut } from '@/types/api'
@@ -276,6 +277,7 @@ export function DebtPage() {
       void qc.invalidateQueries({ queryKey: ['debt-amort', openId] })
     },
   })
+  const syncAll = useMutation({ mutationFn: syncAllDebtBalances, onSuccess: invalidate })
 
   // ── add form state ──────────────────────────────────────────────────────
   const [nName, setNName] = useState('New loan')
@@ -318,6 +320,16 @@ export function DebtPage() {
         eyebrow="Liabilities"
         title="Debt"
         description="Loans & revolving balances · refreshes every 30s"
+        actions={
+          <button
+            onClick={() => syncAll.mutate()}
+            disabled={syncAll.isPending}
+            className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
+            title="Re-compute balance and next EMI date for all active loans from their amortization schedule"
+          >
+            {syncAll.isPending ? 'Syncing…' : 'Sync All EMIs'}
+          </button>
+        }
       />
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

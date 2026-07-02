@@ -536,3 +536,33 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
             """
         )
         await conn.commit()
+
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='email_transaction_staging'"
+    )
+    if await cur.fetchone() is None:
+        await conn.executescript(
+            """
+            CREATE TABLE email_transaction_staging (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gmail_message_id TEXT NOT NULL UNIQUE,
+                email_date TEXT NOT NULL,
+                email_subject TEXT,
+                email_from TEXT,
+                raw_snippet TEXT,
+                parsed_date TEXT,
+                parsed_amount_paise INTEGER,
+                parsed_merchant TEXT,
+                parsed_category TEXT,
+                parsed_payment_mode TEXT,
+                parsed_transaction_type TEXT,
+                suggested_account_id INTEGER REFERENCES accounts(id),
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_transaction_id INTEGER REFERENCES transactions(id),
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_email_staging_status ON email_transaction_staging(status);
+            CREATE INDEX IF NOT EXISTS idx_email_staging_gmail_id ON email_transaction_staging(gmail_message_id);
+            """
+        )
+        await conn.commit()

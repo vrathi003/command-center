@@ -18,6 +18,7 @@ from finance_api.routers import (
     credit_cards,
     dashboard,
     debt,
+    email_inbox,
     fixed_income,
     goals,
     health,
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(insurance.router, prefix="/api")
     app.include_router(home_items.router, prefix="/api")
     app.include_router(construction_progress.router, prefix="/api")
+    app.include_router(email_inbox.router, prefix="/api")
     return app
 
 

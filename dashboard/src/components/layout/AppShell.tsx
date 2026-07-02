@@ -1,4 +1,4 @@
-import { useIsMutating } from '@tanstack/react-query'
+import { useIsMutating, useQuery } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import {
   ArrowLeftRight,
@@ -10,6 +10,7 @@ import {
   IndianRupee,
   Landmark,
   LayoutDashboard,
+  Mail,
   NotebookPen,
   PieChart,
   Repeat,
@@ -23,6 +24,7 @@ import {
 import { NavLink, Outlet } from 'react-router-dom'
 
 import { IndeterminateProgressBar } from '@/components/ui/IndeterminateProgressBar'
+import { fetchEmailInboxStats } from '@/lib/api'
 
 const NAV: Array<{ to: string; label: string; icon: LucideIcon }> = [
   { to: '/', label: 'Overview', icon: LayoutDashboard },
@@ -42,11 +44,20 @@ const NAV: Array<{ to: string; label: string; icon: LucideIcon }> = [
   { to: '/income', label: 'Income & tax', icon: IndianRupee },
   { to: '/reports', label: 'Reports', icon: FileText },
   { to: '/journal', label: 'Journal', icon: NotebookPen },
+  { to: '/email-inbox', label: 'Gmail Inbox', icon: Mail },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
 export function AppShell() {
   const fileUploadBusy = useIsMutating({ mutationKey: ['file-upload'] }) > 0
+
+  const inboxStatsQ = useQuery({
+    queryKey: ['email-inbox-stats'],
+    queryFn: fetchEmailInboxStats,
+    refetchInterval: 5 * 60 * 1000,
+    retry: false,
+  })
+  const pendingCount = inboxStatsQ.data?.pending ?? 0
 
   return (
     <div className="flex min-h-screen">
@@ -65,6 +76,7 @@ export function AppShell() {
         <nav className="flex flex-1 flex-col gap-0.5 p-2">
           {NAV.map((item) => {
             const Icon = item.icon
+            const isInbox = item.to === '/email-inbox'
             return (
               <NavLink
                 key={item.to}
@@ -80,7 +92,12 @@ export function AppShell() {
                 }
               >
                 <Icon className="size-4 shrink-0" aria-hidden />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {isInbox && pendingCount > 0 && (
+                  <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-xs font-semibold text-orange-700">
+                    {pendingCount}
+                  </span>
+                )}
               </NavLink>
             )
           })}

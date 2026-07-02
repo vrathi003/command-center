@@ -52,6 +52,8 @@ import type {
   TransferCreateResponse,
   VehicleOut,
   ZoneLabelsOut,
+  StagedEmailTransaction,
+  EmailInboxStats,
 } from '@/types/api'
 
 function apiBase(): string {
@@ -1097,6 +1099,11 @@ export async function syncDebtBalance(debtId: number): Promise<DebtOut> {
   return parseJson<DebtOut>(res)
 }
 
+export async function syncAllDebtBalances(): Promise<DebtOut[]> {
+  const res = await fetch(`${apiBase()}/api/debt/sync-all-balances`, { method: 'POST' })
+  return parseJson<DebtOut[]>(res)
+}
+
 export async function downloadFYSummaryPdf(fy?: string): Promise<void> {
   const q = fy ? `?fy=${encodeURIComponent(fy)}` : ''
   const res = await fetch(`${apiBase()}/api/reports/fy-summary.pdf${q}`)
@@ -1450,4 +1457,75 @@ export async function putConstructionZoneLabels(
 export async function deleteConstructionAllData(): Promise<ConstructionDeleteAllOut> {
   const res = await fetch(`${apiBase()}/api/construction/all-data`, { method: 'DELETE' })
   return parseJson<ConstructionDeleteAllOut>(res)
+}
+
+// ── Email Inbox ───────────────────────────────────────────────────────────────
+
+export async function fetchEmailInboxStats(): Promise<EmailInboxStats> {
+  const res = await fetch(`${apiBase()}/api/email-inbox/stats`)
+  return parseJson<EmailInboxStats>(res)
+}
+
+export async function fetchEmailInbox(status?: string): Promise<StagedEmailTransaction[]> {
+  const url = status
+    ? `${apiBase()}/api/email-inbox/?status=${encodeURIComponent(status)}`
+    : `${apiBase()}/api/email-inbox/`
+  const res = await fetch(url)
+  return parseJson<StagedEmailTransaction[]>(res)
+}
+
+export async function syncGmailNow(): Promise<{ new_items: number }> {
+  const res = await fetch(`${apiBase()}/api/email-inbox/sync`, { method: 'POST' })
+  return parseJson<{ new_items: number }>(res)
+}
+
+export async function updateStagedEmail(
+  id: number,
+  fields: {
+    parsed_date?: string | null
+    parsed_amount_paise?: number | null
+    parsed_merchant?: string | null
+    parsed_category?: string | null
+    parsed_payment_mode?: string | null
+    parsed_transaction_type?: string | null
+    suggested_account_id?: number | null
+  },
+): Promise<StagedEmailTransaction> {
+  const res = await fetch(`${apiBase()}/api/email-inbox/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  })
+  return parseJson<StagedEmailTransaction>(res)
+}
+
+export async function approveEmailTransaction(
+  id: number,
+  overrides?: {
+    parsed_date?: string | null
+    parsed_amount_paise?: number | null
+    parsed_merchant?: string | null
+    parsed_category?: string | null
+    parsed_payment_mode?: string | null
+    parsed_transaction_type?: string | null
+    account_id?: number | null
+    notes?: string | null
+  },
+): Promise<StagedEmailTransaction> {
+  const res = await fetch(`${apiBase()}/api/email-inbox/${id}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(overrides ?? {}),
+  })
+  return parseJson<StagedEmailTransaction>(res)
+}
+
+export async function rejectEmailTransaction(id: number): Promise<StagedEmailTransaction> {
+  const res = await fetch(`${apiBase()}/api/email-inbox/${id}/reject`, { method: 'POST' })
+  return parseJson<StagedEmailTransaction>(res)
+}
+
+export async function clearRejectedEmails(): Promise<{ deleted: number }> {
+  const res = await fetch(`${apiBase()}/api/email-inbox/rejected`, { method: 'DELETE' })
+  return parseJson<{ deleted: number }>(res)
 }

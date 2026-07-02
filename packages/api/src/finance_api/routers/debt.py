@@ -19,7 +19,7 @@ from finance_api.schemas.debt import (
     LoanDisbursalBody,
     LoanDisbursalOut,
 )
-from finance_api.services.amortization import build_phased_schedule, build_schedule
+from finance_api.services.amortization import build_phased_schedule, build_schedule, compute_emi_advance
 from finance_common.repositories import debts as debt_repo
 from finance_common.repositories.debts import DebtRow
 
@@ -324,6 +324,44 @@ async def sync_balance_from_schedule(
         else (row.original_amount_paise or row.current_balance_paise)
     )
 
-    updated = replace(row, current_balance_paise=estimated_balance)
+    # Also advance next_emi_date and mark paid if done
+    result = compute_emi_advance(row)
+    if result:
+        new_bal, new_next_date, new_status = result
+        updated = replace(
+            row,
+            current_balance_paise=new_bal,
+            next_emi_date=new_next_date,
+            status=new_status,
+        )
+    else:
+        updated = replace(row, current_balance_paise=estimated_balance)
     await debt_repo.update_debt_row(conn, updated)
     return _to_out(updated)
+
+
+@router.post("/sync-all-balances", response_model=list[DebtOut])
+async def sync_all_balances(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+) -> list[DebtOut]:
+    """
+    Run EMI auto-advance for every active debt that has first_emi_date + emi_paise set.
+    Updates current_balance_paise, next_emi_date, and status for each eligible debt.
+    """
+    debts = await debt_repo.list_debts(conn, status="active")
+    results: list[DebtOut] = []
+    for debt in debts:
+        result = compute_emi_advance(debt)
+        if result:
+            new_bal, new_next_date, new_status = result
+            updated = replace(
+                debt,
+                current_balance_paise=new_bal,
+                next_emi_date=new_next_date,
+                status=new_status,
+            )
+            await debt_repo.update_debt_row(conn, updated)
+            results.append(_to_out(updated))
+        else:
+            results.append(_to_out(debt))
+    return results

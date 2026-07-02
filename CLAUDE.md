@@ -207,57 +207,59 @@ LOG_LEVEL=INFO
 - FY reports with PDF download (`GET /reports/fy-summary.pdf`)
 - Payment mode auto-detection (UPI/NEFT/ATM from merchant narration)
 
-### 🚧 Partially Done / Needs Verification
-- **Investment price sync** (NSE/BSE, AMFI NAV) — APScheduler installed but jobs not implemented
+### ✅ Also Done (updated after audit vs latest GitHub)
+- **Investment price sync** — `investment_sync.py` via `yfinance` (Yahoo Finance), registered as daily 6AM APScheduler job in `background_jobs.py`
+- **All 8 background jobs** — `background_jobs.py`: price sync 6AM, DB backup 2AM, budget alerts 8AM (Discord DMs at 75% + over-budget), EMI reminders 8:10AM (3 days before due), weekly Discord digest Sunday 9AM, monthly summary 1st, month-end NW snapshot, FY rollover April 1
+- **Proactive Discord DMs** — budget/EMI alerts send to configured `DISCORD_USER_ID` with deduplication via `settings` JSON state
+- **Auto-start scripts** — `scripts/launchd/com.personalfinance.api.plist` (macOS), `scripts/systemd/finance-{api,bot,dashboard}.service` (Linux), `scripts/windows/register-api-task.ps1`
+- **`setup.py`** and **`expose.py`** — one-click setup and ngrok/Tailscale tunnel helper both in `scripts/`
+- **Edit individual transactions** — `PUT /transactions/{id}` (`update_transaction`) handles debit/credit edits and transfer pair re-linking; dashboard drawer has `editDraft` state
+- **Assets module** — `AssetsPage.tsx` (425 lines) + `AssetDetailPage.tsx` + `assets.py` router — real estate / vehicle tracking beyond original spec
+- **Beyond-spec pages** — `InsurancePage.tsx` (685 lines), `HomeInventoryPage.tsx` (359 lines), `JournalPage.tsx` (238 lines)
 
-### ❌ Not Yet Done — Priority Roadmap
+### ❌ Remaining Gaps (within spec)
 
-#### High Priority (Quality of Life)
-1. **Edit individual transactions** — Currently can only bulk delete, no way to fix wrong category/amount/date on a single transaction
-2. **Duplicate detection on import** — Same date + amount + merchant within ±1 day = warn/skip; prevents re-uploading same statement
-3. **Text search on transactions** — Search by merchant name across the full ledger
-4. **Copy budgets to new FY** — When FY rolls over (April 1), all budgets are gone; need "Copy from last FY" button
-5. **Database backup download** — Download SQLite file or JSON dump from Settings page; single-machine data = single point of failure
+#### High Priority
+1. **Duplicate detection on import** — Same date + amount + merchant within ±1 day = warn/skip; prevents re-uploading same statement
+2. **Text search on transactions** — Search by merchant name across the full ledger
+3. **Copy budgets to new FY** — FY rollover job copies budgets but UI has no "Copy from last FY" button for manual use
+4. **Database backup download** — No download of SQLite / JSON dump from Settings page; only file-system backup via job
 
-#### High Priority (Financial Intelligence)
-6. **Assets module** — Track real estate (apartments with PSF, area, total cost breakdown, possession dates, milestone payments, linked loans with disbursement tracking, pre-EMI vs full EMI, capital gains on sale) and vehicles (purchase price, depreciation); feeds into Net Worth
-7. **XIRR on investments** — True annualized return accounting for investment timing; current P&L shows absolute gain but not rate of return
-8. **Prepayment calculator on Debt page** — "If I pay ₹5L extra, how much interest saved and months reduced?"; includes rate change simulator for floating-rate loans
-9. **Full tax computation (both regimes)** — Slab-wise breakdown: Gross → deductions → taxable income → tax payable; side-by-side Old vs New regime with exact rupee amounts; HRA exemption calculator; advance tax dates
+#### Financial Intelligence
+5. **XIRR on investments** — True annualized return; current P&L shows absolute gain only
+6. **Full tax computation** — Slab-wise breakdown with exact rupee amounts; HRA exemption calculator; advance tax dates (current Income page shows illustrative estimate only)
+7. **Prepayment / rate-change calculator** on Debt page
+8. **Capital gains calculator** — LTCG/STCG classification by holding period on Stocks sub-page
+9. **Asset allocation view** — Equity vs debt vs real estate vs gold pie + rebalancing
 
-#### Medium Priority (Not Yet Done)
-- **Capital gains calculator** — Indexed cost of acquisition, LTCG/STCG classification by holding period, integration with Income & Tax page
-- **Asset allocation view** — Pie chart: equity vs debt vs real estate vs gold; rebalancing suggestions
-- **Category-wise annual comparison** in Reports — "Food: ₹1.2L this FY vs ₹95K last FY (+26%)"
-- **Top merchants report** — Where money actually goes, ranked by total spend
-- **Income vs expense trend** — Monthly line chart showing savings gap
+#### Medium Priority (not yet done)
+- **Payoff timeline chart** on Debt page — horizontal bar showing when each loan closes (spec §6.3)
+- **Debt-to-income gauge** with safe/caution/danger thresholds (spec §6.3)
+- **Sector weightings + rebalancing** on Stocks sub-page (spec §6.4)
+- **FD/RD maturity ladder** timeline view on Investments page (spec §6.4)
+- **Category-wise annual comparison** in Reports — "Food: ₹1.2L this FY vs ₹95K last FY"
+- **Top merchants report** — total spend ranked by merchant
+- **Income vs expense trend** — monthly line chart showing savings gap
 - **CSV export** of transactions and all data
-- **Net worth breakdown by asset class** — Liquid, semi-liquid, illiquid, retirement
+- **Net worth breakdown by asset class** — liquid, semi-liquid, illiquid, retirement
 - **Month-over-month change** on Net Worth page
 - **Time-to-goal projection** on Goals page
 - **Emergency fund goal** (auto-calculated from 6× monthly expenses)
-- **Part-payment history** on Debt page
-- **Interest certificate tracking** (Section 24b) on Debt page
+- **Part-payment history** + **interest certificate tracking** (Section 24b) on Debt page
 - **Dividend/interest income tracking** on Investments page
 
-#### Lower Priority (Spec items, not yet done)
-- **Background jobs** (APScheduler): price sync, budget alerts, EMI reminders, weekly/monthly Discord reports, NW snapshots, FY rollover, DB backup
-- **Proactive Discord DMs:** budget alerts at 75%, over-budget DMs, EMI reminders 3 days before
-- **Auto-start scripts:** launchd plist (macOS), Task Scheduler XML (Windows), systemd unit (Linux)
-- **`setup.py`** one-click setup script
-- **`expose.py`** ngrok/Tailscale tunnel helper
-
-### Build Phases (Spec §11 + extensions)
+### Build Phases (Spec §11 + extensions) — updated 2026-07-02
 | Phase | Status |
 |-------|--------|
 | 1 — Core bot | ✅ Done |
 | 2 — API + basic dashboard | ✅ Done (transactions + templates APIs, dashboard routes) |
-| 3 — Debt & investments | ✅ Done (amortization, SIP projector, avalanche/snowball, stocks sub-page); price sync 🚧 |
+| 3 — Debt & investments | ✅ Done (amortization, SIP projector, avalanche/snowball, stocks sub-page, price sync via yfinance) |
 | 4 — Net worth & goals | ✅ Done (snapshots, retirement projector) |
 | 5 — Income & tax | ✅ Page done (regime comparison, 80C/80D); full slab computation ❌ |
-| 6 — Reports & automation | 🚧 Reports + PDF download done; background jobs ❌ |
+| 6 — Reports & automation | ✅ Done (all 8 APScheduler jobs, Discord DMs, FY rollover, DB backup) |
 | 7 — Excel migration | ✅ Script exists |
 | 8 — Bank statement import | ✅ CSV/XLSX/PDF with smart parsing, 44+ header aliases, 54 merchant rules |
 | 9 — Multi-account | ✅ Account CRUD + import tagging + filters + dashboard breakdown |
 | 10 — Credit cards & recurring | ✅ Cards CRUD, statements, EMI plans, subscriptions page |
-| 11 — Assets module | ❌ Not started |
+| 11 — Assets module | ✅ AssetsPage + AssetDetailPage + assets router (beyond original spec scope) |
+| 12 — Beyond spec | ✅ Insurance, Home Inventory, Journal pages; single-tx edit; setup.py; expose.py; autostart scripts |

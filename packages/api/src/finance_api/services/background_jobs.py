@@ -12,8 +12,11 @@ from zoneinfo import ZoneInfo
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
+from finance_api.services.amortization import compute_emi_advance
 from finance_api.services.budget_service import build_vs_actual
+from finance_api.services.gmail_sync import sync_gmail_transactions
 from finance_api.services.discord_notify import send_discord_dm
 from finance_api.services.investment_sync import sync_investment_prices
 from finance_api.services.net_worth_service import compute_totals_from_holdings
@@ -215,6 +218,44 @@ async def job_month_end_net_worth(db_path: Path) -> None:
         logger.info("Month-end net worth snapshot for %s", today.isoformat())
 
 
+async def job_gmail_sync(db_path: Path, api: ApiSettings) -> None:
+    """Every 3 hours — fetch new financial emails and insert to staging table."""
+    if not api.gmail_credentials_path or not api.gmail_credentials_path.exists():
+        return
+    async with open_db(db_path) as conn:
+        n = await sync_gmail_transactions(
+            conn,
+            api.gmail_credentials_path,
+            api.gmail_token_path,
+            api.gmail_sync_lookback_hours,
+        )
+        if n:
+            logger.info("Gmail sync: %s new staged transaction(s)", n)
+
+
+async def job_emi_auto_advance(db_path: Path) -> None:
+    """Daily 9:00 AM — reduce balance and advance next_emi_date for all active debts."""
+    async with open_db(db_path) as conn:
+        from dataclasses import replace as dc_replace  # noqa: PLC0415
+
+        debts = await debt_repo.list_debts(conn, status="active")
+        updated = 0
+        for debt in debts:
+            result = compute_emi_advance(debt)
+            if result:
+                new_bal, new_next_date, new_status = result
+                updated_row = dc_replace(
+                    debt,
+                    current_balance_paise=new_bal,
+                    next_emi_date=new_next_date,
+                    status=new_status,
+                )
+                await debt_repo.update_debt_row(conn, updated_row)
+                updated += 1
+        if updated:
+            logger.info("EMI auto-advance: %s debt(s) updated", updated)
+
+
 async def job_fy_rollover_april_first(db_path: Path) -> None:
     today = date.today()
     if not (today.month == 4 and today.day == 1):
@@ -314,8 +355,23 @@ def register_background_jobs(scheduler: AsyncIOScheduler, api: ApiSettings) -> N
         id="fy_rollover_apr1",
         **common,
     )
+    scheduler.add_job(
+        job_emi_auto_advance,
+        trig(hour=9, minute=0),
+        args=[db_path],
+        id="emi_auto_advance_9am",
+        **common,
+    )
+    scheduler.add_job(
+        job_gmail_sync,
+        IntervalTrigger(hours=3, timezone=tz),
+        args=[db_path, api],
+        id="gmail_sync_3h",
+        **common,
+    )
     logger.info(
-        "Registered background jobs (timezone=%s, backup_dir=%s)",
+        "Registered background jobs (timezone=%s, backup_dir=%s, gmail=%s)",
         tz,
         api.backup_dir,
+        "enabled" if api.gmail_credentials_path else "disabled (GMAIL_CREDENTIALS_PATH not set)",
     )

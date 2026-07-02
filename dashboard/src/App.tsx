@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppShell } from '@/components/layout/AppShell'
 import { AccountsPage } from '@/pages/AccountsPage'
+import { EmailInboxPage } from '@/pages/EmailInboxPage'
 import { AssetDetailPage } from '@/pages/AssetDetailPage'
 import { AssetsPage } from '@/pages/AssetsPage'
 import { BudgetPage } from '@/pages/BudgetPage'
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="income" element={<IncomeTaxPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="journal" element={<JournalPage />} />
+          <Route path="email-inbox" element={<EmailInboxPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

@@ -623,3 +623,28 @@ export type ConstructionTowerDashboardOut = {
 export type ZoneLabelsOut = {
   labels: Record<string, string>
 }
+
+export type StagedEmailTransaction = {
+  id: number
+  gmail_message_id: string
+  email_date: string
+  email_subject: string | null
+  email_from: string | null
+  raw_snippet: string | null
+  parsed_date: string | null
+  parsed_amount_paise: number | null
+  parsed_merchant: string | null
+  parsed_category: string | null
+  parsed_payment_mode: string | null
+  parsed_transaction_type: 'debit' | 'credit' | null
+  suggested_account_id: number | null
+  status: 'pending' | 'approved' | 'rejected'
+  created_transaction_id: number | null
+  created_at: string
+}
+
+export type EmailInboxStats = {
+  pending: number
+  approved: number
+  rejected: number
+}

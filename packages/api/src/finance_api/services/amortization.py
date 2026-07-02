@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import calendar
 from datetime import date
+from typing import TYPE_CHECKING
 
 from finance_api.schemas.debt import AmortizationRow
+
+if TYPE_CHECKING:
+    from finance_common.repositories.debts import DebtRow
 
 
 def build_schedule(
@@ -185,3 +190,58 @@ def _add_month(d: date) -> date:
         month = 1
         year += 1
     return date(year, month, 1)
+
+
+def advance_months(d: date, n: int) -> date:
+    """Add n months to d, clamping day to end-of-month if needed."""
+    total_months = d.month - 1 + n
+    year = d.year + total_months // 12
+    month = total_months % 12 + 1
+    day = min(d.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def compute_emi_advance(row: "DebtRow") -> tuple[int, str, str] | None:
+    """
+    Compute the correct EMI state for a debt based on elapsed time.
+
+    Returns (new_balance_paise, new_next_emi_date_iso, new_status) or None
+    when no update is needed (EMI not yet due, or required fields missing).
+
+    Uses original_amount_paise (falling back to current_balance_paise) as the
+    starting principal so the schedule is always computed from inception.
+    Skips phased home loans (those with disbursals are handled separately).
+    """
+    if not row.first_emi_date or not row.emi_paise:
+        return None
+
+    ref_date = date.fromisoformat(row.first_emi_date[:10])
+    today = date.today()
+
+    months_elapsed = (today.year - ref_date.year) * 12 + (today.month - ref_date.month)
+    if today.day < ref_date.day:
+        months_elapsed -= 1  # this month's payment hasn't landed yet
+    months_elapsed = max(0, months_elapsed)
+
+    if months_elapsed == 0:
+        return None
+
+    start_paise = row.original_amount_paise or row.current_balance_paise
+    sched, _ = build_schedule(
+        start_paise,
+        row.rate_percent,
+        row.emi_paise,
+        tenure_months=row.tenure_months,
+    )
+
+    if not sched:
+        return None
+
+    payments_made = min(months_elapsed, len(sched))
+
+    if payments_made >= len(sched):
+        return 0, advance_months(ref_date, len(sched)).isoformat(), "paid"
+
+    new_balance = sched[payments_made - 1].balance_after_paise
+    next_emi_date = advance_months(ref_date, payments_made)
+    return new_balance, next_emi_date.isoformat(), "active"
