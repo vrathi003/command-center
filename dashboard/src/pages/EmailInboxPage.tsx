@@ -1044,7 +1044,7 @@ export function EmailInboxPage() {
       {listQ.isPending ? (
         <PageLoading />
       ) : listQ.isError ? (
-        <PageError message="Failed to load email inbox" />
+        <PageError title="Failed to load email inbox" message="Could not fetch staged emails. Check that the API is running and Gmail is configured." />
       ) : items.length === 0 ? (
         <Panel>
           <p className="py-8 text-center text-sm text-zinc-400">
