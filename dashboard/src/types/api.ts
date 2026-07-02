@@ -648,3 +648,10 @@ export type EmailInboxStats = {
   approved: number
   rejected: number
 }
+
+export type HistoricalSyncResult = {
+  new_items: number
+  total_scanned: number
+  from_date: string
+  to_date: string
+}

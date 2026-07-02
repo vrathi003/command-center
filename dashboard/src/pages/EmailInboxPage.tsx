@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle, RefreshCw, Trash2, XCircle } from 'lucide-react'
+import { CalendarSearch, CheckCircle, RefreshCw, Trash2, XCircle } from 'lucide-react'
 import { useState } from 'react'
 
 import { PageHero } from '@/components/ui/PageHero'
@@ -11,12 +11,15 @@ import {
   clearRejectedEmails,
   fetchEmailInbox,
   fetchEmailInboxStats,
+  historicalSyncGmail,
   rejectEmailTransaction,
   syncGmailNow,
   updateStagedEmail,
 } from '@/lib/api'
 import { formatPaise } from '@/lib/format'
-import type { StagedEmailTransaction } from '@/types/api'
+import type { HistoricalSyncResult, StagedEmailTransaction } from '@/types/api'
+
+const MAX_HISTORICAL_DAYS = 90
 
 type Tab = 'pending' | 'approved' | 'rejected'
 
@@ -297,6 +300,178 @@ function ReadOnlyCard({ item }: { item: StagedEmailTransaction }) {
   )
 }
 
+// ── Historical import panel ───────────────────────────────────────────────────
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function daysAgoIso(n: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - n)
+  return d.toISOString().slice(0, 10)
+}
+
+function daysBetween(a: string, b: string): number {
+  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000)
+}
+
+interface HistoricalImportPanelProps {
+  onComplete: () => void
+}
+
+function HistoricalImportPanel({ onComplete }: HistoricalImportPanelProps) {
+  const [open, setOpen] = useState(false)
+  const [fromDate, setFromDate] = useState(daysAgoIso(30))
+  const [toDate, setToDate] = useState(todayIso())
+  const [confirming, setConfirming] = useState(false)
+  const [result, setResult] = useState<HistoricalSyncResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const days = daysBetween(fromDate, toDate)
+  const rangeError =
+    !fromDate || !toDate
+      ? 'Both dates are required.'
+      : days < 0
+        ? 'From date must be before To date.'
+        : days > MAX_HISTORICAL_DAYS
+          ? `Range cannot exceed ${MAX_HISTORICAL_DAYS} days (currently ${days} days).`
+          : null
+
+  const importMut = useMutation({
+    mutationFn: () => historicalSyncGmail(fromDate, toDate),
+    onSuccess: (data) => {
+      setResult(data)
+      setConfirming(false)
+      onComplete()
+    },
+    onError: (err: Error) => {
+      setError(err.message)
+      setConfirming(false)
+    },
+  })
+
+  function handleConfirm() {
+    setError(null)
+    setResult(null)
+    importMut.mutate()
+  }
+
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
+      {/* Collapsible header */}
+      <button
+        onClick={() => { setOpen((p) => !p); setResult(null); setError(null) }}
+        className="flex w-full items-center gap-2 px-5 py-4 text-left"
+      >
+        <CalendarSearch className="size-4 shrink-0 text-zinc-500" />
+        <span className="flex-1 text-sm font-medium text-zinc-700">Historical Import</span>
+        <span className="text-xs text-zinc-400">{open ? '▲ collapse' : '▼ expand'}</span>
+      </button>
+
+      {open && (
+        <div className="border-t border-zinc-100 px-5 pb-5 pt-4">
+          <p className="mb-4 text-xs text-zinc-500">
+            Pull older emails by date range. Max {MAX_HISTORICAL_DAYS} days per import — run
+            multiple times for longer periods. Does not affect the automatic 3-hour sync.
+          </p>
+
+          <div className="flex flex-wrap items-end gap-4">
+            <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
+              From
+              <input
+                type="date"
+                value={fromDate}
+                max={todayIso()}
+                onChange={(e) => { setFromDate(e.target.value); setResult(null) }}
+                className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
+              To
+              <input
+                type="date"
+                value={toDate}
+                max={todayIso()}
+                onChange={(e) => { setToDate(e.target.value); setResult(null) }}
+                className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </label>
+            {fromDate && toDate && !rangeError && (
+              <span className="mb-2 text-xs text-zinc-400">{days} day{days !== 1 ? 's' : ''}</span>
+            )}
+          </div>
+
+          {rangeError && (
+            <p className="mt-2 text-xs text-red-600">{rangeError}</p>
+          )}
+
+          <button
+            onClick={() => setConfirming(true)}
+            disabled={!!rangeError || importMut.isPending}
+            className="mt-4 flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40"
+          >
+            <CalendarSearch className="size-3.5" />
+            Import emails from this range
+          </button>
+
+          {/* Result banner */}
+          {result && (
+            <div className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              Done — {result.new_items} new item(s) staged from {result.total_scanned} email(s)
+              scanned ({result.from_date} → {result.to_date}).
+            </div>
+          )}
+          {error && (
+            <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Confirmation dialog */}
+      {confirming && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="text-base font-semibold text-zinc-900">Confirm historical import</h2>
+            <p className="mt-2 text-sm text-zinc-600">
+              This will scan <span className="font-medium">{days} day{days !== 1 ? 's' : ''}</span>{' '}
+              of Gmail ({fromDate} → {toDate}) for bank and merchant transaction emails.
+            </p>
+            <p className="mt-1 text-sm text-zinc-600">
+              Found emails will be added to the <span className="font-medium">Pending</span> tab
+              for your review. Duplicates (already staged) are skipped automatically.
+            </p>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                onClick={() => setConfirming(false)}
+                className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirm}
+                disabled={importMut.isPending}
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {importMut.isPending ? (
+                  <>
+                    <RefreshCw className="size-3.5 animate-spin" />
+                    Importing…
+                  </>
+                ) : (
+                  'Yes, import'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export function EmailInboxPage() {
@@ -410,6 +585,8 @@ export function EmailInboxPage() {
           Sync failed. Make sure Gmail is configured with a valid credentials file.
         </div>
       )}
+
+      <HistoricalImportPanel onComplete={invalidate} />
 
       {/* Tab bar */}
       <div className="flex items-center gap-1 border-b border-zinc-200">

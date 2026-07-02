@@ -54,6 +54,7 @@ import type {
   ZoneLabelsOut,
   StagedEmailTransaction,
   EmailInboxStats,
+  HistoricalSyncResult,
 } from '@/types/api'
 
 function apiBase(): string {
@@ -1528,4 +1529,16 @@ export async function rejectEmailTransaction(id: number): Promise<StagedEmailTra
 export async function clearRejectedEmails(): Promise<{ deleted: number }> {
   const res = await fetch(`${apiBase()}/api/email-inbox/rejected`, { method: 'DELETE' })
   return parseJson<{ deleted: number }>(res)
+}
+
+export async function historicalSyncGmail(
+  from_date: string,
+  to_date: string,
+): Promise<HistoricalSyncResult> {
+  const res = await fetch(`${apiBase()}/api/email-inbox/historical-sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from_date, to_date }),
+  })
+  return parseJson<HistoricalSyncResult>(res)
 }

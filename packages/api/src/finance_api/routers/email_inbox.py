@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated
 
 import aiosqlite
@@ -72,6 +72,18 @@ class SyncResult(BaseModel):
     new_items: int
 
 
+class HistoricalSyncBody(BaseModel):
+    from_date: str   # YYYY-MM-DD
+    to_date: str     # YYYY-MM-DD
+
+
+class HistoricalSyncResult(BaseModel):
+    new_items: int
+    total_scanned: int
+    from_date: str
+    to_date: str
+
+
 def _to_out(row: StagedEmailRow) -> StagedEmailOut:
     return StagedEmailOut(
         id=row.id,
@@ -136,6 +148,58 @@ async def manual_sync(
         api.gmail_sync_lookback_hours,
     )
     return SyncResult(new_items=n)
+
+
+_MAX_HISTORICAL_DAYS = 90
+
+
+@router.post("/historical-sync", response_model=HistoricalSyncResult)
+async def historical_sync(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    api: Annotated[ApiSettings, Depends(get_settings)],
+    body: HistoricalSyncBody,
+) -> HistoricalSyncResult:
+    """Import emails from a specific date range (max 90 days). Does not affect the rolling sync checkpoint."""
+    if not api.gmail_credentials_path or not api.gmail_credentials_path.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Gmail not configured. Set GMAIL_CREDENTIALS_PATH and run scripts/setup_gmail.py.",
+        )
+
+    try:
+        from_date = date.fromisoformat(body.from_date)
+        to_date = date.fromisoformat(body.to_date)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail="Invalid date format. Use YYYY-MM-DD.") from e
+
+    today = date.today()
+    if from_date > today:
+        raise HTTPException(status_code=422, detail="from_date cannot be in the future.")
+    if to_date > today:
+        to_date = today
+    if from_date > to_date:
+        raise HTTPException(status_code=422, detail="from_date must be before or equal to to_date.")
+    if (to_date - from_date) > timedelta(days=_MAX_HISTORICAL_DAYS):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Date range cannot exceed {_MAX_HISTORICAL_DAYS} days per import.",
+        )
+
+    from finance_api.services.gmail_sync import historical_sync_gmail_transactions  # noqa: PLC0415
+
+    result = await historical_sync_gmail_transactions(
+        conn,
+        api.gmail_credentials_path,
+        api.gmail_token_path,
+        from_date,
+        to_date,
+    )
+    return HistoricalSyncResult(
+        new_items=result["new_items"],
+        total_scanned=result["total_scanned"],
+        from_date=from_date.isoformat(),
+        to_date=to_date.isoformat(),
+    )
 
 
 @router.put("/{item_id}", response_model=StagedEmailOut)
