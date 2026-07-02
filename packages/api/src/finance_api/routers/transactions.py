@@ -64,9 +64,15 @@ async def list_transactions(
     start_date: str | None = Query(default=None),
     end_date: str | None = Query(default=None),
     account: str | None = Query(default=None),
+    account_id: int | None = Query(default=None),
 ) -> list[dict[str, object]]:
     rows = await tx_repo.list_recent(
-        conn, limit=limit, start_date=start_date, end_date=end_date, account=account
+        conn,
+        limit=limit,
+        start_date=start_date,
+        end_date=end_date,
+        account=account,
+        account_id=account_id,
     )
     return [_tx_row_dict(r) for r in rows]
 

@@ -145,12 +145,13 @@ export async function fetchDashboardAlerts(): Promise<DashboardAlerts> {
 
 export async function fetchTransactions(
   limit = 50,
-  options?: { startDate?: string; endDate?: string; account?: string },
+  options?: { startDate?: string; endDate?: string; account?: string; accountId?: number },
 ): Promise<TransactionRow[]> {
   const params = new URLSearchParams({ limit: String(limit) })
   if (options?.startDate) params.set('start_date', options.startDate)
   if (options?.endDate) params.set('end_date', options.endDate)
   if (options?.account) params.set('account', options.account)
+  if (options?.accountId != null) params.set('account_id', String(options.accountId))
   const res = await apiFetch(`${apiBase()}/api/transactions/?${params}`)
   return parseJson<TransactionRow[]>(res)
 }

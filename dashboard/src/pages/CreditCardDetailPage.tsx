@@ -18,6 +18,7 @@ import {
   fetchCreditCard,
   fetchCreditCardEmis,
   fetchCreditCardStatements,
+  fetchTransactions,
   payCcBill,
   postCreditCardEmi,
   putCreditCard,
@@ -25,7 +26,7 @@ import {
   uploadCreditCardStatement,
 } from '@/lib/api'
 import { formatPaiseCompact } from '@/lib/format'
-import type { AccountOut, CreditCardEmiOut, CreditCardOut } from '@/types/api'
+import type { AccountOut, CreditCardEmiOut, CreditCardOut, TransactionRow } from '@/types/api'
 
 
 function rupeesToPaise(s: string): number | null {
@@ -1023,6 +1024,162 @@ function CreditCardEmiBlock({
   )
 }
 
+const INTEREST_KEYWORDS = ['interest', 'finance charge', 'late fee', 'cash advance', 'annual fee', 'gst on interest', 'overlimit', 'over limit', 'penalty']
+
+function isInterestOrFee(tx: TransactionRow): boolean {
+  const hay = `${tx.merchant ?? ''} ${tx.category ?? ''}`.toLowerCase()
+  return INTEREST_KEYWORDS.some((k) => hay.includes(k))
+}
+
+function getBillingCycleLabel(dateStr: string, statementDay: number): string {
+  const d = new Date(`${dateStr}T12:00:00`)
+  const day = d.getDate()
+  const cycleStart =
+    day >= statementDay
+      ? new Date(d.getFullYear(), d.getMonth(), statementDay)
+      : new Date(d.getFullYear(), d.getMonth() - 1, statementDay)
+  const cycleEnd = new Date(cycleStart.getFullYear(), cycleStart.getMonth() + 1, statementDay - 1)
+  const fmt = (x: Date) => x.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  return `${fmt(cycleStart)} – ${fmt(cycleEnd)}`
+}
+
+function getMonthLabel(dateStr: string): string {
+  const d = new Date(`${dateStr}T12:00:00`)
+  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+}
+
+function groupTransactions(
+  txs: TransactionRow[],
+  statementDay: number | null,
+): Array<{ label: string; txs: TransactionRow[]; debitTotal: number; creditTotal: number }> {
+  const map = new Map<string, TransactionRow[]>()
+  for (const tx of txs) {
+    if (!tx.date) continue
+    const label = statementDay ? getBillingCycleLabel(tx.date, statementDay) : getMonthLabel(tx.date)
+    const arr = map.get(label) ?? []
+    arr.push(tx)
+    map.set(label, arr)
+  }
+  return Array.from(map.entries()).map(([label, list]) => ({
+    label,
+    txs: list,
+    debitTotal: list.filter((t) => t.transaction_type === 'debit').reduce((s, t) => s + t.amount_paise, 0),
+    creditTotal: list.filter((t) => t.transaction_type === 'credit').reduce((s, t) => s + t.amount_paise, 0),
+  }))
+}
+
+function CcTransactionList({
+  accountId,
+  statementDay,
+  cardName,
+}: {
+  accountId: number
+  statementDay: number | null
+  cardName: string
+}) {
+  const txQ = useQuery({
+    queryKey: ['cc-transactions', accountId],
+    queryFn: () => fetchTransactions(500, { accountId }),
+    staleTime: 60_000,
+  })
+
+  if (txQ.isPending) return <Panel className="text-sm text-zinc-500 py-6 text-center">Loading transactions…</Panel>
+  if (txQ.isError) return <p className="text-sm text-red-600">{String(txQ.error)}</p>
+
+  const txs = (txQ.data ?? []).filter((t) => t.transaction_type !== 'transfer')
+  if (txs.length === 0) {
+    return (
+      <Panel className="text-sm text-zinc-500 py-6 text-center">
+        No transactions yet — import a statement or log spending on <em>{cardName}</em>.
+      </Panel>
+    )
+  }
+
+  const groups = groupTransactions(txs, statementDay)
+
+  return (
+    <div className="space-y-4">
+      {groups.map((g) => {
+        const interestTotal = g.txs
+          .filter((t) => isInterestOrFee(t) && t.transaction_type === 'debit')
+          .reduce((s, t) => s + t.amount_paise, 0)
+        return (
+          <Panel key={g.label} padding={false} className="overflow-hidden">
+            {/* Cycle header */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 bg-zinc-50/60 px-4 py-2.5">
+              <span className="text-sm font-semibold text-zinc-800">{g.label}</span>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums">
+                <span className="text-zinc-600">
+                  <span className="font-medium text-zinc-500">Spent </span>
+                  {formatPaiseCompact(g.debitTotal)}
+                </span>
+                {g.creditTotal > 0 ? (
+                  <span className="text-emerald-700">
+                    <span className="font-medium">Credits </span>
+                    {formatPaiseCompact(g.creditTotal)}
+                  </span>
+                ) : null}
+                {interestTotal > 0 ? (
+                  <span className="font-medium text-red-700">
+                    Interest/fees {formatPaiseCompact(interestTotal)}
+                  </span>
+                ) : null}
+                <span className="text-zinc-400">{g.txs.length} txn{g.txs.length !== 1 ? 's' : ''}</span>
+              </div>
+            </div>
+            {/* Transaction rows */}
+            <ul className="divide-y divide-zinc-50">
+              {g.txs.map((tx) => {
+                const warn = isInterestOrFee(tx) && tx.transaction_type === 'debit'
+                return (
+                  <li
+                    key={tx.id}
+                    className={`flex items-center gap-3 px-4 py-2.5 text-sm ${warn ? 'bg-red-50/40' : ''}`}
+                  >
+                    <span className="w-20 shrink-0 text-xs tabular-nums text-zinc-400">{tx.date}</span>
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className={`font-medium ${warn ? 'text-red-800' : 'text-zinc-900'}`}>
+                        {tx.merchant || '—'}
+                      </span>
+                      {tx.category ? (
+                        <span className="ml-2 text-xs text-zinc-400">{tx.category}</span>
+                      ) : null}
+                      {warn ? <span className="ml-2 text-xs font-semibold text-red-600">⚠ interest/fee</span> : null}
+                    </span>
+                    <span
+                      className={`shrink-0 tabular-nums font-medium ${
+                        tx.transaction_type === 'credit' ? 'text-emerald-700' : 'text-zinc-900'
+                      }`}
+                    >
+                      {tx.transaction_type === 'credit' ? '+' : ''}
+                      {formatPaiseCompact(tx.amount_paise)}
+                    </span>
+                    <span
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                        tx.transaction_type === 'credit'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-zinc-100 text-zinc-700'
+                      }`}
+                    >
+                      {tx.transaction_type === 'credit' ? 'CR' : 'DR'}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          </Panel>
+        )
+      })}
+      <p className="text-center text-xs text-zinc-400">
+        Showing last 500 transactions · Transfers (bill payments) excluded ·{' '}
+        <Link to="/transactions" className="text-emerald-700 hover:underline">
+          View all in Transactions →
+        </Link>
+      </p>
+    </div>
+  )
+}
+
 function PayBillDrawer({
   cardId,
   cardName,
@@ -1339,6 +1496,17 @@ export function CreditCardDetailPage() {
             />
           </div>
         </div>
+      ) : null}
+
+      {hasLinkedAccount ? (
+        <section>
+          <SectionTitle>Transactions</SectionTitle>
+          <CcTransactionList
+            accountId={c.account_id!}
+            statementDay={c.statement_day ?? null}
+            cardName={c.name}
+          />
+        </section>
       ) : null}
 
       <section>

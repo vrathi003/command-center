@@ -737,6 +737,7 @@ async def list_recent(
     start_date: str | None = None,
     end_date: str | None = None,
     account: str | None = None,
+    account_id: int | None = None,
 ) -> list[TransactionRow]:
     clauses = ["is_deleted = 0"]
     params: list[object] = []
@@ -749,6 +750,9 @@ async def list_recent(
     if account:
         clauses.append("account = ?")
         params.append(account)
+    if account_id is not None:
+        clauses.append("account_id = ?")
+        params.append(account_id)
     where = " AND ".join(clauses)
     params.append(limit)
     cur = await conn.execute(
