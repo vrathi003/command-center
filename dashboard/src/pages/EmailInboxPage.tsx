@@ -779,6 +779,10 @@ export function EmailInboxPage() {
   function invalidate() {
     qc.invalidateQueries({ queryKey: ['email-inbox'] })
     qc.invalidateQueries({ queryKey: ['email-inbox-stats'] })
+    qc.invalidateQueries({ queryKey: ['transactions'] })
+    qc.invalidateQueries({ queryKey: ['dashboard-summary'] })
+    qc.invalidateQueries({ queryKey: ['dashboard-alerts'] })
+    qc.invalidateQueries({ queryKey: ['budget-vs'] })
   }
 
   const syncMut = useMutation({ mutationFn: syncGmailNow, onSuccess: invalidate })
