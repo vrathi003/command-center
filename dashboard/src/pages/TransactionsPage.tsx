@@ -248,7 +248,25 @@ export function TransactionsPage() {
     [rows],
   )
   const totalTransfer = useMemo(
-    () => rows.filter((r) => r.transaction_type === 'transfer').reduce((s, r) => s + r.amount_paise, 0),
+    () => {
+      const seenPairs = new Set<string>()
+      let total = 0
+      for (const r of rows) {
+        if (r.transaction_type !== 'transfer') {
+          continue
+        }
+        if (!r.transfer_pair_id) {
+          total += r.amount_paise
+          continue
+        }
+        if (seenPairs.has(r.transfer_pair_id)) {
+          continue
+        }
+        seenPairs.add(r.transfer_pair_id)
+        total += r.amount_paise
+      }
+      return total
+    },
     [rows],
   )
 
