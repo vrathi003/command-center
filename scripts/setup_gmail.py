@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
 """One-time Gmail OAuth2 consent flow.
 
-Run this once to authorise the app to read your Gmail:
+Normal use (machine has a browser):
+    python scripts/setup_gmail.py --credentials ~/finance/gmail_credentials.json
 
-    python scripts/setup_gmail.py --credentials ~/path/to/credentials.json
+Headless / Tailscale server (no browser on the machine running the API):
+    python scripts/setup_gmail.py --credentials ~/finance/gmail_credentials.json --console
+    # Copy the URL it prints, open it on any browser, click Allow,
+    # paste the code back into the terminal.
 
-The script opens a browser tab for Google OAuth consent, then writes a
-token file (default: ~/finance/gmail_token.json) that the API server
-uses for all subsequent syncs without re-prompting.
+After running, set in your .env:
+    GMAIL_CREDENTIALS_PATH=~/finance/gmail_credentials.json
+    GMAIL_TOKEN_PATH=~/finance/gmail_token.json
 
-Prerequisites
--------------
-1. Create a GCP project at https://console.cloud.google.com/
-2. Enable the Gmail API
-3. Create OAuth2 credentials (type: Desktop App)
-4. Download the credentials JSON and pass it via --credentials
-
-Then set these in your .env:
-    GMAIL_CREDENTIALS_PATH=/path/to/credentials.json
-    GMAIL_TOKEN_PATH=~/finance/gmail_token.json  # (this is the default)
+See gmail_todo.md for full GCP setup instructions.
 """
 
 from __future__ import annotations
@@ -40,6 +35,14 @@ def main() -> None:
         default="~/finance/gmail_token.json",
         help="Where to write the token (default: ~/finance/gmail_token.json)",
     )
+    parser.add_argument(
+        "--console",
+        action="store_true",
+        help=(
+            "Use copy-paste flow instead of opening a browser. "
+            "Use this when running on a headless server or remote machine (e.g. via Tailscale SSH)."
+        ),
+    )
     args = parser.parse_args()
 
     creds_path = Path(args.credentials).expanduser().resolve()
@@ -47,31 +50,50 @@ def main() -> None:
 
     if not creds_path.exists():
         print(f"[ERROR] Credentials file not found: {creds_path}", file=sys.stderr)
-        print("Download it from https://console.cloud.google.com/ → APIs & Services → Credentials", file=sys.stderr)
+        print("Download it from Google Cloud Console:", file=sys.stderr)
+        print("  Google Auth Platform → Clients → your Desktop app → Download JSON", file=sys.stderr)
+        print("See gmail_todo.md for full setup instructions.", file=sys.stderr)
         sys.exit(1)
 
     try:
         from google_auth_oauthlib.flow import InstalledAppFlow  # noqa: PLC0415
     except ImportError:
         print("[ERROR] Google API libraries not installed.", file=sys.stderr)
-        print("Run: uv add google-auth-oauthlib google-auth-httplib2 google-api-python-client", file=sys.stderr)
+        print("Run: uv sync   (or: pip install google-auth-oauthlib google-api-python-client)", file=sys.stderr)
         sys.exit(1)
 
     scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
     print(f"Using credentials: {creds_path}")
-    print("Opening browser for OAuth consent…")
 
     flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), scopes)
-    creds = flow.run_local_server(port=0)
+
+    if args.console:
+        print()
+        print("── Console (copy-paste) mode ──────────────────────────────────────")
+        print("1. Copy the URL below and open it in any browser")
+        print("2. Sign in with the Gmail you added as a test user")
+        print("3. Click Allow")
+        print("4. Copy the authorization code shown in the browser")
+        print("5. Paste it below")
+        print()
+        creds = flow.run_console()
+    else:
+        print("Opening browser for OAuth consent…")
+        print("(Use --console if you're on a headless/remote machine)")
+        creds = flow.run_local_server(port=0)
 
     token_path.parent.mkdir(parents=True, exist_ok=True)
     token_path.write_text(creds.to_json())
 
-    print(f"\n✓ Token saved to: {token_path}")
-    print("\nAdd these to your .env:")
+    print()
+    print(f"✓ Token saved to: {token_path}")
+    print()
+    print("Add these to your .env:")
     print(f"  GMAIL_CREDENTIALS_PATH={creds_path}")
     print(f"  GMAIL_TOKEN_PATH={token_path}")
-    print("\nRestart the API server. Gmail will now sync every 3 hours automatically.")
+    print()
+    print("Restart the API server. Gmail will now sync every 3 hours automatically.")
+    print("Visit /email-inbox on the dashboard and click 'Sync now' to test.")
 
 
 if __name__ == "__main__":
