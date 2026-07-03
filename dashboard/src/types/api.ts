@@ -728,3 +728,77 @@ export type ApproveAsTransferResult = {
   debit_item: StagedEmailTransaction
   credit_item: StagedEmailTransaction
 }
+
+// ── Statement import (CardQL-style Gmail fetch + preview) ─────────────────────
+
+export type StatementImportRuleOut = {
+  id: number
+  bank: string
+  card: string
+  from_emails: string[]
+  subject_contains: string | null
+  pdf_password: string | null
+  credit_card_id: number | null
+  is_enabled: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type StatementImportRuleBody = {
+  bank: string
+  card: string
+  from_emails: string[]
+  subject_contains?: string | null
+  pdf_password?: string | null
+  credit_card_id?: number | null
+  is_enabled?: boolean
+}
+
+export type StatementTagRuleOut = {
+  id: number
+  tag_name: string
+  regex_patterns: string[]
+  is_enabled: boolean
+}
+
+export type StatementTagRuleBody = {
+  tag_name: string
+  regex_patterns: string[]
+  is_enabled?: boolean
+}
+
+export type StatementImportTransactionRow = {
+  date: string
+  bank: string
+  card: string
+  description: string
+  amount: number
+  currency: string
+  category: string | null
+  transaction_type: string | null
+  tags: string
+  statement_period: string
+  gmail_message_id: string
+}
+
+export type StatementImportFetchResponse = {
+  gmail_scanned: number
+  statements_parsed: number
+  skipped: Array<Record<string, string>>
+  transactions: StatementImportTransactionRow[]
+  snapshot_id: number | null
+}
+
+export type StatementImportSnapshotOut = {
+  id: number
+  fetched_at: string
+  gmail_scanned: number
+  statements_parsed: number
+  skipped: Array<Record<string, string>>
+  transactions: StatementImportTransactionRow[]
+}
+
+export type GmailStatusOut = {
+  configured: boolean
+  credentials_path: string | null
+}

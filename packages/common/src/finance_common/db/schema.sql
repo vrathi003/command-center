@@ -552,3 +552,50 @@ CREATE TABLE IF NOT EXISTS email_transaction_staging (
 
 CREATE INDEX IF NOT EXISTS idx_email_staging_status ON email_transaction_staging(status);
 CREATE INDEX IF NOT EXISTS idx_email_staging_gmail_id ON email_transaction_staging(gmail_message_id);
+
+-- ── Statement import (CardQL-style Gmail fetch + preview) ─────────────────────
+
+CREATE TABLE IF NOT EXISTS statement_import_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bank TEXT NOT NULL,
+    card TEXT NOT NULL,
+    from_emails_json TEXT NOT NULL DEFAULT '[]',
+    subject_contains TEXT,
+    pdf_password TEXT,
+    credit_card_id INTEGER REFERENCES credit_cards(id) ON DELETE SET NULL,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_statement_import_rules_enabled
+    ON statement_import_rules(is_enabled);
+
+CREATE TABLE IF NOT EXISTS statement_tag_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tag_name TEXT NOT NULL,
+    regex_patterns_json TEXT NOT NULL DEFAULT '[]',
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS statement_import_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+    gmail_scanned INTEGER NOT NULL DEFAULT 0,
+    statements_parsed INTEGER NOT NULL DEFAULT 0,
+    skipped_json TEXT,
+    transactions_json TEXT NOT NULL DEFAULT '[]',
+    source_gmail_ids_json TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE TABLE IF NOT EXISTS statement_import_fetched_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gmail_message_id TEXT NOT NULL UNIQUE,
+    rule_id INTEGER NOT NULL REFERENCES statement_import_rules(id) ON DELETE CASCADE,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_statement_import_fetched_rule
+    ON statement_import_fetched_messages(rule_id);

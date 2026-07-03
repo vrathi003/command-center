@@ -63,6 +63,13 @@ import type {
   EmailInboxStats,
   HistoricalSyncResult,
   ApproveAsTransferResult,
+  StatementImportRuleOut,
+  StatementImportRuleBody,
+  StatementTagRuleOut,
+  StatementTagRuleBody,
+  StatementImportFetchResponse,
+  StatementImportSnapshotOut,
+  GmailStatusOut,
 } from '@/types/api'
 
 function apiBase(): string {
@@ -1745,4 +1752,95 @@ export async function historicalSyncGmail(
     body: JSON.stringify({ from_date, to_date }),
   })
   return parseJson<HistoricalSyncResult>(res)
+}
+
+// ── Statement import ──────────────────────────────────────────────────────────
+
+export async function fetchStatementImportGmailStatus(): Promise<GmailStatusOut> {
+  const res = await apiFetch(`${apiBase()}/api/statement-import/gmail-status`)
+  return parseJson<GmailStatusOut>(res)
+}
+
+export async function fetchStatementImportRules(): Promise<StatementImportRuleOut[]> {
+  const res = await apiFetch(`${apiBase()}/api/statement-import/rules`)
+  return parseJson<StatementImportRuleOut[]>(res)
+}
+
+export async function createStatementImportRule(
+  body: StatementImportRuleBody,
+): Promise<StatementImportRuleOut> {
+  const res = await apiFetch(`${apiBase()}/api/statement-import/rules`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<StatementImportRuleOut>(res)
+}
+
+export async function updateStatementImportRule(
+  id: number,
+  body: StatementImportRuleBody,
+): Promise<StatementImportRuleOut> {
+  const res = await apiFetch(`${apiBase()}/api/statement-import/rules/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<StatementImportRuleOut>(res)
+}
+
+export async function deleteStatementImportRule(id: number): Promise<void> {
+  const res = await apiFetch(`${apiBase()}/api/statement-import/rules/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || `HTTP ${res.status}`)
+  }
+}
+
+export async function fetchStatementImportTags(): Promise<StatementTagRuleOut[]> {
+  const res = await apiFetch(`${apiBase()}/api/statement-import/tags`)
+  return parseJson<StatementTagRuleOut[]>(res)
+}
+
+export async function putStatementImportTags(
+  tags: StatementTagRuleBody[],
+): Promise<StatementTagRuleOut[]> {
+  const res = await apiFetch(`${apiBase()}/api/statement-import/tags`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tags }),
+  })
+  return parseJson<StatementTagRuleOut[]>(res)
+}
+
+export async function fetchStatementsImportNow(): Promise<StatementImportFetchResponse> {
+  const res = await apiFetch(`${apiBase()}/api/statement-import/fetch`, { method: 'POST' })
+  return parseJson<StatementImportFetchResponse>(res)
+}
+
+export async function fetchLatestStatementImportSnapshot(): Promise<StatementImportSnapshotOut | null> {
+  const res = await apiFetch(`${apiBase()}/api/statement-import/snapshots/latest`)
+  if (res.status === 404) return null
+  return parseJson<StatementImportSnapshotOut | null>(res)
+}
+
+export async function downloadStatementImportCsv(): Promise<void> {
+  const res = await apiFetch(`${apiBase()}/api/statement-import/snapshots/latest/csv`)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || `HTTP ${res.status}`)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  try {
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'statement_import.csv'
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
 }

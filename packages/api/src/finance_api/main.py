@@ -32,6 +32,7 @@ from finance_api.routers import (
     merchant_rules,
     net_worth,
     reports,
+    statement_import,
     subscriptions,
     transaction_templates,
     transactions,
@@ -117,6 +118,7 @@ def create_app() -> FastAPI:
     app.include_router(home_items.router, prefix="/api")
     app.include_router(construction_progress.router, prefix="/api")
     app.include_router(email_inbox.router, prefix="/api")
+    app.include_router(statement_import.router, prefix="/api")
     return app
 
 

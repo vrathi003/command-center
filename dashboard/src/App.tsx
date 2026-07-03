@@ -27,6 +27,7 @@ import { NetWorthPage } from '@/pages/NetWorthPage'
 import { RecurringPaymentsPage } from '@/pages/RecurringPaymentsPage'
 import { ReportsPage } from '@/pages/ReportsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { StatementImportPage } from '@/pages/StatementImportPage'
 import { TransactionTemplatesPage } from '@/pages/TransactionTemplatesPage'
 import { TransactionsPage } from '@/pages/TransactionsPage'
 import { LoginPage } from '@/pages/LoginPage'
@@ -68,6 +69,7 @@ function AppRoutes() {
           <Route path="reports" element={<ReportsPage />} />
           <Route path="journal" element={<JournalPage />} />
           <Route path="email-inbox" element={<EmailInboxPage />} />
+          <Route path="statement-import" element={<StatementImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

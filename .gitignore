@@ -16,3 +16,5 @@ build/
 .DS_Store
 .env.example
 .qwen/
+.local/
+data/
