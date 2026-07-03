@@ -24,32 +24,32 @@ class AppSettings(BaseSettings):
     db_path: Path = Field(default=Path("~/finance/finance.db"), alias="DB_PATH")
     app_env: str = Field(default="development", alias="APP_ENV")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
-    lm_studio_enabled: bool = Field(default=True, alias="LM_STUDIO_ENABLED")
-    lm_studio_url: str | None = Field(default=None, alias="LM_STUDIO_URL")
-    lm_studio_model: str = Field(default="qwen/qwen3.5-9b", alias="LM_STUDIO_MODEL")
-    lm_studio_timeout_seconds: float = Field(
+    local_llm_enabled: bool = Field(default=True, alias="LOCAL_LLM_ENABLED")
+    local_llm_url: str | None = Field(default=None, alias="LOCAL_LLM_URL")
+    local_llm_model: str = Field(default="qwen2.5:1.5b", alias="LOCAL_LLM_MODEL")
+    local_llm_timeout_seconds: float = Field(
         default=600.0,
-        alias="LM_STUDIO_TIMEOUT_SECONDS",
+        alias="LOCAL_LLM_TIMEOUT_SECONDS",
         ge=30.0,
         le=3600.0,
     )
     # Shorter timeout used for CSV/XLSX narration enrichment (per batch of ~15 rows).
     # Increase this if your machine is slow. Defaults to 90 s.
-    lm_studio_narration_timeout_seconds: float = Field(
+    local_llm_narration_timeout_seconds: float = Field(
         default=90.0,
-        alias="LM_STUDIO_NARRATION_TIMEOUT_SECONDS",
+        alias="LOCAL_LLM_NARRATION_TIMEOUT_SECONDS",
         ge=10.0,
         le=600.0,
     )
 
     @property
-    def lm_studio_active(self) -> bool:
-        """True when LM Studio fallback is enabled and a local URL is configured."""
-        return self.lm_studio_enabled and bool(self.lm_studio_url)
+    def local_llm_active(self) -> bool:
+        """True when local LLM fallback is enabled and a URL is configured."""
+        return self.local_llm_enabled and bool(self.local_llm_url)
 
-    @field_validator("lm_studio_url", mode="before")
+    @field_validator("local_llm_url", mode="before")
     @classmethod
-    def empty_lm_url_to_none(cls, v: str | None) -> str | None:
+    def empty_llm_url_to_none(cls, v: str | None) -> str | None:
         if v is None:
             return None
         s = str(v).strip()

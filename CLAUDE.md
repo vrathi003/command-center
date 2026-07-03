@@ -36,7 +36,7 @@ Import flow: Bank statement (CSV/XLSX/PDF) → parser → SQLite → dashboard
 | API | FastAPI 0.115+, Pydantic 2.10+, aiosqlite 0.20+ |
 | Frontend | React 19, TypeScript, Vite, TanStack Query, Recharts, Tailwind CSS 4 |
 | DB | SQLite (single file, amounts in paise, FY-aware) |
-| LLM | OpenAI-compatible (LM Studio local) for PDF bank statement parsing |
+| LLM | OpenAI-compatible (Ollama/LM Studio local) for PDF bank statement parsing |
 | Tooling | uv (Python workspace), ruff, mypy (strict), pytest-asyncio |
 
 ---
@@ -67,7 +67,7 @@ python start.py    # Start all processes (API + bot)
 | `packages/common/src/finance_common/types.py` | Domain enums: Category, PaymentMode, etc. |
 | `packages/common/src/finance_common/parsing/` | Expense parser, `account_mentions.py`, `template_line.py`, import/transfer heuristics |
 | `packages/common/src/finance_common/parsing/transaction_import.py` | CSV/XLSX row parsing, header normalization, merchant→category heuristics |
-| `packages/common/src/finance_common/parsing/bank_statement_pdf.py` | PDF bank statement parser (heuristic + LM Studio fallback) |
+| `packages/common/src/finance_common/parsing/bank_statement_pdf.py` | PDF bank statement parser (heuristic + Ollama/LM Studio fallback) |
 | `packages/common/src/finance_common/fy.py` | Financial year utilities (April–March) |
 | `packages/common/src/finance_common/repositories/` | DB repositories (transactions, accounts, etc.) |
 | `packages/api/src/finance_api/main.py` | FastAPI app factory |
@@ -96,7 +96,7 @@ python start.py    # Start all processes (API + bot)
 ```
 DISCORD_BOT_TOKEN=
 DISCORD_USER_ID=          # Restrict bot to this user ID (optional)
-LM_STUDIO_URL=            # Local LLM for PDF parsing (optional, falls back to heuristic)
+LOCAL_LLM_URL=            # Local LLM for PDF parsing (optional, falls back to heuristic)
 DB_PATH=~/finance/finance.db
 API_HOST=localhost
 API_PORT=8000
@@ -164,7 +164,7 @@ LOG_LEVEL=INFO
 ## Bank Statement Import Pipeline
 
 1. Upload file (CSV/XLSX/XLS/PDF) via `POST /transactions/import`
-2. **PDF:** PyMuPDF text extraction → heuristic line parser → LM Studio fallback (if configured)
+2. **PDF:** PyMuPDF text extraction → heuristic line parser → Ollama/LM Studio fallback (if configured)
 3. **CSV/XLSX:** pandas read → auto-detect header row (skip bank preamble) → normalize headers
 4. Header normalization: `normalize_header_key()` maps 50+ aliases to canonical fields (date, amount, merchant, etc.)
 5. Debit/credit detection: separate columns or single amount column; `transaction_type` inferred

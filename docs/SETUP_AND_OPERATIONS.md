@@ -2,7 +2,7 @@
 
 This document covers environment variables, **Phase 6** background jobs, deployment helpers, PDF reports, stocks holdings fields, and related code paths. For day-to-day usage of the app, see the root [README](../README.md).
 
-**Bank statement PDF import** (local parsing, LM Studio fallback, passwords, CLI): see **[BANK_STATEMENT_PARSING.md](BANK_STATEMENT_PARSING.md)**.
+**Bank statement PDF import** (local parsing, Ollama/LM Studio fallback, passwords, CLI): see **[BANK_STATEMENT_PARSING.md](BANK_STATEMENT_PARSING.md)**.
 
 ## Environment variables (API)
 
@@ -16,7 +16,7 @@ This document covers environment variables, **Phase 6** background jobs, deploym
 | `JOBS_ENABLED` | Default `true`; set `false` to disable APScheduler entirely. |
 | `BACKUP_DIR` | Optional; daily **02:00** copy of `DB_PATH` to `finance_backup_YYYY-MM-DD.db`. |
 | `API_HOST` / `API_PORT` | Uvicorn bind (see README). |
-| `LM_STUDIO_URL` / `LM_STUDIO_MODEL` | Optional; **PDF bank statement** LLM fallback only (local LM Studio). See [BANK_STATEMENT_PARSING.md](BANK_STATEMENT_PARSING.md). |
+| `LOCAL_LLM_URL` / `LOCAL_LLM_MODEL` | Optional; **PDF bank statement** LLM fallback only (local LLM). See [BANK_STATEMENT_PARSING.md](BANK_STATEMENT_PARSING.md). |
 
 Copy `.env.example` to `.env` at the repo root. Do not commit real secrets.
 

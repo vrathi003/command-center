@@ -15,7 +15,7 @@ from finance_common.parsing.bank_statement_text_heuristic import (
     count_transaction_like_lines,
     heuristic_rows_from_statement_text,
 )
-from finance_common.parsing.llm_openai_compat import async_openai_for_lm_studio
+from finance_common.parsing.llm_openai_compat import async_openai_for_local_llm
 from finance_common.parsing.transaction_import import extract_merchant_from_narration
 from finance_common.types import Category, PaymentMode
 
@@ -438,8 +438,8 @@ async def statement_text_to_import_rows(
 ) -> list[dict[str, str]]:
     """Plain text from a PDF (or similar) → import rows.
 
-    Always runs PyMuPDF text + heuristic line parsing first. LM Studio is only used when
-    ``settings.lm_studio_active`` and heuristics return no rows.
+    Always runs PyMuPDF text + heuristic line parsing first. Local LLM is only used when
+    ``settings.local_llm_active`` and heuristics return no rows.
     """
     if not text.strip():
         raise BankStatementPdfError(
@@ -452,20 +452,20 @@ async def statement_text_to_import_rows(
     if heuristic:
         return dedupe_import_rows(heuristic)[:MAX_BANK_STATEMENT_IMPORT_ROWS]
 
-    if not settings.lm_studio_active:
-        if not settings.lm_studio_enabled:
+    if not settings.local_llm_active:
+        if not settings.local_llm_enabled:
             hint = (
                 "Could not extract transactions from this PDF. "
                 "The statement may use a scanned image or an unsupported layout. "
                 "Options: (1) Export CSV from your bank portal instead. "
-                "(2) Enable AI fallback: set LM_STUDIO_ENABLED=true and point LM_STUDIO_URL "
-                "at LM Studio or Ollama (e.g. http://localhost:11434/v1) with a small model "
-                "like qwen2.5:1.5b loaded — run: ollama pull qwen2.5:1.5b"
+                "(2) Enable AI fallback: set LOCAL_LLM_ENABLED=true and point LOCAL_LLM_URL "
+                "at Ollama (http://localhost:11434/v1) or LM Studio (http://127.0.0.1:1234/v1) "
+                "with a small model loaded — e.g. run: ollama pull qwen2.5:1.5b"
             )
         else:
             hint = (
                 "Could not extract transactions from this PDF. "
-                "Set LM_STUDIO_URL to your LM Studio or Ollama endpoint "
+                "Set LOCAL_LLM_URL to your Ollama or LM Studio endpoint "
                 "(e.g. http://localhost:11434/v1) to enable AI fallback, "
                 "or export CSV from your bank portal."
             )
@@ -477,13 +477,13 @@ async def statement_text_to_import_rows(
 
     own_client = client is None
     try:
-        ac = client or async_openai_for_lm_studio(settings)
+        ac = client or async_openai_for_local_llm(settings)
     except ValueError as e:
         raise BankStatementPdfError(str(e)) from e
     try:
         raw_rows: list[dict[str, str]] = []
         for ch in chunks:
-            objs = await _call_llm_for_chunk(ac, settings.lm_studio_model, ch)
+            objs = await _call_llm_for_chunk(ac, settings.local_llm_model, ch)
             for o in objs:
                 try:
                     raw_rows.append(normalize_llm_transaction_row(o))

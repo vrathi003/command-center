@@ -97,17 +97,21 @@ def test_chunk_statement_text_splits() -> None:
 
 @pytest.mark.asyncio
 async def test_pdf_bytes_to_import_rows_uses_heuristic_without_llm() -> None:
-    """PyMuPDF text + heuristic lines must not call LM Studio when lines match."""
+    """PyMuPDF text + heuristic lines must not call local LLM when lines match."""
     settings = AppSettings.model_construct(
-        lm_studio_enabled=False,
-        lm_studio_url="http://127.0.0.1:1234/v1",
-        lm_studio_model="test",
+        local_llm_enabled=False,
+        local_llm_url="http://127.0.0.1:1234/v1",
+        local_llm_model="test",
         db_path=Path("/tmp/finance-test.db"),
         app_env="test",
         log_level="INFO",
     )
     text = "2025-01-15  UPI MERCHANT  500.00 Dr\n"
     with (
+        patch(
+            "finance_common.parsing.bank_statement_pdf.extract_rows_via_pdfplumber",
+            return_value=[],
+        ),
         patch(
             "finance_common.parsing.bank_statement_pdf.extract_text_from_pdf_bytes",
             return_value=text,
@@ -125,16 +129,20 @@ async def test_pdf_bytes_to_import_rows_uses_heuristic_without_llm() -> None:
 
 @pytest.mark.asyncio
 async def test_pdf_bytes_to_import_rows_skips_llm_when_disabled() -> None:
-    """When LM_STUDIO_ENABLED=false, heuristic failure must not call LM Studio."""
+    """When LOCAL_LLM_ENABLED=false, heuristic failure must not call local LLM."""
     settings = AppSettings.model_construct(
-        lm_studio_enabled=False,
-        lm_studio_url="http://127.0.0.1:1234/v1",
-        lm_studio_model="test",
+        local_llm_enabled=False,
+        local_llm_url="http://127.0.0.1:1234/v1",
+        local_llm_model="test",
         db_path=Path("/tmp/finance-test.db"),
         app_env="test",
         log_level="INFO",
     )
     with (
+        patch(
+            "finance_common.parsing.bank_statement_pdf.extract_rows_via_pdfplumber",
+            return_value=[],
+        ),
         patch(
             "finance_common.parsing.bank_statement_pdf.extract_text_from_pdf_bytes",
             return_value="--- Page 1 ---\nunparseable blob",
@@ -148,16 +156,22 @@ async def test_pdf_bytes_to_import_rows_skips_llm_when_disabled() -> None:
             new_callable=AsyncMock,
         ) as m_llm,
     ):
-        with pytest.raises(BankStatementPdfError, match="Heuristic parsing found no transaction lines"):
+        with pytest.raises(BankStatementPdfError, match="Could not extract transactions"):
             await pdf_bytes_to_import_rows(b"%PDF-fake", settings)
     m_llm.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_pdf_bytes_to_import_rows_mocked_llm() -> None:
-    settings = AppSettings()
-    settings.lm_studio_url = "http://127.0.0.1:1234/v1"
-    settings.lm_studio_model = "test-model"
+    settings = AppSettings.model_construct(
+        local_llm_enabled=True,
+        local_llm_url="http://127.0.0.1:1234/v1",
+        local_llm_model="test-model",
+        local_llm_timeout_seconds=600.0,
+        db_path=Path("/tmp/finance-test.db"),
+        app_env="test",
+        log_level="INFO",
+    )
     fake_tx = {
         "date": "2025-01-01",
         "amount_inr": 100,
@@ -169,6 +183,10 @@ async def test_pdf_bytes_to_import_rows_mocked_llm() -> None:
         "notes": None,
     }
     with (
+        patch(
+            "finance_common.parsing.bank_statement_pdf.extract_rows_via_pdfplumber",
+            return_value=[],
+        ),
         patch(
             "finance_common.parsing.bank_statement_pdf.extract_text_from_pdf_bytes",
             return_value="--- Page 1 ---\nstatement line",

@@ -345,8 +345,8 @@ async def import_transactions(
     For **encrypted PDFs** or **password-protected Excel**, send form field ``pdf_password``
     (same field) together with ``file``.
 
-    PDFs: text is extracted with PyMuPDF; simple line layouts are parsed without an LLM. If that
-    yields no rows and `LM_STUDIO_ENABLED` is true, local LM Studio (`LM_STUDIO_URL`) is used —
+    PDFs: text is extracted via pdfplumber (table-aware) and PyMuPDF. If that yields no rows
+    and `LOCAL_LLM_ENABLED` is true, local LLM fallback (`LOCAL_LLM_URL`) is used —
     may take a minute for long PDFs.
     """
     if not file.filename:
@@ -371,9 +371,9 @@ async def import_transactions(
             "Heuristic parsing found no transaction lines" in msg
             or "Could not parse transaction lines" in msg
             or "Refusing" in msg
-            or "LM_STUDIO_URL" in msg
-            or "LM_STUDIO_ENABLED" in msg
-            or "LM Studio is disabled" in msg
+            or "LOCAL_LLM_URL" in msg
+            or "LOCAL_LLM_ENABLED" in msg
+            or "Local LLM is disabled" in msg
             or "too large" in msg
             or "no text extracted" in msg
             or "unreadable PDF" in msg

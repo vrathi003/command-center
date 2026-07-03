@@ -30,7 +30,7 @@ db/         → SQLite database
 | API | FastAPI 0.115+, Pydantic 2.10+, aiosqlite 0.20+ |
 | Frontend | React 19, TypeScript, Vite, TanStack Query, Recharts, Tailwind CSS 4 |
 | Database | SQLite — amounts stored in paise (integer), FY-aware |
-| LLM (optional) | OpenAI-compatible local server (LM Studio) for PDF parsing |
+| LLM (optional) | OpenAI-compatible local server (Ollama/LM Studio) for PDF parsing |
 | Tooling | uv (Python workspace), ruff, mypy strict, pytest-asyncio |
 
 ---
@@ -69,10 +69,10 @@ API_PORT=8000
 APP_ENV=development
 
 # Optional — AI-powered PDF bank statement parsing (heuristic parsing always runs first)
-LM_STUDIO_ENABLED=true
-LM_STUDIO_URL=http://localhost:1234/v1
-LM_STUDIO_MODEL=qwen/qwen3.5-9b
-LM_STUDIO_TIMEOUT_SECONDS=600
+LOCAL_LLM_ENABLED=true
+LOCAL_LLM_URL=http://localhost:1234/v1
+LOCAL_LLM_MODEL=qwen2.5:1.5b
+LOCAL_LLM_TIMEOUT_SECONDS=600
 ```
 
 ### 4 — Load demo data (optional)
@@ -412,7 +412,7 @@ On the confirmation embed:
 |---|---|
 | **CSV** | UTF-8; auto-detects header row; skips bank name / account number preamble rows and trailing totals/disclaimers |
 | **XLSX / XLS** | Same smart header detection; handles merged cells; skips preamble and trailer rows |
-| **PDF** | PyMuPDF heuristic line parser; falls back to LM Studio (local LLM) if `LM_STUDIO_URL` is configured; supports password-encrypted PDFs |
+| **PDF** | PyMuPDF heuristic line parser; falls back to local LLM (Ollama/LM Studio) if `LOCAL_LLM_URL` is configured; supports password-encrypted PDFs |
 
 **To convert a PDF manually:**
 
@@ -448,7 +448,7 @@ packages/
     repositories/             ← Async DB layer — one file per domain
     parsing/
       transaction_import.py   ← CSV/XLSX row parsing, header normalisation, 54 merchant rules
-      bank_statement_pdf.py   ← PDF parser (heuristic + LM Studio fallback)
+      bank_statement_pdf.py   ← PDF parser (heuristic + Ollama/LM Studio fallback)
     types.py                  ← Domain enums: Category, PaymentMode, etc.
     fy.py                     ← Financial year date utilities
 

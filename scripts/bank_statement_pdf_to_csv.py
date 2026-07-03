@@ -1,4 +1,4 @@
-"""Convert a bank statement PDF to CSV using local LM Studio (see LM_STUDIO_URL in `.env`).
+"""Convert a bank statement PDF to CSV using local LLM inference (see LOCAL_LLM_URL in `.env`).
 
 Usage (from repo root):
   uv run python scripts/bank_statement_pdf_to_csv.py statement.pdf -o out.csv

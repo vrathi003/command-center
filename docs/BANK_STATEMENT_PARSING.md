@@ -1,6 +1,6 @@
 # Bank statement PDF parsing
 
-This project can turn **PDF bank statements** into rows compatible with transaction import (same shape as CSV/Excel import). Everything runs **locally** on your machine: text extraction uses **PyMuPDF**; optional structuring uses **LM Studio** (OpenAI-compatible local server) only when simpler parsing does not produce rows.
+This project can turn **PDF bank statements** into rows compatible with transaction import (same shape as CSV/Excel import). Everything runs **locally** on your machine: text extraction uses **PyMuPDF**; optional structuring uses **Ollama/LM Studio** (OpenAI-compatible local server) only when simpler parsing does not produce rows.
 
 ## What was implemented
 
@@ -8,8 +8,8 @@ This project can turn **PDF bank statements** into rows compatible with transact
 |------|----------------|
 | **PDF text extraction** | [PyMuPDF](https://pymupdf.readthedocs.io/) (`fitz`) reads text from each page (max 50 pages, max 10 MB). |
 | **Heuristic line parsing** | If extracted text contains lines that look like `YYYY-MM-DD … amount …` or `DD/MM/YYYY … amount …` (optional `Dr`/`Cr`), rows are built **without any LLM**. Category and payment mode are inferred from keywords (UPI, NEFT, salary, etc.). |
-| **LM Studio fallback** | If heuristics find **no** rows, the pipeline calls your local **LM Studio** server (`LM_STUDIO_URL`) to return JSON with a `transactions` array. Prompts ask for **current billing cycle** postings only (plus EMI line items in the ledger), and to ignore T&C, annexures, and non-ledger pages. **Temperature 0** for stability. |
-| **JSON parsing** | Some chat models prepend “Thinking Process” or reasoning before JSON. The app finds the JSON object that contains `"transactions"` (skips prose) and parses it with `json.JSONDecoder.raw_decode`. If you still see parse errors, use an LM Studio preset **without** long chain-of-thought, or disable reasoning output so the reply is only `{"transactions":[...]}`. |
+| **Ollama/LM Studio fallback** | If heuristics find **no** rows, the pipeline calls your local **Ollama/LM Studio** server (`LOCAL_LLM_URL`) to return JSON with a `transactions` array. Prompts ask for **current billing cycle** postings only (plus EMI line items in the ledger), and to ignore T&C, annexures, and non-ledger pages. **Temperature 0** for stability. |
+| **JSON parsing** | Some chat models prepend “Thinking Process” or reasoning before JSON. The app finds the JSON object that contains `"transactions"` (skips prose) and parses it with `json.JSONDecoder.raw_decode`. If you still see parse errors, use an Ollama/LM Studio preset **without** long chain-of-thought, or disable reasoning output so the reply is only `{"transactions":[...]}`. |
 | **Trailing pages** | After extraction, **trailing** pages are dropped when they have **no** transaction-like lines and match boilerplate (e.g. terms and conditions, privacy, annexure) or are very short — so junk pages at the end are not sent to the model. |
 | **Cloud blocking** | The OpenAI-compatible HTTP client **refuses** `api.openai.com`, `api.anthropic.com`, and Azure OpenAI hosts — only your configured local base URL is used for the LLM step. |
 | **Password-protected PDFs** | After opening the PDF, PyMuPDF’s `authenticate()` is used when `needs_pass` is true. You must supply a password via the dashboard, API form field, or CLI flag. |
@@ -24,7 +24,7 @@ This project can turn **PDF bank statements** into rows compatible with transact
 |-------|------|
 | Extraction, heuristic vs LLM orchestration | `packages/common/src/finance_common/parsing/bank_statement_pdf.py` |
 | Heuristic line parser (no network) | `packages/common/src/finance_common/parsing/bank_statement_text_heuristic.py` |
-| LM Studio client (host allowlist / blocking) | `packages/common/src/finance_common/parsing/llm_openai_compat.py` |
+| Ollama/LM Studio client (host allowlist / blocking) | `packages/common/src/finance_common/parsing/llm_openai_compat.py` |
 | Shared import column mapping | `packages/common/src/finance_common/parsing/transaction_import.py` |
 | API route | `packages/api/src/finance_api/routers/transactions.py` |
 | CLI | `scripts/bank_statement_pdf_to_csv.py` |
@@ -34,10 +34,10 @@ This project can turn **PDF bank statements** into rows compatible with transact
 
 | Variable | Role |
 |----------|------|
-| `LM_STUDIO_URL` | Base URL for the local server (e.g. `http://127.0.0.1:1234/v1`). **Only needed** when heuristic parsing finds zero rows. |
-| `LM_STUDIO_MODEL` | Model id as exposed by LM Studio (e.g. `qwen/qwen3.5-9b`). |
+| `LOCAL_LLM_URL` | Base URL for the local server (e.g. `http://127.0.0.1:1234/v1`). **Only needed** when heuristic parsing finds zero rows. |
+| `LOCAL_LLM_MODEL` | Model id as exposed by Ollama/LM Studio (e.g. `qwen2.5:1.5b`). |
 
-See root `.env.example` for placeholders. Copy to `.env` and start LM Studio with the model loaded before relying on the LLM fallback.
+See root `.env.example` for placeholders. Copy to `.env` and start Ollama/LM Studio with the model loaded before relying on the LLM fallback.
 
 ## How to run
 
@@ -64,7 +64,7 @@ Encrypted PDF:
 uv run python scripts/bank_statement_pdf_to_csv.py /path/to/statement.pdf -o /path/to/out.csv -p 'your-pdf-password'
 ```
 
-If heuristics fail and you need LM Studio, ensure `.env` has `LM_STUDIO_URL` and `LM_STUDIO_MODEL`, and LM Studio is running.
+If heuristics fail and you need Ollama/LM Studio, ensure `.env` has `LOCAL_LLM_URL` and `LOCAL_LLM_MODEL`, and Ollama/LM Studio is running.
 
 ### 3. Makefile
 
@@ -92,8 +92,8 @@ Non-PDF imports work as before: only `file` is required.
 
 1. **Size / pages** — Rejects files over 10 MB or more than 50 pages (configurable in code).
 2. **Text** — If PyMuPDF extracts no text (e.g. scanned image-only PDF), you get a clear error; **OCR is not implemented**.
-3. **Heuristics first** — If at least one line matches the heuristic patterns, **no** request is made to LM Studio.
-4. **LM fallback** — If heuristics return zero rows and `LM_STUDIO_URL` is unset, the error explains that you must set LM Studio or export CSV from the bank.
+3. **Heuristics first** — If at least one line matches the heuristic patterns, **no** request is made to Ollama/LM Studio.
+4. **LM fallback** — If heuristics return zero rows and `LOCAL_LLM_URL` is unset, the error explains that you must set Ollama/LM Studio or export CSV from the bank.
 5. **Password** — Wrong password → `incorrect PDF password`; missing password on an encrypted file → message to provide `pdf_password` / `-p`.
 6. **Trailing pages** — Non-transaction tail pages (T&C, etc.) are removed before heuristics/LLM when page markers (`--- Page N ---`) are present.
 7. **LLM content** — The model is instructed to output **only** JSON (no thinking text) and to restrict to the **current billing period** and real ledger lines (including EMI postings in the list), excluding amortisation tables that are not posted transactions.
