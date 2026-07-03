@@ -23,6 +23,8 @@ class CreditCardRow:
     due_day: int | None = None
     minimum_due_pct: float | None = None
     reward_rate_pct: float | None = None
+    auto_fetch_enabled: bool = False
+    statement_pdf_password: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +39,8 @@ class CreditCardStatementRow:
     line_items_json: str | None
     status: str
     created_at: str | None
+    source: str = "upload"
+    gmail_message_id: str | None = None
 
 
 def _card_from_tuple(r: tuple[Any, ...]) -> CreditCardRow:
@@ -54,6 +58,8 @@ def _card_from_tuple(r: tuple[Any, ...]) -> CreditCardRow:
         due_day=int(r[10]) if len(r) > 10 and r[10] is not None else None,
         minimum_due_pct=float(r[11]) if len(r) > 11 and r[11] is not None else None,
         reward_rate_pct=float(r[12]) if len(r) > 12 and r[12] is not None else None,
+        auto_fetch_enabled=bool(int(r[13])) if len(r) > 13 and r[13] is not None else False,
+        statement_pdf_password=str(r[14]) if len(r) > 14 and r[14] is not None else None,
     )
 
 
@@ -69,6 +75,8 @@ def _stmt_from_tuple(r: tuple[Any, ...]) -> CreditCardStatementRow:
         line_items_json=str(r[7]) if r[7] is not None else None,
         status=str(r[8]),
         created_at=str(r[9]) if len(r) > 9 and r[9] is not None else None,
+        source=str(r[10]) if len(r) > 10 and r[10] is not None else "upload",
+        gmail_message_id=str(r[11]) if len(r) > 11 and r[11] is not None else None,
     )
 
 
@@ -82,7 +90,7 @@ async def list_credit_cards(
             """
             SELECT id, name, issuer, last_four, credit_limit_paise, current_balance_paise,
                    notes, is_active, account_id, statement_day, due_day,
-                   minimum_due_pct, reward_rate_pct
+                   minimum_due_pct, reward_rate_pct, auto_fetch_enabled, statement_pdf_password
             FROM credit_cards WHERE is_active = 1 ORDER BY name
             """,
         )
@@ -91,7 +99,7 @@ async def list_credit_cards(
             """
             SELECT id, name, issuer, last_four, credit_limit_paise, current_balance_paise,
                    notes, is_active, account_id, statement_day, due_day,
-                   minimum_due_pct, reward_rate_pct
+                   minimum_due_pct, reward_rate_pct, auto_fetch_enabled, statement_pdf_password
             FROM credit_cards ORDER BY is_active DESC, name
             """,
         )
@@ -104,13 +112,26 @@ async def get_credit_card(conn: aiosqlite.Connection, card_id: int) -> CreditCar
         """
         SELECT id, name, issuer, last_four, credit_limit_paise, current_balance_paise,
                notes, is_active, account_id, statement_day, due_day,
-               minimum_due_pct, reward_rate_pct
+               minimum_due_pct, reward_rate_pct, auto_fetch_enabled, statement_pdf_password
         FROM credit_cards WHERE id = ?
         """,
         (card_id,),
     )
     r = await cur.fetchone()
     return _card_from_tuple(tuple(r)) if r else None
+
+
+async def list_auto_fetch_enabled_cards(conn: aiosqlite.Connection) -> list[CreditCardRow]:
+    cur = await conn.execute(
+        """
+        SELECT id, name, issuer, last_four, credit_limit_paise, current_balance_paise,
+               notes, is_active, account_id, statement_day, due_day,
+               minimum_due_pct, reward_rate_pct, auto_fetch_enabled, statement_pdf_password
+        FROM credit_cards WHERE is_active = 1 AND auto_fetch_enabled = 1 ORDER BY name
+        """,
+    )
+    rows = await cur.fetchall()
+    return [_card_from_tuple(tuple(x)) for x in rows]
 
 
 async def insert_credit_card(
@@ -128,6 +149,8 @@ async def insert_credit_card(
     due_day: int | None = None,
     minimum_due_pct: float | None = None,
     reward_rate_pct: float | None = None,
+    auto_fetch_enabled: bool = False,
+    statement_pdf_password: str | None = None,
 ) -> int:
     cur = await conn.execute(
         """
@@ -135,8 +158,9 @@ async def insert_credit_card(
             name, issuer, last_four, credit_limit_paise,
             current_balance_paise, notes, is_active,
             account_id, statement_day, due_day, minimum_due_pct, reward_rate_pct,
+            auto_fetch_enabled, statement_pdf_password,
             updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         """,
         (
             name,
@@ -151,6 +175,8 @@ async def insert_credit_card(
             due_day,
             minimum_due_pct,
             reward_rate_pct,
+            1 if auto_fetch_enabled else 0,
+            statement_pdf_password,
         ),
     )
     await conn.commit()
@@ -169,6 +195,7 @@ async def update_credit_card_row(conn: aiosqlite.Connection, row: CreditCardRow)
             current_balance_paise = ?, notes = ?, is_active = ?,
             account_id = ?, statement_day = ?, due_day = ?,
             minimum_due_pct = ?, reward_rate_pct = ?,
+            auto_fetch_enabled = ?, statement_pdf_password = ?,
             updated_at = datetime('now')
         WHERE id = ?
         """,
@@ -185,6 +212,8 @@ async def update_credit_card_row(conn: aiosqlite.Connection, row: CreditCardRow)
             row.due_day,
             row.minimum_due_pct,
             row.reward_rate_pct,
+            1 if row.auto_fetch_enabled else 0,
+            row.statement_pdf_password,
             row.id,
         ),
     )
@@ -248,10 +277,54 @@ async def find_card_account_id_by_last_four(
     return int(r[0]) if r else None
 
 
+async def find_credit_card_by_last_four(
+    conn: aiosqlite.Connection,
+    last_four: str,
+    issuer_hint: str | None = None,
+) -> CreditCardRow | None:
+    """Return the active CC matching last_four (and optionally issuer), regardless of
+    whether it has a linked account — unlike `find_card_account_id_by_last_four`, used
+    where the caller needs the card itself (e.g. auto-fetch statement matching)."""
+    if issuer_hint:
+        cur = await conn.execute(
+            """
+            SELECT id, name, issuer, last_four, credit_limit_paise, current_balance_paise,
+                   notes, is_active, account_id, statement_day, due_day,
+                   minimum_due_pct, reward_rate_pct, auto_fetch_enabled, statement_pdf_password
+            FROM credit_cards
+            WHERE last_four = ? AND is_active = 1 AND LOWER(issuer) LIKE ?
+            LIMIT 1
+            """,
+            (last_four, f"%{issuer_hint.lower()}%"),
+        )
+        r = await cur.fetchone()
+        if r:
+            return _card_from_tuple(tuple(r))
+    cur = await conn.execute(
+        """
+        SELECT id, name, issuer, last_four, credit_limit_paise, current_balance_paise,
+               notes, is_active, account_id, statement_day, due_day,
+               minimum_due_pct, reward_rate_pct, auto_fetch_enabled, statement_pdf_password
+        FROM credit_cards
+        WHERE last_four = ? AND is_active = 1
+        LIMIT 1
+        """,
+        (last_four,),
+    )
+    r = await cur.fetchone()
+    return _card_from_tuple(tuple(r)) if r else None
+
+
 async def delete_credit_card(conn: aiosqlite.Connection, card_id: int) -> bool:
     cur = await conn.execute("DELETE FROM credit_cards WHERE id = ?", (card_id,))
     await conn.commit()
     return cur.rowcount > 0
+
+
+_STMT_COLUMNS = (
+    "id, credit_card_id, filename, period_start, period_end, extraction_preview, "
+    "summary_json, line_items_json, status, created_at, source, gmail_message_id"
+)
 
 
 async def list_statements_for_card(
@@ -259,9 +332,8 @@ async def list_statements_for_card(
     card_id: int,
 ) -> list[CreditCardStatementRow]:
     cur = await conn.execute(
-        """
-        SELECT id, credit_card_id, filename, period_start, period_end, extraction_preview,
-               summary_json, line_items_json, status, created_at
+        f"""
+        SELECT {_STMT_COLUMNS}
         FROM credit_card_statements
         WHERE credit_card_id = ?
         ORDER BY datetime(created_at) DESC, id DESC
@@ -272,17 +344,41 @@ async def list_statements_for_card(
     return [_stmt_from_tuple(tuple(x)) for x in rows]
 
 
+async def list_recent_statements(
+    conn: aiosqlite.Connection, *, limit: int = 50
+) -> list[CreditCardStatementRow]:
+    """Most recent statements across all cards, newest first (for the statement inbox)."""
+    cur = await conn.execute(
+        f"""
+        SELECT {_STMT_COLUMNS}
+        FROM credit_card_statements
+        ORDER BY datetime(created_at) DESC, id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    rows = await cur.fetchall()
+    return [_stmt_from_tuple(tuple(x)) for x in rows]
+
+
 async def get_statement(
     conn: aiosqlite.Connection,
     statement_id: int,
 ) -> CreditCardStatementRow | None:
     cur = await conn.execute(
-        """
-        SELECT id, credit_card_id, filename, period_start, period_end, extraction_preview,
-               summary_json, line_items_json, status, created_at
-        FROM credit_card_statements WHERE id = ?
-        """,
+        f"SELECT {_STMT_COLUMNS} FROM credit_card_statements WHERE id = ?",
         (statement_id,),
+    )
+    r = await cur.fetchone()
+    return _stmt_from_tuple(tuple(r)) if r else None
+
+
+async def get_statement_by_gmail_message_id(
+    conn: aiosqlite.Connection, gmail_message_id: str
+) -> CreditCardStatementRow | None:
+    cur = await conn.execute(
+        f"SELECT {_STMT_COLUMNS} FROM credit_card_statements WHERE gmail_message_id = ?",
+        (gmail_message_id,),
     )
     r = await cur.fetchone()
     return _stmt_from_tuple(tuple(r)) if r else None
@@ -299,13 +395,15 @@ async def insert_statement(
     summary_json: str | None,
     line_items_json: str | None,
     status: str = "pending_review",
+    source: str = "upload",
+    gmail_message_id: str | None = None,
 ) -> int:
     cur = await conn.execute(
         """
         INSERT INTO credit_card_statements (
             credit_card_id, filename, period_start, period_end, extraction_preview,
-            summary_json, line_items_json, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            summary_json, line_items_json, status, source, gmail_message_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             credit_card_id,
@@ -316,6 +414,8 @@ async def insert_statement(
             summary_json,
             line_items_json,
             status,
+            source,
+            gmail_message_id,
         ),
     )
     await conn.commit()

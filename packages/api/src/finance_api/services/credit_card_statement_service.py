@@ -9,11 +9,10 @@ import aiosqlite
 
 from finance_api.services.transaction_import_service import MAX_BYTES, load_rows_from_upload
 from finance_common.classification.matcher import ClassificationResult, match_merchant
-from finance_common.config import AppSettings
+from finance_common.parsing.bank_parsers.registry import best_parse_for_bank, issuer_to_bank_slug
 from finance_common.parsing.bank_statement_pdf import (
     BankStatementPdfError,
     extract_text_from_pdf_bytes,
-    statement_text_to_import_rows,
 )
 from finance_common.parsing.credit_card_statement import (
     import_rows_to_cc_line_items,
@@ -24,6 +23,8 @@ from finance_common.parsing.credit_card_statement import (
 )
 from finance_common.repositories import merchant_rules as merchant_rules_repo
 
+_SUPPORTED_BANKS_MSG = "Axis, HDFC, HSBC, ICICI, IndusInd, SBI"
+
 
 async def build_credit_card_statement_payload(
     filename: str,
@@ -31,13 +32,14 @@ async def build_credit_card_statement_payload(
     *,
     pdf_password: str | None,
     issuer: str | None,
-    settings: AppSettings,
     conn: aiosqlite.Connection,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], str | None]:
     """Return (summary dict, line_items, extraction_preview).
 
-    PDFs use the same pipeline as bank-statement uploads: PyMuPDF text extraction, heuristic row
-    parsing, then optional LM Studio when heuristics find no lines.
+    PDFs are parsed with a dedicated per-bank parser keyed off the card's `issuer`
+    (see `finance_common.parsing.bank_parsers`) — there is no generic heuristic/LLM
+    fallback for credit-card statements; an unsupported or unrecognized bank layout is
+    a clear upload error rather than a best-effort guess.
     """
     name = filename.lower().strip()
     if len(content) > MAX_BYTES:
@@ -58,10 +60,15 @@ async def build_credit_card_statement_payload(
             raise ValueError(str(e)) from e
         preview = truncate_preview(text)
         summary = parse_credit_card_summary(text)
-        try:
-            rows = await statement_text_to_import_rows(text, settings)
-        except BankStatementPdfError as e:
-            raise ValueError(str(e)) from e
+        bank_slug = issuer_to_bank_slug(issuer)
+        rows = best_parse_for_bank(bank_slug, text)
+        if not rows:
+            msg = (
+                f"Could not parse this statement — no supported parser for issuer "
+                f"{issuer!r}, or the statement layout wasn't recognized. "
+                f"Supported banks: {_SUPPORTED_BANKS_MSG}."
+            )
+            raise ValueError(msg)
         lines = import_rows_to_cc_line_items(
             rows, default_payment_mode=default_pm, classify=classify
         )

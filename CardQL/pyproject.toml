@@ -1,0 +1,62 @@
+[project]
+name = "cardql"
+version = "0.1.1"
+description = "CardQL — chat with your credit card statements. Fetch statements, normalize, export to CSV/SQLite, and query with a local LLM (Streamlit + Ollama)."
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "Ananya M", email = "ananyam.iitd2024@gmail.com" }]
+requires-python = ">=3.9"
+keywords = [
+  "credit-card",
+  "statements",
+  "pdf",
+  "imap",
+  "sqlite",
+  "csv",
+  "ollama",
+  "langchain",
+  "streamlit",
+  "personal-finance",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business :: Financial",
+]
+dependencies = [
+  "eval-type-backport>=0.2; python_version < '3.10'",
+  "typer>=0.12",
+  "rich>=13.7",
+  "pydantic>=2.6",
+  "pikepdf>=8.0",
+  "pypdf>=5.0",
+  "langchain-core>=0.3",
+  "langchain-ollama>=0.2",
+  "streamlit>=1.35",
+]
+
+[project.scripts]
+cardql = "cardql.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/ananyaem/CardQL"
+Repository = "https://github.com/ananyaem/CardQL"
+Issues = "https://github.com/ananyaem/CardQL/issues"
+
+[build-system]
+requires = ["setuptools>=69", "wheel>=0.42"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

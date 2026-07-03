@@ -33,6 +33,7 @@ import type {
   PortfolioSummaryOut,
   RealEstateOut,
   CreditCardEmiOut,
+  CreditCardFetchStatementsResponse,
   CreditCardOut,
   CreditCardStatementApplyResponse,
   LiveBalanceResponse,
@@ -1010,6 +1011,8 @@ export async function putCreditCard(
     due_day?: number | null
     minimum_due_pct?: number | null
     reward_rate_pct?: number | null
+    auto_fetch_enabled?: boolean
+    statement_pdf_password?: string | null
   },
 ): Promise<CreditCardOut> {
   const res = await apiFetch(`${apiBase()}/api/credit-cards/${id}`, {
@@ -1133,6 +1136,20 @@ export async function applyCreditCardStatement(
     { method: 'POST' },
   )
   return parseJson<CreditCardStatementApplyResponse>(res)
+}
+
+export async function fetchRecentCreditCardStatements(
+  limit = 50,
+): Promise<CreditCardStatementOut[]> {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/statements/recent?limit=${limit}`)
+  return parseJson<CreditCardStatementOut[]>(res)
+}
+
+export async function fetchCreditCardStatementsNow(): Promise<CreditCardFetchStatementsResponse> {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/fetch-statements`, {
+    method: 'POST',
+  })
+  return parseJson<CreditCardFetchStatementsResponse>(res)
 }
 
 export async function deleteCreditCardStatement(cardId: number, statementId: number): Promise<void> {

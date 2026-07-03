@@ -9,6 +9,7 @@ import { AssetsPage } from '@/pages/AssetsPage'
 import { BudgetPage } from '@/pages/BudgetPage'
 import { ConstructionPage } from '@/pages/ConstructionPage'
 import { CreditCardDetailPage } from '@/pages/CreditCardDetailPage'
+import { CreditCardStatementInboxPage } from '@/pages/CreditCardStatementInboxPage'
 import { CreditCardStatementPage } from '@/pages/CreditCardStatementPage'
 import { CreditCardsPage } from '@/pages/CreditCardsPage'
 import { DebtPage } from '@/pages/DebtPage'
@@ -49,6 +50,7 @@ function AppRoutes() {
             path="credit-cards/:cardId/statements/:statementId"
             element={<CreditCardStatementPage />}
           />
+          <Route path="credit-cards/statements" element={<CreditCardStatementInboxPage />} />
           <Route path="credit-cards/:cardId" element={<CreditCardDetailPage />} />
           <Route path="credit-cards" element={<CreditCardsPage />} />
           <Route path="recurring" element={<RecurringPaymentsPage />} />

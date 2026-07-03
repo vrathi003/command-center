@@ -27,6 +27,8 @@ class CreditCardOut(BaseModel):
     minimum_due_pct: float | None = None
     reward_rate_pct: float | None = None
     live_balance_paise: int | None = None
+    auto_fetch_enabled: bool = False
+    statement_pdf_password: str | None = None
 
 
 class CreditCardCreateBody(BaseModel):
@@ -42,6 +44,8 @@ class CreditCardCreateBody(BaseModel):
     due_day: int | None = Field(default=None, ge=1, le=31)
     minimum_due_pct: float | None = Field(default=None, ge=0, le=100)
     reward_rate_pct: float | None = Field(default=None, ge=0)
+    auto_fetch_enabled: bool = False
+    statement_pdf_password: str | None = Field(default=None, max_length=200)
 
 
 class CreditCardPutBody(BaseModel):
@@ -57,6 +61,8 @@ class CreditCardPutBody(BaseModel):
     due_day: int | None = Field(default=None, ge=1, le=31)
     minimum_due_pct: float | None = Field(default=None, ge=0, le=100)
     reward_rate_pct: float | None = Field(default=None, ge=0)
+    auto_fetch_enabled: bool | None = None
+    statement_pdf_password: str | None = Field(default=None, max_length=200)
 
 
 class PayBillBody(BaseModel):
@@ -82,11 +88,20 @@ class CreditCardStatementOut(BaseModel):
     line_items: list[dict[str, Any]]
     status: str
     created_at: str | None = None
+    source: str = "upload"
+    gmail_message_id: str | None = None
 
 
 class CreditCardStatementApplyResponse(BaseModel):
     imported_count: int
     updated_balance_paise: int | None = None
+
+
+class CreditCardFetchStatementsResponse(BaseModel):
+    fetched: int
+    staged: int
+    skipped_unmatched: int
+    skipped_duplicate: int
 
 
 class CreditCardEmiOut(BaseModel):

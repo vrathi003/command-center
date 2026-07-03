@@ -194,6 +194,8 @@ export type CreditCardOut = {
   minimum_due_pct: number | null
   reward_rate_pct: number | null
   live_balance_paise: number | null
+  auto_fetch_enabled: boolean
+  statement_pdf_password: string | null
 }
 
 export type LiveBalanceResponse = {
@@ -245,11 +247,20 @@ export type CreditCardStatementOut = {
   line_items: Array<Record<string, unknown>>
   status: string
   created_at: string | null
+  source: 'upload' | 'auto_fetch'
+  gmail_message_id: string | null
 }
 
 export type CreditCardStatementApplyResponse = {
   imported_count: number
   updated_balance_paise: number | null
+}
+
+export type CreditCardFetchStatementsResponse = {
+  fetched: number
+  staged: number
+  skipped_unmatched: number
+  skipped_duplicate: number
 }
 
 export type AmortizationRow = {

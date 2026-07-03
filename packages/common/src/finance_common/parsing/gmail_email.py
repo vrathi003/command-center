@@ -311,3 +311,9 @@ def classify_and_parse(
         return parse_bank_alert(subject, sender, body, email_date, classify=classify)
 
     return None
+
+
+# Public aliases — used by cc_statement_fetch.py to build a statement-email search query
+# and match a fetched attachment to a card, without duplicating this logic.
+BANK_DOMAINS = _BANK_DOMAINS
+extract_cc_last_four = _extract_cc_last_four

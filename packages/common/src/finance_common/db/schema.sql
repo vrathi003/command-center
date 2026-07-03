@@ -179,6 +179,8 @@ CREATE TABLE IF NOT EXISTS credit_cards (
     due_day INTEGER,
     minimum_due_pct REAL DEFAULT 5.0,
     reward_rate_pct REAL,
+    auto_fetch_enabled INTEGER NOT NULL DEFAULT 0,
+    statement_pdf_password TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -193,11 +195,16 @@ CREATE TABLE IF NOT EXISTS credit_card_statements (
     summary_json TEXT,
     line_items_json TEXT,
     status TEXT NOT NULL DEFAULT 'pending_review',
+    source TEXT NOT NULL DEFAULT 'upload',
+    gmail_message_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (credit_card_id) REFERENCES credit_cards(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_cc_statements_card ON credit_card_statements(credit_card_id);
+-- idx_cc_statements_gmail_message is created in migrations.py, not here: on an existing DB
+-- (this CREATE TABLE IF NOT EXISTS is a no-op) the gmail_message_id column doesn't exist yet
+-- until apply_migrations()'s ALTER TABLE runs, and this schema.sql executescript runs first.
 
 CREATE TABLE IF NOT EXISTS credit_card_emis (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

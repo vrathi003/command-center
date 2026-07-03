@@ -16,8 +16,9 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from finance_api.services.amortization import compute_emi_advance
 from finance_api.services.budget_service import build_vs_actual
-from finance_api.services.gmail_sync import sync_gmail_transactions
+from finance_api.services.cc_statement_fetch import fetch_cc_statements
 from finance_api.services.discord_notify import send_discord_dm
+from finance_api.services.gmail_sync import sync_gmail_transactions
 from finance_api.services.investment_sync import sync_investment_prices
 from finance_api.services.net_worth_service import compute_totals_from_holdings
 from finance_api.settings import ApiSettings
@@ -277,6 +278,23 @@ async def job_gmail_sync(db_path: Path, api: ApiSettings) -> None:
             logger.info("Gmail sync: %s new staged transaction(s)", n)
 
 
+async def job_fetch_cc_statements(db_path: Path, api: ApiSettings) -> None:
+    """Daily — auto-fetch credit-card statement PDF attachments from Gmail for any card
+    with auto_fetch_enabled=1. Statements always land as pending_review; never applied."""
+    if not api.gmail_credentials_path or not api.gmail_credentials_path.exists():
+        return
+    async with open_db(db_path) as conn:
+        counts = await fetch_cc_statements(conn, api.gmail_credentials_path, api.gmail_token_path)
+        if counts["staged"]:
+            logger.info(
+                "CC statement auto-fetch: %s new statement(s) staged (skipped: %s unmatched, "
+                "%s duplicate)",
+                counts["staged"],
+                counts["skipped_unmatched"],
+                counts["skipped_duplicate"],
+            )
+
+
 async def job_emi_auto_advance(db_path: Path) -> None:
     """Daily 9:00 AM — reduce balance and advance next_emi_date for all active debts."""
     async with open_db(db_path) as conn:
@@ -418,6 +436,13 @@ def register_background_jobs(scheduler: AsyncIOScheduler, api: ApiSettings) -> N
         IntervalTrigger(hours=3, timezone=tz),
         args=[db_path, api],
         id="gmail_sync_3h",
+        **common,
+    )
+    scheduler.add_job(
+        job_fetch_cc_statements,
+        trig(hour=7, minute=0),
+        args=[db_path, api],
+        id="cc_statement_fetch_7am",
         **common,
     )
     logger.info(

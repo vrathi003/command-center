@@ -54,6 +54,14 @@ export function CreditCardsPage() {
         eyebrow="Borrowing"
         title="Credit cards"
         description="Set limits and balances, upload statements on each card’s page, and import transactions after review."
+        actions={
+          <Link
+            to="/credit-cards/statements"
+            className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50"
+          >
+            Statement inbox
+          </Link>
+        }
       />
 
       <section>

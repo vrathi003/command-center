@@ -15,6 +15,7 @@ from finance_api.schemas.credit_card import (
     CreditCardEmiCreateBody,
     CreditCardEmiOut,
     CreditCardEmiPutBody,
+    CreditCardFetchStatementsResponse,
     CreditCardOut,
     CreditCardPutBody,
     CreditCardStatementApplyResponse,
@@ -23,6 +24,7 @@ from finance_api.schemas.credit_card import (
     PayBillBody,
 )
 from finance_api.schemas.debt import DebtOut
+from finance_api.services.cc_statement_fetch import fetch_cc_statements
 from finance_api.services.credit_card_statement_service import (
     build_credit_card_statement_payload,
     dumps_line_items,
@@ -87,6 +89,8 @@ def _card_out(
         minimum_due_pct=row.minimum_due_pct,
         reward_rate_pct=row.reward_rate_pct,
         live_balance_paise=live_balance,
+        auto_fetch_enabled=row.auto_fetch_enabled,
+        statement_pdf_password=row.statement_pdf_password,
     )
 
 
@@ -170,6 +174,8 @@ def _stmt_out(row: CreditCardStatementRow) -> CreditCardStatementOut:
         line_items=line_items_json_loads(row.line_items_json),
         status=row.status,
         created_at=row.created_at,
+        source=row.source,
+        gmail_message_id=row.gmail_message_id,
     )
 
 
@@ -223,11 +229,37 @@ async def create_card(
         due_day=body.due_day,
         minimum_due_pct=body.minimum_due_pct,
         reward_rate_pct=body.reward_rate_pct,
+        auto_fetch_enabled=body.auto_fetch_enabled,
+        statement_pdf_password=body.statement_pdf_password,
     )
     row = await cc_repo.get_credit_card(conn, cid)
     if row is None:
         raise HTTPException(status_code=500, detail="card not found after insert")
     return _card_out(row, (0, 0, 0))
+
+
+@router.get("/statements/recent", response_model=list[CreditCardStatementOut])
+async def list_recent_statements(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> list[CreditCardStatementOut]:
+    rows = await cc_repo.list_recent_statements(conn, limit=limit)
+    return [_stmt_out(r) for r in rows]
+
+
+@router.post("/fetch-statements", response_model=CreditCardFetchStatementsResponse)
+async def fetch_statements_now(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    api_settings: Annotated[ApiSettings, Depends(get_settings)],
+) -> CreditCardFetchStatementsResponse:
+    """Manually trigger the same Gmail statement auto-fetch the daily background job runs."""
+    gmail_creds = api_settings.gmail_credentials_path
+    if not gmail_creds or not gmail_creds.exists():
+        raise HTTPException(
+            status_code=400, detail="Gmail is not configured (GMAIL_CREDENTIALS_PATH)"
+        )
+    counts = await fetch_cc_statements(conn, gmail_creds, api_settings.gmail_token_path)
+    return CreditCardFetchStatementsResponse(**counts)
 
 
 @router.get("/{card_id}", response_model=CreditCardOut)
@@ -430,7 +462,6 @@ async def get_statement_detail(
 @router.post("/{card_id}/statements", response_model=CreditCardStatementOut, status_code=201)
 async def upload_statement(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
-    api_settings: Annotated[ApiSettings, Depends(get_settings)],
     card_id: int,
     file: UploadFile = File(...),
     pdf_password: str | None = Form(default=None),
@@ -449,7 +480,6 @@ async def upload_statement(
             content,
             pdf_password=pdf_password,
             issuer=card.issuer,
-            settings=api_settings,
             conn=conn,
         )
     except ValueError as e:

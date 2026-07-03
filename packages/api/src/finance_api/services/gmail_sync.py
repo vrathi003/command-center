@@ -81,6 +81,12 @@ def _header_value(headers: list[dict], name: str) -> str | None:
     return None
 
 
+# Public aliases — reused by cc_statement_fetch.py so it shares the same OAuth client and
+# header-parsing logic rather than duplicating it.
+get_gmail_service = _get_service
+header_value = _header_value
+
+
 def _decode_body(data: str) -> str:
     """Base64url-decode a Gmail message part body."""
     try:

@@ -568,6 +568,33 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
             )
         if "reward_rate_pct" not in cc_cols:
             await conn.execute("ALTER TABLE credit_cards ADD COLUMN reward_rate_pct REAL")
+        if "auto_fetch_enabled" not in cc_cols:
+            await conn.execute(
+                "ALTER TABLE credit_cards ADD COLUMN auto_fetch_enabled INTEGER NOT NULL DEFAULT 0"
+            )
+        if "statement_pdf_password" not in cc_cols:
+            await conn.execute("ALTER TABLE credit_cards ADD COLUMN statement_pdf_password TEXT")
+        await conn.commit()
+
+    # ── Credit card statements: auto-fetch source tracking ──────────────────────
+    cc_stmt_cols = await _column_names(conn, "credit_card_statements")
+    if cc_stmt_cols:
+        if "source" not in cc_stmt_cols:
+            await conn.execute(
+                "ALTER TABLE credit_card_statements "
+                "ADD COLUMN source TEXT NOT NULL DEFAULT 'upload'"
+            )
+        if "gmail_message_id" not in cc_stmt_cols:
+            await conn.execute(
+                "ALTER TABLE credit_card_statements ADD COLUMN gmail_message_id TEXT"
+            )
+        await conn.commit()
+        await conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_cc_statements_gmail_message
+                ON credit_card_statements(gmail_message_id) WHERE gmail_message_id IS NOT NULL
+            """
+        )
         await conn.commit()
 
     cur = await conn.execute(
