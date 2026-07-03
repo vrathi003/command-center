@@ -1466,8 +1466,8 @@ export function CreditCardDetailPage() {
 
   const linkAccount = useMutation({
     mutationFn: () => linkCcAccount(cardId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['credit-card', cardId] })
+    onSuccess: (updated) => {
+      qc.setQueryData(['credit-card', cardId], updated)
       qc.invalidateQueries({ queryKey: ['cc-live-balance', cardId] })
     },
   })
