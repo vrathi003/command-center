@@ -84,9 +84,9 @@ def _classify_cc_description(description: str) -> dict[str, object]:
     if _RE_PAYMENT.search(desc):
         return {"skip": True, "transaction_type": "credit", "category": "Other"}
     if _RE_INTEREST.search(desc):
-        return {"skip": False, "transaction_type": "debit", "category": "Other"}
+        return {"skip": False, "transaction_type": "debit", "category": "Bank Charges"}
     if _RE_FEE.search(desc):
-        return {"skip": False, "transaction_type": "debit", "category": "Other"}
+        return {"skip": False, "transaction_type": "debit", "category": "Bank Charges"}
     if _RE_CASHBACK.search(desc):
         return {"skip": False, "transaction_type": "credit", "category": "Income"}
     if _RE_REFUND.search(desc):

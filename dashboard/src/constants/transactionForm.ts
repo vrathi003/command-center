@@ -22,6 +22,7 @@ export const MANUAL_TX_CATEGORIES = [
   'Gifts & Additionals',
   'EMI Loan Repayment',
   'CC Bill',
+  'Bank Charges',
   'Investments',
   'Insurance',
   'Taxes',

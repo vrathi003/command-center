@@ -54,6 +54,7 @@ class Category(StrEnum):
     GIFTS_ADDITIONALS = "Gifts & Additionals"
     EMI_LOAN = "EMI Loan Repayment"
     CC_BILL = "CC Bill"
+    BANK_CHARGES = "Bank Charges"
     INVESTMENTS = "Investments"
     INSURANCE = "Insurance"
     TAXES = "Taxes"
