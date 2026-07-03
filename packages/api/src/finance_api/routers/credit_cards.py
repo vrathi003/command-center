@@ -190,7 +190,7 @@ async def list_cards(
     linked_ids = [r.account_id for r in rows if r.account_id is not None]
     live_bals = await tx_repo.cc_live_balances_batch(conn, linked_ids)
     return [
-        _card_out(r, totals.get(r.id, (0, 0, 0)), live_bals.get(r.account_id) if r.account_id else None)
+        _card_out(r, totals.get(r.id, (0, 0, 0)), live_bals.get(r.account_id) if r.account_id else None)  # noqa: E501
         for r in rows
     ]
 
@@ -257,7 +257,8 @@ async def put_card(
     merged = _merge_card(existing, body)
     await cc_repo.update_credit_card_row(conn, merged)
     # Sync name change to the linked accounts entry
-    if body.name is not None and existing.account_id is not None and body.name.strip() != existing.name:
+    name_changed = body.name is not None and body.name.strip() != existing.name
+    if name_changed and existing.account_id is not None:
         acc = await accounts_repo.get_account(conn, existing.account_id)
         if acc is not None:
             await accounts_repo.update_account(
@@ -281,6 +282,36 @@ async def delete_card(
     ok = await cc_repo.delete_credit_card(conn, card_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Credit card not found")
+
+
+@router.post("/{card_id}/link-account", response_model=CreditCardOut)
+async def link_account(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+) -> CreditCardOut:
+    """Create a linked account for an existing card that has none.
+
+    Idempotent — if the card already has an account_id, returns the card as-is.
+    """
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    if card.account_id is not None:
+        totals = await cc_repo.emi_totals_by_card(conn)
+        live_bal = await tx_repo.cc_live_balance(conn, card.account_id)
+        return _card_out(card, totals.get(card_id, (0, 0, 0)), live_bal)
+    new_account_id = await accounts_repo.create_account(
+        conn,
+        name=card.name,
+        type="credit_card",
+        institution=card.issuer,
+    )
+    await cc_repo.set_account_id(conn, card_id, new_account_id)
+    row = await cc_repo.get_credit_card(conn, card_id)
+    if row is None:
+        raise HTTPException(status_code=500, detail="card not found after update")
+    totals = await cc_repo.emi_totals_by_card(conn)
+    return _card_out(row, totals.get(card_id, (0, 0, 0)), 0)
 
 
 @router.get("/{card_id}/interest-leakage")

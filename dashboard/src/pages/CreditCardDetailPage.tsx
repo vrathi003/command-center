@@ -22,6 +22,7 @@ import {
   fetchCreditCardEmis,
   fetchCreditCardStatements,
   fetchTransactions,
+  linkCcAccount,
   payCcBill,
   postCreditCardEmi,
   putCreditCard,
@@ -1463,6 +1464,14 @@ export function CreditCardDetailPage() {
     queryFn: () => fetchAccounts(),
   })
 
+  const linkAccount = useMutation({
+    mutationFn: () => linkCcAccount(cardId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['credit-card', cardId] })
+      qc.invalidateQueries({ queryKey: ['cc-live-balance', cardId] })
+    },
+  })
+
   const statements = useQuery({
     queryKey: ['credit-card-statements', cardId],
     queryFn: () => fetchCreditCardStatements(cardId),
@@ -1557,6 +1566,22 @@ export function CreditCardDetailPage() {
           Pay bill
         </button>
       </div>
+
+      {!hasLinkedAccount && (
+        <div className="flex items-center justify-between gap-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm text-amber-800">
+            This card has no linked account — transactions can't be tracked until one is created.
+          </p>
+          <button
+            type="button"
+            onClick={() => linkAccount.mutate()}
+            disabled={linkAccount.isPending}
+            className="shrink-0 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            {linkAccount.isPending ? 'Linking…' : 'Link account'}
+          </button>
+        </div>
+      )}
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard tone="neutral" label="Credit limit" value={formatPaiseCompact(c.credit_limit_paise)} />
