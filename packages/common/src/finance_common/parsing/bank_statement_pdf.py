@@ -44,7 +44,9 @@ _SYSTEM_PROMPT = (
     "You MUST reply with exactly one JSON object and nothing else: no reasoning, no "
     "\"Thinking Process\", no markdown, no bullet analysis, no text before or after the JSON. "
     "The first character of your reply must be { and the last must be }. "
-    "Never invent rows not present in the statement text."
+    "Never invent rows not present in the statement text. "
+    "If the fragment contains no transaction rows (summary page, legal text, blank, etc.), "
+    "return exactly: {\"transactions\": []}"
 )
 
 
@@ -401,28 +403,24 @@ async def _call_llm_for_chunk(
         ],
         "temperature": 0,
     }
-    # LM Studio often ignores or mishandles OpenAI's response_format; plain completion + robust
+    # Local servers often ignore OpenAI's response_format; plain completion + robust
     # JSON parsing is more reliable than relying on structured output.
     try:
         resp = await client.chat.completions.create(**msg_kw)
     except Exception as e:
-        raise BankStatementPdfError(f"LM Studio request failed: {e}") from e
+        raise BankStatementPdfError(f"Local LLM request failed: {e}") from e
     choice = resp.choices[0].message.content
     if not choice:
-        raise BankStatementPdfError("empty response from LM Studio")
+        return []  # empty response → no transactions in this chunk
     try:
         data = parse_json_object_from_model_text(choice)
-    except ValueError as e:
-        raise BankStatementPdfError(
-            f"Model output was not valid JSON ({e}). "
-            "In LM Studio, prefer a model preset without long chain-of-thought, or disable "
-            "\"reasoning\" / thinking output so the reply is only `{{\"transactions\":[...]}}`.",
-        ) from e
+    except ValueError:
+        # Model output prose/reasoning instead of JSON — this chunk has no parseable
+        # transactions (e.g. it was a summary or header page). Skip it silently.
+        return []
     txs = data.get("transactions")
-    if txs is None:
-        raise BankStatementPdfError("JSON missing 'transactions' array")
     if not isinstance(txs, list):
-        raise BankStatementPdfError("'transactions' must be an array")
+        return []
     out: list[dict[str, Any]] = []
     for item in txs[:MAX_LLM_TX_ROWS_PER_CHUNK]:
         if isinstance(item, dict):
@@ -489,6 +487,13 @@ async def statement_text_to_import_rows(
                     raw_rows.append(normalize_llm_transaction_row(o))
                 except (ValueError, TypeError, KeyError):
                     continue
+        if not raw_rows:
+            raise BankStatementPdfError(
+                "The local LLM found no transactions in any page of this PDF. "
+                "The statement may be a summary-only document without individual "
+                "transaction rows, or the model couldn't parse it. "
+                "Try exporting CSV from your bank portal instead."
+            )
         return dedupe_import_rows(raw_rows)[:MAX_BANK_STATEMENT_IMPORT_ROWS]
     finally:
         if own_client:
