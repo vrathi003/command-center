@@ -300,12 +300,16 @@ async def link_account(
         totals = await cc_repo.emi_totals_by_card(conn)
         live_bal = await tx_repo.cc_live_balance(conn, card.account_id)
         return _card_out(card, totals.get(card_id, (0, 0, 0)), live_bal)
-    new_account_id = await accounts_repo.create_account(
-        conn,
-        name=card.name,
-        type="credit_card",
-        institution=card.issuer,
-    )
+    existing_acc = await accounts_repo.get_account_by_name(conn, card.name)
+    if existing_acc is not None:
+        new_account_id = existing_acc.id
+    else:
+        new_account_id = await accounts_repo.create_account(
+            conn,
+            name=card.name,
+            type="credit_card",
+            institution=card.issuer,
+        )
     await cc_repo.set_account_id(conn, card_id, new_account_id)
     row = await cc_repo.get_credit_card(conn, card_id)
     if row is None:
