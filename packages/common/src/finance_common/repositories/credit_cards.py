@@ -215,6 +215,38 @@ async def total_outstanding_balance(conn: aiosqlite.Connection) -> int:
     return int(r[0]) if r else 0
 
 
+async def find_card_account_id_by_last_four(
+    conn: aiosqlite.Connection,
+    last_four: str,
+    issuer_hint: str | None = None,
+) -> int | None:
+    """Return account_id of the active CC matching last_four (and optionally issuer)."""
+    if issuer_hint:
+        cur = await conn.execute(
+            """
+            SELECT account_id FROM credit_cards
+            WHERE last_four = ? AND is_active = 1 AND account_id IS NOT NULL
+              AND LOWER(issuer) LIKE ?
+            LIMIT 1
+            """,
+            (last_four, f"%{issuer_hint.lower()}%"),
+        )
+        r = await cur.fetchone()
+        if r:
+            return int(r[0])
+    # Fallback: match by last_four only
+    cur = await conn.execute(
+        """
+        SELECT account_id FROM credit_cards
+        WHERE last_four = ? AND is_active = 1 AND account_id IS NOT NULL
+        LIMIT 1
+        """,
+        (last_four,),
+    )
+    r = await cur.fetchone()
+    return int(r[0]) if r else None
+
+
 async def delete_credit_card(conn: aiosqlite.Connection, card_id: int) -> bool:
     cur = await conn.execute("DELETE FROM credit_cards WHERE id = ?", (card_id,))
     await conn.commit()

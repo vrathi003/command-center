@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from email.utils import parsedate_to_datetime
 
 from finance_common.parsing.transaction_import import categorize_from_merchant
@@ -101,6 +101,20 @@ def _merchant_from_sender(domain: str) -> str | None:
     return None
 
 
+# ── CC last-four extraction ───────────────────────────────────────────────────
+
+# Matches: "ending 1234", "ending in 1234", "XX1234", "x-1234", "card **1234"
+_CC_LAST_FOUR_RE = re.compile(
+    r"(?:ending\s+(?:in\s+)?|xx+[-\s]?|card\s+\*+\s*)(\d{4})\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_cc_last_four(text: str) -> str | None:
+    m = _CC_LAST_FOUR_RE.search(text)
+    return m.group(1) if m else None
+
+
 # ── Bank alert parsing ────────────────────────────────────────────────────────
 
 _DEBIT_KEYWORDS = re.compile(
@@ -159,6 +173,7 @@ def parse_bank_alert(
     merchant = _extract_merchant_from_body(combined)
     category = categorize_from_merchant(merchant) or ("Income" if tx_type == "credit" else "Other")
     payment_mode = _detect_payment_mode(combined)
+    cc_last_four = _extract_cc_last_four(combined)
 
     return ParsedEmailTransaction(
         tx_date=email_date or date.today(),
@@ -168,6 +183,7 @@ def parse_bank_alert(
         category=category,
         payment_mode=payment_mode,
         raw_snippet=(combined[:500]).strip(),
+        cc_last_four=cc_last_four,
     )
 
 
@@ -241,6 +257,7 @@ class ParsedEmailTransaction:
     category: str
     payment_mode: str
     raw_snippet: str
+    cc_last_four: str | None = None  # set for CC transaction alerts
 
 
 def classify_and_parse(

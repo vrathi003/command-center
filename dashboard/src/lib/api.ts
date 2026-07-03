@@ -1082,6 +1082,13 @@ export async function payCcBill(
   return parseJson(res)
 }
 
+export async function convertEmiToDebt(cardId: number, emiId: number): Promise<DebtOut> {
+  const res = await apiFetch(`${apiBase()}/api/credit-cards/${cardId}/emis/${emiId}/convert-to-debt`, {
+    method: 'POST',
+  })
+  return parseJson<DebtOut>(res)
+}
+
 export async function fetchSubscriptions(activeOnly = false): Promise<SubscriptionOut[]> {
   const q = activeOnly ? '?active_only=true' : ''
   const res = await apiFetch(`${apiBase()}/api/subscriptions/${q}`)

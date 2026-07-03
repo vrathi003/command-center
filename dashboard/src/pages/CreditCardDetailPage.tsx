@@ -11,6 +11,7 @@ import { PageHero } from '@/components/ui/PageHero'
 import { Panel } from '@/components/ui/Panel'
 import { SectionTitle } from '@/components/ui/SectionTitle'
 import {
+  convertEmiToDebt,
   deleteCreditCard,
   deleteCreditCardEmi,
   fetchAccounts,
@@ -689,6 +690,16 @@ function CreditCardEmiBlock({
     },
   })
 
+  const [toDebtSuccessId, setToDebtSuccessId] = useState<number | null>(null)
+
+  const toDebt = useMutation({
+    mutationFn: (emiId: number) => convertEmiToDebt(cardId, emiId),
+    onSuccess: (debt, emiId) => {
+      void queryClient.invalidateQueries({ queryKey: ['debt-list'] })
+      setToDebtSuccessId(emiId)
+    },
+  })
+
   return (
     <Panel variant="emerald">
       <p className="mb-4 text-xs text-zinc-600">
@@ -856,6 +867,28 @@ function CreditCardEmiBlock({
                       >
                         {detailsOpen ? 'Less' : 'Details'}
                       </button>
+                      {toDebtSuccessId === e.id ? (
+                        <Link
+                          to="/debt"
+                          className="text-xs font-medium text-indigo-700 hover:underline"
+                        >
+                          View in Debts →
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={toDebt.isPending}
+                          title="Create a Debt entry from this EMI plan"
+                          className="text-xs font-medium text-indigo-700 hover:underline disabled:opacity-50"
+                          onClick={() => {
+                            if (window.confirm('Track this EMI as a Debt entry?')) {
+                              toDebt.mutate(e.id)
+                            }
+                          }}
+                        >
+                          Track in Debts
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="text-xs font-medium text-emerald-800 hover:underline"

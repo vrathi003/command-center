@@ -107,6 +107,7 @@ async def insert_staged(
     parsed_category: str | None,
     parsed_payment_mode: str | None,
     parsed_transaction_type: str | None,
+    suggested_account_id: int | None = None,
 ) -> int | None:
     """Insert a new staged item. Returns id, or None if gmail_message_id already exists."""
     try:
@@ -115,13 +116,13 @@ async def insert_staged(
             INSERT INTO email_transaction_staging (
                 gmail_message_id, email_date, email_subject, email_from, raw_snippet,
                 parsed_date, parsed_amount_paise, parsed_merchant, parsed_category,
-                parsed_payment_mode, parsed_transaction_type
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                parsed_payment_mode, parsed_transaction_type, suggested_account_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 gmail_message_id, email_date, email_subject, email_from, raw_snippet,
                 parsed_date, parsed_amount_paise, parsed_merchant, parsed_category,
-                parsed_payment_mode, parsed_transaction_type,
+                parsed_payment_mode, parsed_transaction_type, suggested_account_id,
             ),
         )
         await conn.commit()

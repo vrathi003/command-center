@@ -11,6 +11,7 @@ from pathlib import Path
 import aiosqlite
 
 from finance_common.parsing.gmail_email import classify_and_parse
+from finance_common.repositories import credit_cards as cc_repo
 from finance_common.repositories import email_staging as staging_repo
 from finance_common.repositories import settings_repo
 
@@ -171,6 +172,13 @@ async def sync_gmail_transactions(
         if parsed is None:
             continue
 
+        # Route CC alert emails to the correct CC linked account
+        suggested_account_id: int | None = None
+        if parsed.cc_last_four:
+            suggested_account_id = await cc_repo.find_card_account_id_by_last_four(
+                conn, parsed.cc_last_four
+            )
+
         row_id = await staging_repo.insert_staged(
             conn,
             gmail_message_id=msg_id,
@@ -184,6 +192,7 @@ async def sync_gmail_transactions(
             parsed_category=parsed.category,
             parsed_payment_mode=parsed.payment_mode,
             parsed_transaction_type=parsed.transaction_type,
+            suggested_account_id=suggested_account_id,
         )
         if row_id is not None:
             new_count += 1
@@ -285,6 +294,13 @@ async def historical_sync_gmail_transactions(
         if parsed is None:
             continue
 
+        # Route CC alert emails to the correct CC linked account
+        suggested_account_id_hist: int | None = None
+        if parsed.cc_last_four:
+            suggested_account_id_hist = await cc_repo.find_card_account_id_by_last_four(
+                conn, parsed.cc_last_four
+            )
+
         row_id = await staging_repo.insert_staged(
             conn,
             gmail_message_id=msg_id,
@@ -298,6 +314,7 @@ async def historical_sync_gmail_transactions(
             parsed_category=parsed.category,
             parsed_payment_mode=parsed.payment_mode,
             parsed_transaction_type=parsed.transaction_type,
+            suggested_account_id=suggested_account_id_hist,
         )
         if row_id is not None:
             new_count += 1

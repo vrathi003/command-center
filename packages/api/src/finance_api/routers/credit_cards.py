@@ -22,12 +22,14 @@ from finance_api.schemas.credit_card import (
     LiveBalanceResponse,
     PayBillBody,
 )
+from finance_api.schemas.debt import DebtOut
 from finance_api.services.credit_card_statement_service import (
     build_credit_card_statement_payload,
     dumps_line_items,
     dumps_summary,
 )
 from finance_api.settings import ApiSettings
+from finance_common.fy import current_fy_from_date, fy_start
 from finance_common.parsing.credit_card_statement import (
     infer_cc_payment_mode,
     line_items_json_loads,
@@ -36,13 +38,13 @@ from finance_common.parsing.credit_card_statement import (
 from finance_common.parsing.transaction_import import parse_transaction_date
 from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import credit_cards as cc_repo
+from finance_common.repositories import debts as debt_repo
 from finance_common.repositories import transactions as tx_repo
 from finance_common.repositories.credit_cards import (
     CreditCardEmiRow,
     CreditCardRow,
     CreditCardStatementRow,
 )
-from finance_common.fy import current_fy_from_date, fy_start
 from finance_common.types import Category, Paise, PaymentMode
 
 router = APIRouter(prefix="/credit-cards", tags=["credit-cards"])
@@ -608,6 +610,60 @@ async def delete_emi(
     if existing is None or existing.credit_card_id != card_id:
         raise HTTPException(status_code=404, detail="EMI not found")
     await cc_repo.delete_emi(conn, emi_id)
+
+
+@router.post("/{card_id}/emis/{emi_id}/convert-to-debt", response_model=DebtOut, status_code=201)
+async def convert_emi_to_debt(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    card_id: int,
+    emi_id: int,
+) -> DebtOut:
+    """Convert a CC EMI plan into a tracked Debt entry."""
+    card = await cc_repo.get_credit_card(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Credit card not found")
+    emi = await cc_repo.get_emi(conn, emi_id)
+    if emi is None or emi.credit_card_id != card_id:
+        raise HTTPException(status_code=404, detail="EMI not found")
+
+    principal = emi.principal_paise if emi.principal_paise is not None else emi.limit_blocked_paise
+    remaining = max(0, emi.tenure_months - emi.installments_paid)
+    outstanding = remaining * emi.emi_amount_paise
+
+    debt_id = await debt_repo.insert_debt(
+        conn,
+        name=emi.description,
+        lender=card.name,
+        type_="credit_card_emi",
+        original_amount_paise=principal,
+        current_balance_paise=outstanding,
+        emi_paise=emi.emi_amount_paise,
+        rate_percent=None,
+        start_date=emi.creation_date,
+        next_emi_date=None,
+        status="active",
+        tenure_months=emi.tenure_months,
+        first_emi_date=emi.creation_date,
+    )
+    row = await debt_repo.get_debt(conn, debt_id)
+    if row is None:
+        raise HTTPException(status_code=500, detail="Failed to retrieve created debt")
+    return DebtOut(
+        id=row.id,
+        name=row.name,
+        lender=row.lender,
+        type=row.type,
+        original_amount_paise=row.original_amount_paise,
+        current_balance_paise=row.current_balance_paise,
+        emi_paise=row.emi_paise,
+        rate_percent=row.rate_percent,
+        start_date=row.start_date,
+        next_emi_date=row.next_emi_date,
+        status=row.status,
+        tenure_months=row.tenure_months,
+        first_emi_date=row.first_emi_date,
+        full_emi_start_date=row.full_emi_start_date,
+    )
 
 
 @router.delete("/{card_id}/statements/{statement_id}", status_code=204)
