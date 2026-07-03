@@ -103,7 +103,8 @@ async def get_credit_card(conn: aiosqlite.Connection, card_id: int) -> CreditCar
     cur = await conn.execute(
         """
         SELECT id, name, issuer, last_four, credit_limit_paise, current_balance_paise,
-               notes, is_active
+               notes, is_active, account_id, statement_day, due_day,
+               minimum_due_pct, reward_rate_pct
         FROM credit_cards WHERE id = ?
         """,
         (card_id,),
