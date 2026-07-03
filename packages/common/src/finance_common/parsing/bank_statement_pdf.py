@@ -10,12 +10,13 @@ import fitz  # type: ignore[import-untyped]
 from openai import AsyncOpenAI
 
 from finance_common.config import AppSettings
+from finance_common.parsing.bank_statement_pdfplumber import extract_rows_via_pdfplumber
 from finance_common.parsing.bank_statement_text_heuristic import (
     count_transaction_like_lines,
     heuristic_rows_from_statement_text,
 )
-from finance_common.parsing.transaction_import import extract_merchant_from_narration
 from finance_common.parsing.llm_openai_compat import async_openai_for_lm_studio
+from finance_common.parsing.transaction_import import extract_merchant_from_narration
 from finance_common.types import Category, PaymentMode
 
 MAX_PDF_PAGES = 50
@@ -76,9 +77,10 @@ Each transaction must have:
 Rules:
 - Debit card / ATM / POS → pick closest Debit Card or Other; category from merchant.
 - UPI / HDFC-style lines: the payee is usually the segment **after** the UPI reference number, e.g.
-  ``UPI/DR/102786697305/APPLE ME/HDFC/...`` → merchant ``APPLE ME``; ``UPI/DR/.../SURAJ KU`` → ``SURAJ KU``.
+  ``UPI/DR/102786697305/APPLE ME/HDFC/...`` → merchant ``APPLE ME``;
+  ``UPI/DR/.../SURAJ KU`` → ``SURAJ KU``.
   Do not put the full narration into "merchant"; put the full line in "narration" only.
-- Standalone merchant names (e.g. CREDITSAISON) may appear without UPI slashes — use them as merchant as-is.
+- Standalone merchant names (e.g. CREDITSAISON) without UPI slashes — use as merchant as-is.
 - UPI → payment_mode UPI when the text mentions UPI.
 - NEFT/IMPS/RTGS → NEFT/IMPS or Bank Transfer as appropriate.
 - Salary, interest credit → often Income; internal transfers → Transfer; SIP/MF → Investments.
@@ -453,14 +455,19 @@ async def statement_text_to_import_rows(
     if not settings.lm_studio_active:
         if not settings.lm_studio_enabled:
             hint = (
-                "Heuristic parsing found no transaction lines. "
-                "AI fallback is disabled (LM_STUDIO_ENABLED=false). "
-                "Export CSV from your bank, or set LM_STUDIO_ENABLED=true for complex layouts."
+                "Could not extract transactions from this PDF. "
+                "The statement may use a scanned image or an unsupported layout. "
+                "Options: (1) Export CSV from your bank portal instead. "
+                "(2) Enable AI fallback: set LM_STUDIO_ENABLED=true and point LM_STUDIO_URL "
+                "at LM Studio or Ollama (e.g. http://localhost:11434/v1) with a small model "
+                "like qwen2.5:1.5b loaded — run: ollama pull qwen2.5:1.5b"
             )
         else:
             hint = (
-                "Heuristic parsing found no transaction lines. "
-                "Set LM_STUDIO_URL to enable AI fallback, or export CSV from your bank."
+                "Could not extract transactions from this PDF. "
+                "Set LM_STUDIO_URL to your LM Studio or Ollama endpoint "
+                "(e.g. http://localhost:11434/v1) to enable AI fallback, "
+                "or export CSV from your bank portal."
             )
         raise BankStatementPdfError(hint)
 
@@ -495,8 +502,21 @@ async def pdf_bytes_to_import_rows(
     password: str | None = None,
     client: AsyncOpenAI | None = None,
 ) -> list[dict[str, str]]:
-    """PDF bytes → import rows. Heuristic parsing first; LM Studio only if no rows match."""
+    """PDF bytes → import rows.
+
+    Pipeline (fastest to slowest):
+    1. pdfplumber table extraction — handles multi-column Indian CC/bank statement layouts.
+    2. PyMuPDF text + heuristic line-regex — for simple single-column statements.
+    3. LM Studio / Ollama LLM — fallback for anything the above can't parse.
+    """
     if len(pdf_bytes) > MAX_PDF_BYTES:
         raise BankStatementPdfError(f"PDF file too large (max {MAX_PDF_BYTES // (1024 * 1024)} MB)")
+
+    # Step 1: pdfplumber table extraction (no network, handles tabular layouts).
+    table_rows = extract_rows_via_pdfplumber(pdf_bytes, password=password)
+    if table_rows:
+        return dedupe_import_rows(table_rows)[:MAX_BANK_STATEMENT_IMPORT_ROWS]
+
+    # Step 2 & 3: PyMuPDF text + heuristic, then LLM fallback.
     text = extract_text_from_pdf_bytes(pdf_bytes, password=password)
     return await statement_text_to_import_rows(text, settings, client=client)
