@@ -695,7 +695,7 @@ function CreditCardEmiBlock({
 
   const toDebt = useMutation({
     mutationFn: (emiId: number) => convertEmiToDebt(cardId, emiId),
-    onSuccess: (debt, emiId) => {
+    onSuccess: (_debt, emiId) => {
       void queryClient.invalidateQueries({ queryKey: ['debt-list'] })
       setToDebtSuccessId(emiId)
     },
@@ -1118,7 +1118,7 @@ function CcInsightsPanel({
 
   if (txQ.isPending || !txQ.data) return null
 
-  const debits = txQ.data.filter((t) => t.transaction_type === 'debit' && !t.is_deleted)
+  const debits = txQ.data.filter((t) => t.transaction_type === 'debit')
 
   // Build last-6-calendar-months spend buckets
   const now = new Date()
@@ -1161,7 +1161,7 @@ function CcInsightsPanel({
               width={56}
             />
             <Tooltip
-              formatter={(v: number) => [formatPaiseCompact(Math.round(v * 100)), 'Spent']}
+              formatter={(v) => [formatPaiseCompact(Math.round(Number(v ?? 0) * 100)), 'Spent']}
             />
             <Bar dataKey="spent_rupees" fill="#0f766e" radius={[4, 4, 0, 0]} />
           </BarChart>
