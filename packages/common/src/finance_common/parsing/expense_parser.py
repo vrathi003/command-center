@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from finance_common.classification.matcher import ClassifyFn
 from finance_common.parsing.account_mentions import TRANSFER_PATTERNS, extract_account_fragment
 from finance_common.types import Category, Paise, PaymentMode, rupees_to_paise
 
@@ -59,6 +60,9 @@ _CATEGORY_HINTS: list[tuple[str, Category]] = [
     ("invest", Category.INVESTMENTS),
     ("sip", Category.INVESTMENTS),
 ]
+
+# Public alias — used to seed the merchant_rules table on first migration.
+CATEGORY_HINTS = _CATEGORY_HINTS
 
 
 class ExpenseParseError(ValueError):
@@ -233,7 +237,9 @@ def _merchant_guess(cleaned: str) -> str | None:
     return candidates[0][:80]
 
 
-def parse_expense_line(text: str, *, default_date: date | None = None) -> ParsedExpense:
+def parse_expense_line(
+    text: str, *, default_date: date | None = None, classify: ClassifyFn | None = None
+) -> ParsedExpense:
     """Parse a single natural-language expense line into structured fields."""
     raw = text.strip()
     if not raw:
@@ -261,6 +267,12 @@ def parse_expense_line(text: str, *, default_date: date | None = None) -> Parsed
 
     pay = _payment_mode(remainder_lower)
     merchant = _merchant_guess(remainder)
+    if category == Category.OTHER and merchant and classify is not None:
+        result = classify(merchant)
+        if result.category:
+            category = Category.from_string(result.category)
+        if result.canonical_merchant:
+            merchant = result.canonical_merchant
     paise = rupees_to_paise(rupees)
 
     notes: str | None = remainder.strip() or None

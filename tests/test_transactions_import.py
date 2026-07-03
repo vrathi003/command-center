@@ -7,6 +7,7 @@ from io import BytesIO
 import pytest
 from starlette.testclient import TestClient
 
+from finance_common.classification.matcher import ClassificationResult
 from finance_common.parsing.import_column_mapping import (
     build_canonical_import_row,
     normalize_header_key,
@@ -15,6 +16,7 @@ from finance_common.parsing.transaction_import import (
     categorize_from_merchant,
     detect_header_row,
     extract_merchant_from_narration,
+    parse_import_row,
     trim_trailer_rows,
 )
 
@@ -362,6 +364,52 @@ def test_import_auto_categorizes_zomato(api_client: TestClient) -> None:
     imported = [t for t in txns if t["source"] == "import" and t["merchant"] and "Zomato" in t["merchant"]]
     assert len(imported) >= 1
     assert imported[0]["category"] == "Food Delivery"
+
+
+# --- Injectable classifier (merchant_rules) tests ---
+
+
+def test_parse_import_row_uses_injected_classifier() -> None:
+    """When a `classify` callable is supplied, it fully replaces the static hint list."""
+
+    def classify(merchant: str) -> ClassificationResult:
+        assert merchant == "custom xyz"
+        return ClassificationResult(
+            canonical_merchant="Custom Corp",
+            merchant_type="Retailer",
+            category="Online Shopping",
+            matched_rule_id=1,
+            match_type="exact",
+        )
+
+    canon = {"date": "2025-06-15", "amount": "100", "category": "Other", "merchant": "custom xyz"}
+    parsed = parse_import_row(canon, classify=classify)
+    assert parsed.category == "Online Shopping"
+    assert parsed.merchant == "Custom Corp"
+
+
+def test_parse_import_row_classify_no_match_does_not_fall_back_to_static_hints() -> None:
+    """A supplied classifier takes over entirely — no silent fallback to the static list."""
+
+    def classify(_merchant: str) -> ClassificationResult:
+        return ClassificationResult(
+            canonical_merchant=None,
+            merchant_type=None,
+            category=None,
+            matched_rule_id=None,
+            match_type=None,
+        )
+
+    canon = {"date": "2025-06-15", "amount": "100", "category": "Other", "merchant": "zomato order"}
+    parsed = parse_import_row(canon, classify=classify)
+    assert parsed.category == "Other"
+    assert parsed.merchant == "zomato order"
+
+
+def test_parse_import_row_falls_back_to_static_hints_without_classify() -> None:
+    canon = {"date": "2025-06-15", "amount": "100", "category": "Other", "merchant": "zomato order"}
+    parsed = parse_import_row(canon)
+    assert parsed.category == "Food Delivery"
 
 
 def test_list_transactions_date_filter(api_client: TestClient) -> None:

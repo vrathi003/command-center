@@ -76,6 +76,42 @@ export type TransactionTemplateOut = {
   created_at: string
 }
 
+export type MerchantRuleOut = {
+  id: number
+  match_type: 'exact' | 'contains'
+  match_value: string
+  canonical_merchant: string
+  merchant_type: string | null
+  category: string
+  source: 'heuristic' | 'user' | 'llm'
+  confidence: number
+  priority: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  last_matched_at: string | null
+  retroactively_applied: number | null
+}
+
+export type UncategorizedGroupOut = {
+  merchant: string
+  frequency: number
+  total_paise: number
+}
+
+export type LlmSuggestionOut = {
+  raw_merchant: string
+  canonical_merchant: string
+  merchant_type: string | null
+  category: string
+  confidence: number
+}
+
+export type ClassifyConfirmResult = {
+  created: MerchantRuleOut[]
+  total_retroactively_applied: number
+}
+
 export type BudgetVsActualRow = {
   category: string
   budget_paise: number | null

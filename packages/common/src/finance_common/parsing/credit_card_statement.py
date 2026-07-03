@@ -6,6 +6,7 @@ import json
 import re
 from typing import Any
 
+from finance_common.classification.matcher import ClassifyFn
 from finance_common.parsing.bank_statement_text_heuristic import heuristic_rows_from_statement_text
 from finance_common.parsing.transaction_import import (
     canonical_row_for_import,
@@ -179,6 +180,7 @@ def line_items_from_tabular_rows(
     raw_rows: list[dict[str, str]],
     *,
     default_payment_mode: str,
+    classify: ClassifyFn | None = None,
 ) -> list[dict[str, Any]]:
     """Parse CSV/XLSX rows; requires date + amount; category defaults to Other."""
     out: list[dict[str, Any]] = []
@@ -187,7 +189,7 @@ def line_items_from_tabular_rows(
         if "payment_mode" not in canon:
             canon["payment_mode"] = default_payment_mode
         try:
-            parsed = parse_import_row(canon)
+            parsed = parse_import_row(canon, classify=classify)
         except ValueError:
             continue
         desc = (parsed.merchant or "")[:500]
@@ -212,6 +214,7 @@ def import_rows_to_cc_line_items(
     rows: list[dict[str, str]],
     *,
     default_payment_mode: str,
+    classify: ClassifyFn | None = None,
 ) -> list[dict[str, Any]]:
     """Map bank-statement PDF import rows (same shape as CSV) to credit-card line_items JSON."""
     out: list[dict[str, Any]] = []
@@ -221,7 +224,7 @@ def import_rows_to_cc_line_items(
         if not pm:
             canon = {**canon, "payment_mode": default_payment_mode}
         try:
-            parsed = parse_import_row(canon)
+            parsed = parse_import_row(canon, classify=classify)
         except ValueError:
             continue
         desc = (parsed.merchant or "").strip()

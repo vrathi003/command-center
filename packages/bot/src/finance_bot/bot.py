@@ -23,6 +23,7 @@ from finance_bot.transfer_flow import (
     pick_accounts_for_display,
     resolve_transfer_accounts,
 )
+from finance_common.classification.matcher import match_merchant
 from finance_common.db import ensure_database, open_db
 from finance_common.parsing.account_mentions import (
     AccountLike,
@@ -45,6 +46,7 @@ from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import budgets as budget_repo
 from finance_common.repositories import debts as debt_repo
 from finance_common.repositories import goals as goals_repo
+from finance_common.repositories import merchant_rules as merchant_rules_repo
 from finance_common.repositories import net_worth as nw_repo
 from finance_common.repositories import settings_repo
 from finance_common.repositories import transaction_templates as tmpl_repo
@@ -282,8 +284,11 @@ class ExpenseCog(commands.Cog):
         pt = try_parse_transfer_line(entry)
         if pt is not None:
             return await self._persist_transfer_flow(pt, discord_message_id, channel, user_id)
-        parsed = parse_expense_line(entry)
         async with open_db(self._settings.db_path) as conn:
+            rules = await merchant_rules_repo.list_active_rules_for_matching(conn)
+            parsed = parse_expense_line(
+                entry, classify=lambda m: match_merchant(m, rules)
+            )
             accounts = await accounts_repo.list_accounts(conn, active_only=True)
             likes = [AccountLike(id=a.id, name=a.name) for a in accounts]
             frag = extract_account_fragment(entry)

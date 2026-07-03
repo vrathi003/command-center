@@ -443,6 +443,29 @@ CREATE TABLE IF NOT EXISTS transaction_templates (
     is_deleted INTEGER NOT NULL DEFAULT 0
 );
 
+-- ── Merchant rules (user-editable merchant identity + category classification) ──
+
+CREATE TABLE IF NOT EXISTS merchant_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_type TEXT NOT NULL DEFAULT 'contains',
+    match_value TEXT NOT NULL,
+    canonical_merchant TEXT NOT NULL,
+    merchant_type TEXT,
+    category TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'user',
+    confidence REAL NOT NULL DEFAULT 1.0,
+    priority INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_matched_at TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_merchant_rules_match
+    ON merchant_rules(match_type, match_value) WHERE is_active = 1;
+CREATE INDEX IF NOT EXISTS idx_merchant_rules_category ON merchant_rules(category);
+CREATE INDEX IF NOT EXISTS idx_merchant_rules_source ON merchant_rules(source);
+
 -- ── Construction progress (builder monthly updates) ─────────────────────────────
 
 CREATE TABLE IF NOT EXISTS construction_projects (

@@ -3,7 +3,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { MANUAL_TX_CATEGORIES, PAYMENT_MODE_OPTIONS } from '@/constants/transactionForm'
-import { fetchTransactionTemplates, postManualTransaction, postTransfer, putTransaction } from '@/lib/api'
+import {
+  fetchTransactionTemplates,
+  postManualTransaction,
+  postMerchantRule,
+  postTransfer,
+  putTransaction,
+} from '@/lib/api'
 import type { AccountOut, TransactionRow, TransactionTemplateOut } from '@/types/api'
 
 /** Row to edit plus the other transfer leg when present in the loaded ledger (from parent cache). */
@@ -47,6 +53,8 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
   const [toAccountId, setToAccountId] = useState<string>('')
   const [notes, setNotes] = useState('')
   const [tags, setTags] = useState('')
+  const [createRule, setCreateRule] = useState(false)
+  const [ruleMatchType, setRuleMatchType] = useState<'exact' | 'contains'>('exact')
 
   useEffect(() => {
     if (!open) {
@@ -66,6 +74,8 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
       setToAccountId('')
       setNotes('')
       setTags('')
+      setCreateRule(false)
+      setRuleMatchType('exact')
       /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [open, isEdit])
@@ -81,6 +91,8 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
     setAmountRupees((d.amount_paise / 100).toFixed(2))
     setNotes(d.notes ?? '')
     setTags(d.tags ?? '')
+    setCreateRule(false)
+    setRuleMatchType('exact')
     if (d.transaction_type === 'transfer') {
       setKind('transfer')
       if (!d.transfer_pair_id) {
@@ -221,6 +233,15 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
     },
   })
 
+  /** Feedback loop: "always classify this way?" checkbox creates a merchant rule (which
+   * retroactively re-applies to other matching transactions) alongside the edit save. */
+  const createRuleMut = useMutation({
+    mutationFn: postMerchantRule,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['merchant-rules'] })
+    },
+  })
+
   const activeAccounts = useMemo(() => accounts.filter((a) => a.is_active), [accounts])
 
   const categoryOptions = useMemo(() => {
@@ -280,20 +301,37 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
         return
       }
       const aid = accountId ? Number.parseInt(accountId, 10) : undefined
-      updateOne.mutate({
-        id: transactionIdToEdit,
-        body: {
-          date,
-          amount_paise: paise,
-          category,
-          merchant: merchant.trim() || null,
-          payment_mode: paymentMode,
-          transaction_type: kind,
-          account_id: aid && !Number.isNaN(aid) ? aid : null,
-          notes: notes.trim() || null,
-          tags: tags.trim() || null,
+      const trimmedMerchant = merchant.trim()
+      updateOne.mutate(
+        {
+          id: transactionIdToEdit,
+          body: {
+            date,
+            amount_paise: paise,
+            category,
+            merchant: trimmedMerchant || null,
+            payment_mode: paymentMode,
+            transaction_type: kind,
+            account_id: aid && !Number.isNaN(aid) ? aid : null,
+            notes: notes.trim() || null,
+            tags: tags.trim() || null,
+          },
         },
-      })
+        {
+          onSuccess: () => {
+            if (createRule && trimmedMerchant && category) {
+              createRuleMut.mutate({
+                match_type: ruleMatchType,
+                match_value: trimmedMerchant,
+                canonical_merchant: trimmedMerchant,
+                merchant_type: null,
+                category,
+                source: 'user',
+              })
+            }
+          },
+        },
+      )
       return
     }
 
@@ -552,6 +590,33 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
                   ))}
                 </select>
               </label>
+              {isEdit ? (
+                <div className="mb-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
+                  <label className="flex items-center gap-2 text-sm text-zinc-700">
+                    <input
+                      type="checkbox"
+                      checked={createRule}
+                      onChange={(e) => setCreateRule(e.target.checked)}
+                    />
+                    Always classify this way?
+                  </label>
+                  {createRule ? (
+                    <label className="mt-2 flex items-center gap-2 text-xs text-zinc-600">
+                      Match
+                      <select
+                        value={ruleMatchType}
+                        onChange={(e) =>
+                          setRuleMatchType(e.target.value as 'exact' | 'contains')
+                        }
+                        className="rounded border border-zinc-200 px-1.5 py-1 text-xs"
+                      >
+                        <option value="exact">exactly</option>
+                        <option value="contains">any merchant containing this text</option>
+                      </select>
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
             </>
           )}
 

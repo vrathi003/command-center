@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime
 
+from finance_common.classification.matcher import ClassifyFn
 from finance_common.parsing.account_mentions import narration_suggests_bank_transfer
 from finance_common.parsing.import_column_mapping import (
     build_canonical_import_row,
@@ -26,6 +27,7 @@ __all__ = [
     "trim_trailer_rows",
     "parse_import_row",
     "iter_csv_dict_rows",
+    "MERCHANT_CATEGORY_HINTS",
 ]
 
 
@@ -187,6 +189,9 @@ _MERCHANT_CATEGORY_HINTS: list[tuple[str, Category]] = [
     ("lic", Category.INSURANCE),
 ]
 
+# Public alias — used to seed the merchant_rules table on first migration.
+MERCHANT_CATEGORY_HINTS = _MERCHANT_CATEGORY_HINTS
+
 
 # UPI with 6–22 digit reference (NPCI-style) then payee: UPI/DR/102786697305/APPLE ME/HDFC/...
 _UPI_PAYEE_AFTER_REF = re.compile(r"UPI/(?:DR|CR)/\d{6,22}/\s*([^/]+)", re.IGNORECASE)
@@ -232,7 +237,9 @@ def categorize_from_merchant(merchant: str | None) -> str | None:
     return None
 
 
-def parse_import_row(canon: dict[str, str]) -> ParsedImportRow:
+def parse_import_row(
+    canon: dict[str, str], *, classify: ClassifyFn | None = None
+) -> ParsedImportRow:
     if "date" not in canon or "amount" not in canon or "category" not in canon:
         raise ValueError("required columns: date, amount, category")
     tx_date = parse_transaction_date(canon["date"])
@@ -250,9 +257,16 @@ def parse_import_row(canon: dict[str, str]) -> ParsedImportRow:
             merchant = slim
     # Auto-categorize from merchant when category defaults to "Other".
     if cat == Category.OTHER and merchant:
-        auto_cat = categorize_from_merchant(merchant)
-        if auto_cat:
-            cat = Category.from_string(auto_cat)
+        if classify is not None:
+            result = classify(merchant)
+            if result.category:
+                cat = Category.from_string(result.category)
+            if result.canonical_merchant:
+                merchant = result.canonical_merchant
+        else:
+            auto_cat = categorize_from_merchant(merchant)
+            if auto_cat:
+                cat = Category.from_string(auto_cat)
     # Auto-detect payment mode from narration (merchant may be shortened; notes hold original).
     if pm == PaymentMode.OTHER:
         probe = " ".join(

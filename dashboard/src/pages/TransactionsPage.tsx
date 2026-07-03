@@ -303,6 +303,12 @@ export function TransactionsPage() {
             >
               Templates
             </Link>
+            <Link
+              to="/transactions/merchants"
+              className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50"
+            >
+              Merchants
+            </Link>
             <button
               type="button"
               onClick={() => {

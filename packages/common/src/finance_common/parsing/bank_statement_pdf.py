@@ -204,10 +204,10 @@ def _first_json_object_dict(text: str) -> dict[str, Any] | None:
     return None
 
 
-def _strip_to_transactions_json_start(text: str) -> str:
-    """Drop reasoning text before the JSON object that contains a ``transactions`` array."""
-    key = '"transactions"'
-    idx = text.find(key)
+def _strip_to_transactions_json_start(text: str, key: str = "transactions") -> str:
+    """Drop reasoning text before the JSON object that contains the ``key`` array."""
+    needle = f'"{key}"'
+    idx = text.find(needle)
     if idx == -1:
         return text
     brace = text.rfind("{", 0, idx)
@@ -216,8 +216,10 @@ def _strip_to_transactions_json_start(text: str) -> str:
     return text[brace:]
 
 
-def _first_dict_with_transactions_key(text: str) -> dict[str, Any] | None:
-    """Find a JSON object that contains a ``transactions`` key."""
+def _first_dict_with_transactions_key(
+    text: str, key: str = "transactions"
+) -> dict[str, Any] | None:
+    """Find a JSON object that contains ``key``."""
     decoder = json.JSONDecoder()
     i = 0
     n = len(text)
@@ -230,14 +232,18 @@ def _first_dict_with_transactions_key(text: str) -> dict[str, Any] | None:
         except json.JSONDecodeError:
             i += 1
             continue
-        if isinstance(obj, dict) and "transactions" in obj:
+        if isinstance(obj, dict) and key in obj:
             return obj
         i = end if end > i else i + 1
     return None
 
 
-def parse_json_object_from_model_text(raw: str) -> dict[str, Any]:
-    """Parse JSON from model output: tolerates markdown fences, preamble text, and smart quotes."""
+def parse_json_object_from_model_text(raw: str, key: str = "transactions") -> dict[str, Any]:
+    """Parse JSON from model output: tolerates markdown fences, preamble text, and smart quotes.
+
+    ``key`` is the top-level array key the caller expects (default ``"transactions"`` for the
+    bank-statement pipeline; e.g. ``"suggestions"`` for merchant classification).
+    """
     if not raw or not str(raw).strip():
         msg = "empty model output"
         raise ValueError(msg)
@@ -263,43 +269,43 @@ def parse_json_object_from_model_text(raw: str) -> dict[str, Any]:
     t = re.sub(r"^\s*```(?:json)?\s*", "", t, flags=re.IGNORECASE)
     t = re.sub(r"\s*```\s*$", "", t).strip()
 
-    # Qwen / chat models often prepend "Thinking Process:" — real JSON starts at {"transactions"
-    t = _strip_to_transactions_json_start(t)
+    # Qwen / chat models often prepend "Thinking Process:" — real JSON starts at {"<key>"
+    t = _strip_to_transactions_json_start(t, key)
 
     try:
         data = json.loads(t)
-        if isinstance(data, dict) and "transactions" in data:
+        if isinstance(data, dict) and key in data:
             return data
     except json.JSONDecodeError:
         pass
 
-    found = _first_dict_with_transactions_key(t)
+    found = _first_dict_with_transactions_key(t, key)
     if found is not None:
         return found
 
     found = _first_json_object_dict(t)
-    if found is not None and "transactions" in found:
+    if found is not None and key in found:
         return found
 
     brace = t.find("{")
     if brace >= 0:
         tail = t[brace:]
-        tail = _strip_to_transactions_json_start(tail)
-        found = _first_dict_with_transactions_key(tail)
+        tail = _strip_to_transactions_json_start(tail, key)
+        found = _first_dict_with_transactions_key(tail, key)
         if found is not None:
             return found
         found = _first_json_object_dict(tail)
-        if found is not None and "transactions" in found:
+        if found is not None and key in found:
             return found
         try:
             data = json.loads(tail)
-            if isinstance(data, dict) and "transactions" in data:
+            if isinstance(data, dict) and key in data:
                 return data
         except json.JSONDecodeError:
             pass
 
     msg = (
-        "could not parse JSON with a \"transactions\" key — model may have output reasoning only. "
+        f"could not parse JSON with a {key!r} key — model may have output reasoning only. "
         f"First 200 chars: {t[:200]!r}"
     )
     raise ValueError(msg)

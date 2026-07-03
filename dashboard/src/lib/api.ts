@@ -47,6 +47,10 @@ import type {
   CreditCardStatementOut,
   SettingsOut,
   SubscriptionOut,
+  ClassifyConfirmResult,
+  LlmSuggestionOut,
+  MerchantRuleOut,
+  UncategorizedGroupOut,
   TransactionDetailOut,
   TransactionImportResult,
   TransactionRow,
@@ -299,6 +303,87 @@ export async function deleteTransactionTemplate(id: number): Promise<void> {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
   }
+}
+
+// --- Merchant rules (merchant identity + category classification) ---
+
+export type MerchantRuleBody = {
+  match_type: 'exact' | 'contains'
+  match_value: string
+  canonical_merchant: string
+  merchant_type: string | null
+  category: string
+  source?: 'heuristic' | 'user' | 'llm'
+  confidence?: number
+  priority?: number
+}
+
+export async function fetchMerchantRules(source?: string): Promise<MerchantRuleOut[]> {
+  const qs = source ? `?source=${encodeURIComponent(source)}` : ''
+  const res = await apiFetch(`${apiBase()}/api/merchant-rules/${qs}`)
+  return parseJson<MerchantRuleOut[]>(res)
+}
+
+export async function fetchUncategorizedMerchants(): Promise<UncategorizedGroupOut[]> {
+  const res = await apiFetch(`${apiBase()}/api/merchant-rules/uncategorized`)
+  return parseJson<UncategorizedGroupOut[]>(res)
+}
+
+export async function postMerchantRule(body: MerchantRuleBody): Promise<MerchantRuleOut> {
+  const res = await apiFetch(`${apiBase()}/api/merchant-rules/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<MerchantRuleOut>(res)
+}
+
+export async function putMerchantRule(
+  id: number,
+  body: MerchantRuleBody,
+): Promise<MerchantRuleOut> {
+  const res = await apiFetch(`${apiBase()}/api/merchant-rules/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<MerchantRuleOut>(res)
+}
+
+export async function deleteMerchantRule(id: number): Promise<void> {
+  const res = await apiFetch(`${apiBase()}/api/merchant-rules/${id}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || `HTTP ${res.status}`)
+  }
+}
+
+export async function postClassifySuggest(merchants: string[]): Promise<LlmSuggestionOut[]> {
+  const res = await apiFetch(`${apiBase()}/api/merchant-rules/classify-suggest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ merchants }),
+  })
+  return parseJson<LlmSuggestionOut[]>(res)
+}
+
+export async function postClassifyConfirm(
+  suggestions: Array<{
+    raw_merchant: string
+    match_type: 'exact' | 'contains'
+    canonical_merchant: string
+    merchant_type: string | null
+    category: string
+  }>,
+): Promise<ClassifyConfirmResult> {
+  const res = await apiFetch(`${apiBase()}/api/merchant-rules/classify-confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ suggestions }),
+  })
+  return parseJson<ClassifyConfirmResult>(res)
 }
 
 // --- Accounts ---

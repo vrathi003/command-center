@@ -7,7 +7,19 @@ from dataclasses import dataclass
 from datetime import date
 from email.utils import parsedate_to_datetime
 
+from finance_common.classification.matcher import ClassifyFn
 from finance_common.parsing.transaction_import import categorize_from_merchant
+
+
+def _resolve_classification(
+    merchant: str | None, fallback_category: str, classify: ClassifyFn | None
+) -> tuple[str | None, str]:
+    """Returns (merchant, category), preferring a merchant_rules match over the static hints."""
+    if merchant and classify is not None:
+        result = classify(merchant)
+        if result.category:
+            return result.canonical_merchant or merchant, result.category
+    return merchant, categorize_from_merchant(merchant) or fallback_category
 
 # ── Amount extraction ────────────────────────────────────────────────────────
 
@@ -157,6 +169,8 @@ def parse_bank_alert(
     sender: str,
     body: str,
     email_date: date | None,
+    *,
+    classify: ClassifyFn | None = None,
 ) -> ParsedEmailTransaction | None:
     """Parse Indian bank transaction alert email."""
     combined = f"{subject} {body}"
@@ -171,7 +185,8 @@ def parse_bank_alert(
 
     tx_type = "credit" if credit_score > debit_score else "debit"
     merchant = _extract_merchant_from_body(combined)
-    category = categorize_from_merchant(merchant) or ("Income" if tx_type == "credit" else "Other")
+    fallback = "Income" if tx_type == "credit" else "Other"
+    merchant, category = _resolve_classification(merchant, fallback, classify)
     payment_mode = _detect_payment_mode(combined)
     cc_last_four = _extract_cc_last_four(combined)
 
@@ -217,6 +232,8 @@ def parse_payment_receipt(
     merchant_name: str,
     body: str,
     email_date: date | None,
+    *,
+    classify: ClassifyFn | None = None,
 ) -> ParsedEmailTransaction | None:
     """Parse e-commerce / merchant receipt email."""
     combined = f"{subject} {body}"
@@ -234,12 +251,12 @@ def parse_payment_receipt(
     if amount_paise <= 0:
         return None
 
-    category = categorize_from_merchant(merchant_name) or "Shopping"
+    merchant, category = _resolve_classification(merchant_name, "Shopping", classify)
     return ParsedEmailTransaction(
         tx_date=email_date or date.today(),
         amount_paise=amount_paise,
         transaction_type="debit",
-        merchant=merchant_name,
+        merchant=merchant,
         category=category,
         payment_mode="UPI",
         raw_snippet=combined[:500].strip(),
@@ -265,6 +282,8 @@ def classify_and_parse(
     sender: str,
     body: str,
     date_header: str | None = None,
+    *,
+    classify: ClassifyFn | None = None,
 ) -> ParsedEmailTransaction | None:
     """
     Route to the correct parser based on sender domain.
@@ -274,11 +293,11 @@ def classify_and_parse(
     email_date = _parse_email_date(date_header)
 
     if _is_bank_sender(domain):
-        return parse_bank_alert(subject, sender, body, email_date)
+        return parse_bank_alert(subject, sender, body, email_date, classify=classify)
 
     merchant_name = _merchant_from_sender(domain)
     if merchant_name:
-        return parse_payment_receipt(subject, merchant_name, body, email_date)
+        return parse_payment_receipt(subject, merchant_name, body, email_date, classify=classify)
 
     # Fallback: check subject/body for financial signals
     combined = f"{subject} {body}"
@@ -289,6 +308,6 @@ def classify_and_parse(
         combined, re.IGNORECASE,
     ))
     if has_amount and (has_tx_signal or has_order_signal):
-        return parse_bank_alert(subject, sender, body, email_date)
+        return parse_bank_alert(subject, sender, body, email_date, classify=classify)
 
     return None

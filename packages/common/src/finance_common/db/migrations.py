@@ -4,11 +4,41 @@ from __future__ import annotations
 
 import aiosqlite
 
+from finance_common.parsing.expense_parser import CATEGORY_HINTS
+from finance_common.parsing.transaction_import import MERCHANT_CATEGORY_HINTS
+from finance_common.types import Category
+
 
 async def _column_names(conn: aiosqlite.Connection, table: str) -> set[str]:
     cur = await conn.execute(f"PRAGMA table_info({table})")
     rows = await cur.fetchall()
     return {str(r[1]) for r in rows}
+
+
+async def _seed_merchant_rules_from_heuristics(conn: aiosqlite.Connection) -> None:
+    """One-time seed of merchant_rules from the two legacy hardcoded hint lists.
+
+    Runs only when the table is empty (fresh install or first upgrade), so it never
+    clobbers rules a user has since edited or deleted.
+    """
+    seen: set[str] = set()
+    for keyword, cat in (*MERCHANT_CATEGORY_HINTS, *CATEGORY_HINTS):
+        if cat == Category.OTHER:
+            continue  # no-op categorization, not worth seeding
+        match_value = keyword.strip().lower()
+        if not match_value or match_value in seen:
+            continue
+        seen.add(match_value)
+        await conn.execute(
+            """
+            INSERT OR IGNORE INTO merchant_rules (
+                match_type, match_value, canonical_merchant, merchant_type,
+                category, source, confidence
+            ) VALUES ('contains', ?, ?, NULL, ?, 'heuristic', 0.6)
+            """,
+            (match_value, match_value.title(), cat.value),
+        )
+    await conn.commit()
 
 
 async def apply_migrations(conn: aiosqlite.Connection) -> None:
@@ -585,3 +615,40 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
             """
         )
         await conn.commit()
+
+    # ── Merchant rules (user-editable merchant identity + category classification) ──
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='merchant_rules'"
+    )
+    if await cur.fetchone() is None:
+        await conn.executescript(
+            """
+            CREATE TABLE merchant_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                match_type TEXT NOT NULL DEFAULT 'contains',
+                match_value TEXT NOT NULL,
+                canonical_merchant TEXT NOT NULL,
+                merchant_type TEXT,
+                category TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'user',
+                confidence REAL NOT NULL DEFAULT 1.0,
+                priority INTEGER NOT NULL DEFAULT 0,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_matched_at TEXT
+            );
+            CREATE UNIQUE INDEX idx_merchant_rules_match
+                ON merchant_rules(match_type, match_value) WHERE is_active = 1;
+            CREATE INDEX idx_merchant_rules_category ON merchant_rules(category);
+            CREATE INDEX idx_merchant_rules_source ON merchant_rules(source);
+            """
+        )
+        await conn.commit()
+
+    # Seed once, whether the table came from schema.sql (fresh install) or the
+    # executescript block above (existing DB) — never re-seeds once rows exist.
+    cur = await conn.execute("SELECT COUNT(*) FROM merchant_rules")
+    row = await cur.fetchone()
+    if row is not None and int(row[0]) == 0:
+        await _seed_merchant_rules_from_heuristics(conn)

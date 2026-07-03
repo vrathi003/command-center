@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import aiosqlite
+
 from finance_api.services.transaction_import_service import MAX_BYTES, load_rows_from_upload
+from finance_common.classification.matcher import ClassificationResult, match_merchant
 from finance_common.config import AppSettings
 from finance_common.parsing.bank_statement_pdf import (
     BankStatementPdfError,
@@ -19,6 +22,7 @@ from finance_common.parsing.credit_card_statement import (
     parse_credit_card_summary,
     truncate_preview,
 )
+from finance_common.repositories import merchant_rules as merchant_rules_repo
 
 
 async def build_credit_card_statement_payload(
@@ -28,6 +32,7 @@ async def build_credit_card_statement_payload(
     pdf_password: str | None,
     issuer: str | None,
     settings: AppSettings,
+    conn: aiosqlite.Connection,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], str | None]:
     """Return (summary dict, line_items, extraction_preview).
 
@@ -40,6 +45,10 @@ async def build_credit_card_statement_payload(
         raise ValueError(msg)
 
     default_pm = infer_cc_payment_mode(issuer)
+    rules = await merchant_rules_repo.list_active_rules_for_matching(conn)
+
+    def classify(merchant: str) -> ClassificationResult:
+        return match_merchant(merchant, rules)
 
     if name.endswith(".pdf"):
         pw = pdf_password.strip() if pdf_password else None
@@ -53,13 +62,17 @@ async def build_credit_card_statement_payload(
             rows = await statement_text_to_import_rows(text, settings)
         except BankStatementPdfError as e:
             raise ValueError(str(e)) from e
-        lines = import_rows_to_cc_line_items(rows, default_payment_mode=default_pm)
+        lines = import_rows_to_cc_line_items(
+            rows, default_payment_mode=default_pm, classify=classify
+        )
         return summary, lines, preview
 
     if name.endswith((".csv", ".xlsx", ".xlsm")):
         raw_rows = load_rows_from_upload(filename, content)
         summary: dict[str, Any] = {}
-        lines = line_items_from_tabular_rows(raw_rows, default_payment_mode=default_pm)
+        lines = line_items_from_tabular_rows(
+            raw_rows, default_payment_mode=default_pm, classify=classify
+        )
         return summary, lines, None
 
     raise ValueError("unsupported type — use .pdf, .csv, .xlsx, or .xlsm")

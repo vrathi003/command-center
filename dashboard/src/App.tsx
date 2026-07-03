@@ -20,6 +20,7 @@ import { IncomeTaxPage } from '@/pages/IncomeTaxPage'
 import { InsurancePage } from '@/pages/InsurancePage'
 import { InvestmentsPage } from '@/pages/InvestmentsPage'
 import { JournalPage } from '@/pages/JournalPage'
+import { MerchantRulesPage } from '@/pages/MerchantRulesPage'
 import { StocksPortfolioPage } from '@/pages/StocksPortfolioPage'
 import { NetWorthPage } from '@/pages/NetWorthPage'
 import { RecurringPaymentsPage } from '@/pages/RecurringPaymentsPage'
@@ -40,6 +41,7 @@ function AppRoutes() {
           <Route index element={<DashboardPage />} />
           <Route path="accounts" element={<AccountsPage />} />
           <Route path="transactions/templates" element={<TransactionTemplatesPage />} />
+          <Route path="transactions/merchants" element={<MerchantRulesPage />} />
           <Route path="transactions" element={<TransactionsPage />} />
           <Route path="budget" element={<BudgetPage />} />
           <Route path="debt" element={<DebtPage />} />

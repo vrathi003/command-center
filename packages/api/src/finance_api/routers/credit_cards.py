@@ -450,6 +450,7 @@ async def upload_statement(
             pdf_password=pdf_password,
             issuer=card.issuer,
             settings=api_settings,
+            conn=conn,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

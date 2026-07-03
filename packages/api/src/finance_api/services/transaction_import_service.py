@@ -12,12 +12,14 @@ from typing import Any
 import pandas as pd
 from xlrd import XLRDError
 
+from finance_common.classification.matcher import ClassificationResult, match_merchant
 from finance_common.parsing.transaction_import import (
     canonical_row_for_import,
     detect_header_row,
     parse_import_row,
     trim_trailer_rows,
 )
+from finance_common.repositories import merchant_rules as merchant_rules_repo
 from finance_common.repositories import transactions as tx_repo
 from finance_common.types import Paise
 
@@ -245,6 +247,11 @@ async def import_transactions_from_rows(
     failed = 0
     errors: list[tuple[int, str]] = []
 
+    rules = await merchant_rules_repo.list_active_rules_for_matching(conn)
+
+    def classify(merchant: str) -> ClassificationResult:
+        return match_merchant(merchant, rules)
+
     for i, raw in enumerate(trimmed_rows, start=2):
         if not any(str(v).strip() for v in raw.values() if v is not None):
             continue  # blank row
@@ -260,7 +267,7 @@ async def import_transactions_from_rows(
             )
             continue
         try:
-            parsed = parse_import_row(canon)
+            parsed = parse_import_row(canon, classify=classify)
         except ValueError as e:
             failed += 1
             errors.append((i, str(e)))

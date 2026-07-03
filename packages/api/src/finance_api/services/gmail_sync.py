@@ -10,9 +10,11 @@ from pathlib import Path
 
 import aiosqlite
 
+from finance_common.classification.matcher import ClassificationResult, match_merchant
 from finance_common.parsing.gmail_email import classify_and_parse
 from finance_common.repositories import credit_cards as cc_repo
 from finance_common.repositories import email_staging as staging_repo
+from finance_common.repositories import merchant_rules as merchant_rules_repo
 from finance_common.repositories import settings_repo
 
 logger = logging.getLogger(__name__)
@@ -146,6 +148,11 @@ async def sync_gmail_transactions(
         logger.exception("Gmail messages.list failed")
         return 0
 
+    rules = await merchant_rules_repo.list_active_rules_for_matching(conn)
+
+    def classify(merchant: str) -> ClassificationResult:
+        return match_merchant(merchant, rules)
+
     new_count = 0
     for msg_ref in messages:
         msg_id = msg_ref["id"]
@@ -168,7 +175,7 @@ async def sync_gmail_transactions(
         date_header = _header_value(headers, "Date")
         body = _extract_text(payload) or msg.get("snippet", "")
 
-        parsed = classify_and_parse(subject, sender, body, date_header)
+        parsed = classify_and_parse(subject, sender, body, date_header, classify=classify)
         if parsed is None:
             continue
 
@@ -266,6 +273,11 @@ async def historical_sync_gmail_transactions(
 
     logger.info("Gmail historical sync: %s message(s) found to process", len(all_message_refs))
 
+    hist_rules = await merchant_rules_repo.list_active_rules_for_matching(conn)
+
+    def classify_hist(merchant: str) -> ClassificationResult:
+        return match_merchant(merchant, hist_rules)
+
     new_count = 0
     total_scanned = 0
     for msg_ref in all_message_refs:
@@ -290,7 +302,7 @@ async def historical_sync_gmail_transactions(
         date_header = _header_value(headers, "Date")
         body = _extract_text(payload) or msg.get("snippet", "")
 
-        parsed = classify_and_parse(subject, sender, body, date_header)
+        parsed = classify_and_parse(subject, sender, body, date_header, classify=classify_hist)
         if parsed is None:
             continue
 
