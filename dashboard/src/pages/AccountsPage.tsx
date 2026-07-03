@@ -27,6 +27,15 @@ const TYPE_LABELS: Record<string, string> = Object.fromEntries(
   ACCOUNT_TYPES.map((t) => [t.value, t.label]),
 )
 
+const ACCOUNT_GROUPS: { label: string; types: string[] }[] = [
+  { label: 'Bank Accounts', types: ['savings', 'current'] },
+  { label: 'Credit Cards', types: ['credit_card'] },
+  { label: 'Wallets', types: ['wallet'] },
+  { label: 'Investments', types: ['investment'] },
+  { label: 'Loans', types: ['loan'] },
+  { label: 'Other', types: ['other'] },
+]
+
 const TYPE_ICONS: Record<string, string> = {
   savings: '🏦',
   current: '🏢',
@@ -191,6 +200,15 @@ export function AccountsPage() {
   const active = accounts.filter((a) => a.is_active)
   const inactive = accounts.filter((a) => !a.is_active)
 
+  const accountsByType = useMemo(() => {
+    const map: Record<string, AccountOut[]> = {}
+    for (const a of active) {
+      if (!map[a.type]) map[a.type] = []
+      map[a.type].push(a)
+    }
+    return map
+  }, [active])
+
   if (q.isPending) return <PageLoading lines={3} showFooterBlock />
   if (q.isError)
     return (
@@ -332,19 +350,34 @@ export function AccountsPage() {
             </p>
           </Panel>
         ) : (
-          <div className="space-y-3">
-            {active.map((a) => (
-              <AccountCard key={a.id} a={a} />
-            ))}
+          <div className="space-y-6">
+            {ACCOUNT_GROUPS.map(({ label, types }) => {
+              const groupAccounts = types.flatMap((t) => accountsByType[t] ?? [])
+              if (groupAccounts.length === 0) return null
+              return (
+                <div key={label}>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                    {label}
+                  </p>
+                  <div className="space-y-2">
+                    {groupAccounts.map((a) => (
+                      <AccountCard key={a.id} a={a} />
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
             {inactive.length > 0 && (
-              <>
-                <p className="pt-2 text-xs font-medium uppercase tracking-wide text-zinc-400">
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
                   Inactive
                 </p>
-                {inactive.map((a) => (
-                  <AccountCard key={a.id} a={a} />
-                ))}
-              </>
+                <div className="space-y-2">
+                  {inactive.map((a) => (
+                    <AccountCard key={a.id} a={a} />
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         )}
