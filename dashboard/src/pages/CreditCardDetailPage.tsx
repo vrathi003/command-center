@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { NavigateFunction } from 'react-router-dom'
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { CreditCardStatementSummarySection } from '@/components/credit-cards/CreditCardStatementSummarySection'
 import { KpiCard } from '@/components/dashboard/KpiCard'
@@ -1102,6 +1103,95 @@ function groupTransactions(
   }))
 }
 
+function CcInsightsPanel({
+  accountId,
+  rewardRatePct,
+}: {
+  accountId: number
+  rewardRatePct: number | null
+}) {
+  const txQ = useQuery({
+    queryKey: ['cc-transactions', accountId],
+    queryFn: () => fetchTransactions(500, { accountId }),
+    staleTime: 60_000,
+  })
+
+  if (txQ.isPending || !txQ.data) return null
+
+  const debits = txQ.data.filter((t) => t.transaction_type === 'debit' && !t.is_deleted)
+
+  // Build last-6-calendar-months spend buckets
+  const now = new Date()
+  const buckets: { label: string; key: string; spent_paise: number }[] = []
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const label = d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
+    buckets.push({ key, label, spent_paise: 0 })
+  }
+  for (const t of debits) {
+    const key = t.date.slice(0, 7)
+    const b = buckets.find((x) => x.key === key)
+    if (b) b.spent_paise += t.amount_paise
+  }
+
+  const totalSpend = debits.reduce((s, t) => s + t.amount_paise, 0)
+  const estimatedRewards =
+    rewardRatePct != null && rewardRatePct > 0
+      ? Math.round(totalSpend * (rewardRatePct / 100))
+      : null
+
+  const chartData = buckets.map((b) => ({
+    label: b.label,
+    spent_rupees: b.spent_paise / 100,
+  }))
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          Monthly spend — last 6 months
+        </p>
+        <ResponsiveContainer width="100%" height={180} minWidth={0}>
+          <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+            <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+            <YAxis
+              tick={{ fontSize: 10 }}
+              tickFormatter={(v: number) => formatPaiseCompact(Math.round(v * 100))}
+              width={56}
+            />
+            <Tooltip
+              formatter={(v: number) => [formatPaiseCompact(Math.round(v * 100)), 'Spent']}
+            />
+            <Bar dataKey="spent_rupees" fill="#0f766e" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {estimatedRewards != null ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            Reward optimisation
+          </p>
+          <p className="text-sm text-zinc-700">
+            At <span className="font-semibold">{rewardRatePct}%</span> reward rate, your{' '}
+            <span className="font-semibold tabular-nums">{formatPaiseCompact(totalSpend)}</span> total
+            spend has earned approximately{' '}
+            <span className="font-semibold tabular-nums text-emerald-800">
+              {formatPaiseCompact(estimatedRewards)}
+            </span>{' '}
+            in rewards.
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs text-zinc-400">
+          Set a reward rate % on this card to see estimated cashback / points value.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function CcTransactionList({
   accountId,
   statementDay,
@@ -1561,6 +1651,16 @@ export function CreditCardDetailPage() {
             />
           </div>
         </div>
+      ) : null}
+
+      {hasLinkedAccount ? (
+        <section>
+          <SectionTitle>Insights</SectionTitle>
+          <CcInsightsPanel
+            accountId={c.account_id!}
+            rewardRatePct={c.reward_rate_pct ?? null}
+          />
+        </section>
       ) : null}
 
       {hasLinkedAccount ? (
