@@ -44,6 +44,7 @@ function AppRoutes() {
           <Route path="accounts" element={<AccountsPage />} />
           <Route path="transactions/templates" element={<TransactionTemplatesPage />} />
           <Route path="transactions/merchants" element={<MerchantRulesPage />} />
+          <Route path="merchants" element={<MerchantRulesPage />} />
           <Route path="transactions" element={<TransactionsPage />} />
           <Route path="budget" element={<BudgetPage />} />
           <Route path="debt" element={<DebtPage />} />

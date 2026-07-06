@@ -91,12 +91,14 @@ export type MerchantRuleOut = {
   updated_at: string
   last_matched_at: string | null
   retroactively_applied: number | null
+  statement_import_applied?: number | null
 }
 
 export type UncategorizedGroupOut = {
   merchant: string
   frequency: number
   total_paise: number
+  sources?: string[]
 }
 
 export type LlmSuggestionOut = {
@@ -110,6 +112,7 @@ export type LlmSuggestionOut = {
 export type ClassifyConfirmResult = {
   created: MerchantRuleOut[]
   total_retroactively_applied: number
+  total_statement_import_applied?: number
 }
 
 export type BudgetVsActualRow = {
@@ -740,6 +743,7 @@ export type StatementImportRuleOut = {
   pdf_password: string | null
   credit_card_id: number | null
   is_enabled: boolean
+  fetch_months: number
   created_at: string | null
   updated_at: string | null
 }
@@ -752,6 +756,7 @@ export type StatementImportRuleBody = {
   pdf_password?: string | null
   credit_card_id?: number | null
   is_enabled?: boolean
+  fetch_months?: number
 }
 
 export type StatementTagRuleOut = {
@@ -768,6 +773,7 @@ export type StatementTagRuleBody = {
 }
 
 export type StatementImportTransactionRow = {
+  id: string
   date: string
   bank: string
   card: string
@@ -776,9 +782,25 @@ export type StatementImportTransactionRow = {
   currency: string
   category: string | null
   transaction_type: string | null
+  tx_kind: string | null
+  category_source?: string | null
   tags: string
   statement_period: string
   gmail_message_id: string
+}
+
+export type StatementImportTransactionBody = {
+  date: string
+  bank: string
+  card: string
+  description: string
+  amount: number
+  currency?: string
+  category?: string | null
+  tx_kind?: string
+  tags?: string
+  statement_period?: string
+  gmail_message_id?: string
 }
 
 export type StatementImportFetchResponse = {
@@ -787,6 +809,9 @@ export type StatementImportFetchResponse = {
   skipped: Array<Record<string, string>>
   transactions: StatementImportTransactionRow[]
   snapshot_id: number | null
+  llm_model?: string | null
+  tags_source?: string
+  category_source?: string
 }
 
 export type StatementImportSnapshotOut = {
@@ -801,4 +826,6 @@ export type StatementImportSnapshotOut = {
 export type GmailStatusOut = {
   configured: boolean
   credentials_path: string | null
+  llm_enabled?: boolean
+  llm_model?: string | null
 }

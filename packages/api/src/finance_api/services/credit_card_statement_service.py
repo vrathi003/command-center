@@ -10,10 +10,8 @@ import aiosqlite
 from finance_api.services.transaction_import_service import MAX_BYTES, load_rows_from_upload
 from finance_common.classification.matcher import ClassificationResult, match_merchant
 from finance_common.parsing.bank_parsers.registry import best_parse_for_bank, issuer_to_bank_slug
-from finance_common.parsing.bank_statement_pdf import (
-    BankStatementPdfError,
-    extract_text_from_pdf_bytes,
-)
+from finance_common.parsing.bank_statement_pdf import BankStatementPdfError
+from finance_common.parsing.credit_card_pdf import extract_credit_card_pdf_text
 from finance_common.parsing.credit_card_statement import (
     import_rows_to_cc_line_items,
     infer_cc_payment_mode,
@@ -33,6 +31,7 @@ async def build_credit_card_statement_payload(
     pdf_password: str | None,
     issuer: str | None,
     conn: aiosqlite.Connection,
+    include_payments: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], str | None]:
     """Return (summary dict, line_items, extraction_preview).
 
@@ -55,7 +54,7 @@ async def build_credit_card_statement_payload(
     if name.endswith(".pdf"):
         pw = pdf_password.strip() if pdf_password else None
         try:
-            text = extract_text_from_pdf_bytes(content, password=pw)
+            text = extract_credit_card_pdf_text(content, password=pw)
         except BankStatementPdfError as e:
             raise ValueError(str(e)) from e
         preview = truncate_preview(text)
@@ -70,7 +69,10 @@ async def build_credit_card_statement_payload(
             )
             raise ValueError(msg)
         lines = import_rows_to_cc_line_items(
-            rows, default_payment_mode=default_pm, classify=classify
+            rows,
+            default_payment_mode=default_pm,
+            classify=classify,
+            include_payments=include_payments,
         )
         return summary, lines, preview
 

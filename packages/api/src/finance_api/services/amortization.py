@@ -201,6 +201,26 @@ def advance_months(d: date, n: int) -> date:
     return date(year, month, day)
 
 
+def emis_due_count(first_emi: date, as_of: date) -> int:
+    """Number of EMI due dates on or before ``as_of`` (due day counts as due)."""
+    if as_of < first_emi:
+        return 0
+    months = (as_of.year - first_emi.year) * 12 + (as_of.month - first_emi.month)
+    if as_of.day >= first_emi.day:
+        months += 1
+    return months
+
+
+def _overdue_emi_count(next_emi: date, as_of: date) -> int:
+    """How many EMI due dates from ``next_emi`` through ``as_of`` (inclusive)."""
+    if next_emi > as_of:
+        return 0
+    count = 0
+    while advance_months(next_emi, count) <= as_of:
+        count += 1
+    return count
+
+
 def compute_emi_advance(row: "DebtRow") -> tuple[int, str, str] | None:
     """
     Compute the correct EMI state for a debt based on elapsed time.
@@ -212,36 +232,71 @@ def compute_emi_advance(row: "DebtRow") -> tuple[int, str, str] | None:
     starting principal so the schedule is always computed from inception.
     Skips phased home loans (those with disbursals are handled separately).
     """
-    if not row.first_emi_date or not row.emi_paise:
+    if row.status != "active":
+        return None
+    if not row.emi_paise or row.emi_paise <= 0:
         return None
 
-    ref_date = date.fromisoformat(row.first_emi_date[:10])
     today = date.today()
+    schedule_ref = row.first_emi_date or row.start_date
 
-    months_elapsed = (today.year - ref_date.year) * 12 + (today.month - ref_date.month)
-    if today.day < ref_date.day:
-        months_elapsed -= 1  # this month's payment hasn't landed yet
-    months_elapsed = max(0, months_elapsed)
-
-    if months_elapsed == 0:
+    # Overdue when next_emi_date is on or before today.
+    if row.next_emi_date:
+        stored_next = date.fromisoformat(row.next_emi_date[:10])
+        if stored_next > today:
+            return None
+    elif schedule_ref:
+        ref = date.fromisoformat(schedule_ref[:10])
+        if emis_due_count(ref, today) == 0:
+            return None
+    else:
         return None
 
-    start_paise = row.original_amount_paise or row.current_balance_paise
-    sched, _ = build_schedule(
-        start_paise,
-        row.rate_percent,
-        row.emi_paise,
-        tenure_months=row.tenure_months,
-    )
+    # Schedule-based path when we know the first payment date.
+    if schedule_ref:
+        ref_date = date.fromisoformat(schedule_ref[:10])
+        payments_due = emis_due_count(ref_date, today)
+        if payments_due == 0:
+            return None
 
-    if not sched:
+        start_paise = row.original_amount_paise or row.current_balance_paise
+        sched, _ = build_schedule(
+            start_paise,
+            row.rate_percent,
+            row.emi_paise,
+            tenure_months=row.tenure_months,
+        )
+
+        if not sched:
+            return None
+
+        payments_made = min(payments_due, len(sched))
+
+        if payments_made >= len(sched):
+            return 0, advance_months(ref_date, len(sched)).isoformat(), "closed"
+
+        new_balance = sched[payments_made - 1].balance_after_paise
+        new_next_emi_date = advance_months(ref_date, payments_made)
+        new_status = "active"
+
+        if (
+            row.current_balance_paise == new_balance
+            and row.next_emi_date == new_next_emi_date.isoformat()
+        ):
+            return None
+        return new_balance, new_next_emi_date.isoformat(), new_status
+
+    # Fallback: only next_emi_date set — reduce balance by EMI × overdue months.
+    assert row.next_emi_date is not None
+    due = date.fromisoformat(row.next_emi_date[:10])
+    overdue = _overdue_emi_count(due, today)
+    if overdue == 0:
         return None
 
-    payments_made = min(months_elapsed, len(sched))
+    new_next = advance_months(due, overdue)
+    new_balance = max(0, row.current_balance_paise - overdue * row.emi_paise)
+    new_status = "closed" if new_balance == 0 else "active"
 
-    if payments_made >= len(sched):
-        return 0, advance_months(ref_date, len(sched)).isoformat(), "paid"
-
-    new_balance = sched[payments_made - 1].balance_after_paise
-    next_emi_date = advance_months(ref_date, payments_made)
-    return new_balance, next_emi_date.isoformat(), "active"
+    if row.current_balance_paise == new_balance and row.next_emi_date == new_next.isoformat():
+        return None
+    return new_balance, new_next.isoformat(), new_status

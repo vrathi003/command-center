@@ -76,23 +76,33 @@ _RE_REFUND = re.compile(
 
 def _classify_cc_description(description: str) -> dict[str, object]:
     """
-    Returns {'skip': bool, 'transaction_type': str, 'category': str}.
+    Returns kind, transaction_type, category, and skip (for ledger import only).
 
-    skip=True means the line is a payment/receipt that shouldn't be imported
-    as a spending transaction (e.g. "Payment Received").
+    kind: spend | payment | refund | fee | interest | cashback
+    skip=True excludes the line from credit-card *ledger* import (bill payments).
     """
     desc = description.strip()
     if _RE_PAYMENT.search(desc):
-        return {"skip": True, "transaction_type": "credit", "category": "Other"}
-    if _RE_INTEREST.search(desc):
-        return {"skip": False, "transaction_type": "debit", "category": "Bank Charges"}
-    if _RE_FEE.search(desc):
-        return {"skip": False, "transaction_type": "debit", "category": "Bank Charges"}
-    if _RE_CASHBACK.search(desc):
-        return {"skip": False, "transaction_type": "credit", "category": "Income"}
+        return {
+            "skip": True,
+            "kind": "payment",
+            "transaction_type": "credit",
+            "category": "Transfer",
+        }
     if _RE_REFUND.search(desc):
-        return {"skip": False, "transaction_type": "credit", "category": "Other"}
-    return {"skip": False, "transaction_type": "debit", "category": None}
+        return {"skip": False, "kind": "refund", "transaction_type": "credit", "category": "Other"}
+    if _RE_INTEREST.search(desc):
+        return {
+            "skip": False,
+            "kind": "interest",
+            "transaction_type": "debit",
+            "category": "Bank Charges",
+        }
+    if _RE_FEE.search(desc):
+        return {"skip": False, "kind": "fee", "transaction_type": "debit", "category": "Bank Charges"}
+    if _RE_CASHBACK.search(desc):
+        return {"skip": False, "kind": "cashback", "transaction_type": "credit", "category": "Income"}
+    return {"skip": False, "kind": "spend", "transaction_type": "debit", "category": None}
 
 
 # Indian CC / common English labels (amounts in ₹)
@@ -171,6 +181,7 @@ def heuristic_line_items_from_text(text: str) -> list[dict[str, Any]]:
                 "category": cat,
                 "payment_mode": r.get("payment_mode") or PaymentMode.OTHER_CC.value,
                 "transaction_type": cls["transaction_type"],
+                "tx_kind": cls["kind"],
             }
         )
     return out
@@ -197,6 +208,12 @@ def line_items_from_tabular_rows(
         if cls["skip"]:
             continue
         cat = cls["category"] or parsed.category or "Other"
+        if cls["category"]:
+            category_source = "heuristic"
+        elif parsed.category and str(parsed.category) != "Other":
+            category_source = "rules"
+        else:
+            category_source = "rules"
         out.append(
             {
                 "date": parsed.tx_date.isoformat(),
@@ -205,6 +222,8 @@ def line_items_from_tabular_rows(
                 "category": cat,
                 "payment_mode": parsed.payment_mode,
                 "transaction_type": cls["transaction_type"],
+                "tx_kind": cls["kind"],
+                "category_source": category_source,
             }
         )
     return out
@@ -215,6 +234,7 @@ def import_rows_to_cc_line_items(
     *,
     default_payment_mode: str,
     classify: ClassifyFn | None = None,
+    include_payments: bool = False,
 ) -> list[dict[str, Any]]:
     """Map bank-statement PDF import rows (same shape as CSV) to credit-card line_items JSON."""
     out: list[dict[str, Any]] = []
@@ -235,9 +255,20 @@ def import_rows_to_cc_line_items(
         if not desc:
             desc = (parsed.merchant or "Transaction")[:500]
         cls = _classify_cc_description(desc)
-        if cls["skip"]:
+        if cls["skip"] and not include_payments:
             continue
         cat = cls["category"] or parsed.category or "Other"
+        if cls["category"]:
+            category_source = "heuristic"
+        elif parsed.category and str(parsed.category) != "Other":
+            category_source = "rules"
+        else:
+            category_source = "rules"
+        # Parser CR/Dr overrides transaction_type; reconcile kind for credits.
+        tx_type = str(parsed.transaction_type or cls["transaction_type"])
+        kind = cls["kind"]
+        if tx_type == "credit" and kind == "spend":
+            kind = "refund"  # CR suffix without explicit refund/payment keywords
         out.append(
             {
                 "date": parsed.tx_date.isoformat(),
@@ -245,7 +276,9 @@ def import_rows_to_cc_line_items(
                 "description": desc,
                 "category": cat,
                 "payment_mode": parsed.payment_mode,
-                "transaction_type": cls["transaction_type"],
+                "transaction_type": tx_type,
+                "tx_kind": kind,
+                "category_source": category_source,
             }
         )
     return out

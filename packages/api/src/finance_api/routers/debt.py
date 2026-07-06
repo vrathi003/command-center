@@ -20,6 +20,7 @@ from finance_api.schemas.debt import (
     LoanDisbursalOut,
 )
 from finance_api.services.amortization import build_phased_schedule, build_schedule, compute_emi_advance
+from finance_api.services.debt_emi import auto_advance_active_debts, auto_advance_debt
 from finance_common.repositories import debts as debt_repo
 from finance_common.repositories.debts import DebtRow
 
@@ -52,6 +53,7 @@ def _merge_row(existing: DebtRow, body: DebtPutBody) -> DebtRow:
 
 @router.get("/", response_model=list[DebtOut])
 async def list_debts(conn: Annotated[aiosqlite.Connection, Depends(get_conn)]) -> list[DebtOut]:
+    await auto_advance_active_debts(conn)
     rows = await debt_repo.list_debts(conn)
     return [_to_out(r) for r in rows]
 
@@ -85,6 +87,7 @@ async def create_debt(
 
 @router.get("/summary", response_model=DebtSummaryOut)
 async def debt_summary(conn: Annotated[aiosqlite.Connection, Depends(get_conn)]) -> DebtSummaryOut:
+    await auto_advance_active_debts(conn)
     tot, emi, n = await debt_repo.aggregate_active(conn)
     nd, nn = await debt_repo.next_emi_hint(conn)
     return DebtSummaryOut(
@@ -159,6 +162,8 @@ async def get_debt(
     row = await debt_repo.get_debt(conn, debt_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Debt not found")
+    advanced = await auto_advance_debt(conn, row)
+    row = advanced if advanced is not None else row
     return _to_out(row)
 
 
@@ -345,23 +350,9 @@ async def sync_all_balances(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
 ) -> list[DebtOut]:
     """
-    Run EMI auto-advance for every active debt that has first_emi_date + emi_paise set.
+    Run EMI auto-advance for every active debt with an overdue EMI.
     Updates current_balance_paise, next_emi_date, and status for each eligible debt.
     """
+    await auto_advance_active_debts(conn)
     debts = await debt_repo.list_debts(conn, status="active")
-    results: list[DebtOut] = []
-    for debt in debts:
-        result = compute_emi_advance(debt)
-        if result:
-            new_bal, new_next_date, new_status = result
-            updated = replace(
-                debt,
-                current_balance_paise=new_bal,
-                next_emi_date=new_next_date,
-                status=new_status,
-            )
-            await debt_repo.update_debt_row(conn, updated)
-            results.append(_to_out(updated))
-        else:
-            results.append(_to_out(debt))
-    return results
+    return [_to_out(d) for d in debts]

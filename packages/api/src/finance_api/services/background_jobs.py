@@ -14,7 +14,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from finance_api.services.amortization import compute_emi_advance
+from finance_api.services.debt_emi import auto_advance_active_debts
 from finance_api.services.budget_service import build_vs_actual
 from finance_api.services.cc_statement_fetch import fetch_cc_statements
 from finance_api.services.discord_notify import send_discord_dm
@@ -298,22 +298,7 @@ async def job_fetch_cc_statements(db_path: Path, api: ApiSettings) -> None:
 async def job_emi_auto_advance(db_path: Path) -> None:
     """Daily 9:00 AM — reduce balance and advance next_emi_date for all active debts."""
     async with open_db(db_path) as conn:
-        from dataclasses import replace as dc_replace  # noqa: PLC0415
-
-        debts = await debt_repo.list_debts(conn, status="active")
-        updated = 0
-        for debt in debts:
-            result = compute_emi_advance(debt)
-            if result:
-                new_bal, new_next_date, new_status = result
-                updated_row = dc_replace(
-                    debt,
-                    current_balance_paise=new_bal,
-                    next_emi_date=new_next_date,
-                    status=new_status,
-                )
-                await debt_repo.update_debt_row(conn, updated_row)
-                updated += 1
+        updated = await auto_advance_active_debts(conn)
         if updated:
             logger.info("EMI auto-advance: %s debt(s) updated", updated)
 

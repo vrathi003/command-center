@@ -19,6 +19,7 @@ class StatementImportRuleRow:
     pdf_password: str | None
     credit_card_id: int | None
     is_enabled: bool
+    fetch_months: int
     created_at: str | None
     updated_at: str | None
 
@@ -70,8 +71,9 @@ def _rule_from_tuple(r: tuple[Any, ...]) -> StatementImportRuleRow:
         pdf_password=str(r[5]) if r[5] is not None else None,
         credit_card_id=int(r[6]) if r[6] is not None else None,
         is_enabled=bool(int(r[7])),
-        created_at=str(r[8]) if len(r) > 8 and r[8] is not None else None,
-        updated_at=str(r[9]) if len(r) > 9 and r[9] is not None else None,
+        fetch_months=int(r[8]) if len(r) > 8 and r[8] is not None else 6,
+        created_at=str(r[9]) if len(r) > 9 and r[9] is not None else None,
+        updated_at=str(r[10]) if len(r) > 10 and r[10] is not None else None,
     )
 
 
@@ -100,7 +102,7 @@ def _snapshot_from_tuple(r: tuple[Any, ...]) -> StatementImportSnapshotRow:
 
 _RULE_SELECT = """
     SELECT id, bank, card, from_emails_json, subject_contains, pdf_password,
-           credit_card_id, is_enabled, created_at, updated_at
+           credit_card_id, is_enabled, fetch_months, created_at, updated_at
     FROM statement_import_rules
 """
 
@@ -142,13 +144,14 @@ async def create_rule(
     pdf_password: str | None = None,
     credit_card_id: int | None = None,
     is_enabled: bool = True,
+    fetch_months: int = 6,
 ) -> int:
     cur = await conn.execute(
         """
         INSERT INTO statement_import_rules (
             bank, card, from_emails_json, subject_contains, pdf_password,
-            credit_card_id, is_enabled, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            credit_card_id, is_enabled, fetch_months, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         """,
         (
             bank.strip(),
@@ -158,6 +161,7 @@ async def create_rule(
             pdf_password,
             credit_card_id,
             1 if is_enabled else 0,
+            max(0, int(fetch_months)),
         ),
     )
     await conn.commit()
@@ -175,12 +179,13 @@ async def update_rule(
     pdf_password: str | None = None,
     credit_card_id: int | None = None,
     is_enabled: bool = True,
+    fetch_months: int = 6,
 ) -> bool:
     cur = await conn.execute(
         """
         UPDATE statement_import_rules SET
             bank = ?, card = ?, from_emails_json = ?, subject_contains = ?,
-            pdf_password = ?, credit_card_id = ?, is_enabled = ?,
+            pdf_password = ?, credit_card_id = ?, is_enabled = ?, fetch_months = ?,
             updated_at = datetime('now')
         WHERE id = ?
         """,
@@ -192,6 +197,7 @@ async def update_rule(
             pdf_password,
             credit_card_id,
             1 if is_enabled else 0,
+            max(0, int(fetch_months)),
             rule_id,
         ),
     )
@@ -295,3 +301,56 @@ async def get_latest_snapshot(conn: aiosqlite.Connection) -> StatementImportSnap
     )
     row = await cur.fetchone()
     return _snapshot_from_tuple(row) if row else None
+
+
+async def get_snapshot(conn: aiosqlite.Connection, snapshot_id: int) -> StatementImportSnapshotRow | None:
+    cur = await conn.execute(
+        """
+        SELECT id, fetched_at, gmail_scanned, statements_parsed, skipped_json,
+               transactions_json, source_gmail_ids_json
+        FROM statement_import_snapshots
+        WHERE id = ?
+        """,
+        (snapshot_id,),
+    )
+    row = await cur.fetchone()
+    return _snapshot_from_tuple(row) if row else None
+
+
+async def release_fetched_messages_without_transactions(
+    conn: aiosqlite.Connection,
+    transactions: list[dict[str, Any]],
+) -> None:
+    """Drop dedup rows for Gmail messages that no longer have snapshot rows."""
+    active_ids = {
+        str(t.get("gmail_message_id")).strip()
+        for t in transactions
+        if str(t.get("gmail_message_id") or "").strip()
+    }
+    cur = await conn.execute("SELECT gmail_message_id FROM statement_import_fetched_messages")
+    rows = await cur.fetchall()
+    for (msg_id,) in rows:
+        mid = str(msg_id)
+        if mid not in active_ids:
+            await conn.execute(
+                "DELETE FROM statement_import_fetched_messages WHERE gmail_message_id = ?",
+                (mid,),
+            )
+    await conn.commit()
+
+
+async def update_snapshot_transactions(
+    conn: aiosqlite.Connection,
+    snapshot_id: int,
+    transactions: list[dict[str, Any]],
+) -> bool:
+    cur = await conn.execute(
+        """
+        UPDATE statement_import_snapshots
+        SET transactions_json = ?
+        WHERE id = ?
+        """,
+        (json.dumps(transactions, ensure_ascii=False), snapshot_id),
+    )
+    await conn.commit()
+    return cur.rowcount > 0
