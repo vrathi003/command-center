@@ -13,6 +13,9 @@ import pandas as pd
 from xlrd import XLRDError
 
 from finance_common.classification.matcher import ClassificationResult, match_merchant
+from finance_common.intake.dedupe import make_external_key
+from finance_common.intake.models import Candidate
+from finance_common.intake.service import Decision, ingest
 from finance_common.parsing.transaction_import import (
     canonical_row_for_import,
     detect_header_row,
@@ -261,7 +264,8 @@ async def import_transactions_from_rows(
             errors.append(
                 (
                     i,
-                    "could not find date and amount columns (rename headers to include date, amount, "
+                    "could not find date and amount columns (rename headers to include date, "
+                    "amount, "
                     "or debit/credit; category defaults to Other if omitted)",
                 ),
             )
@@ -292,3 +296,81 @@ async def import_transactions_from_rows(
             failed += 1
             errors.append((i, str(e)))
     return imported, failed, errors
+
+
+async def import_rows_through_intake(
+    conn: Any,
+    rows: list[dict[str, str]],
+    *,
+    account_id: int,
+) -> tuple[int, list[tuple[int, str]], int, int, int, int]:
+    """Send parsed statement rows to IntakeService and return outcome counts.
+
+    The returned counts are ``failed, errors, posted, quarantined, rejected, noop``;
+    callers derive their user-facing imported count from posted plus quarantined.
+    """
+    trimmed_rows = rows[:MAX_ROWS]
+    failed = 0
+    errors: list[tuple[int, str]] = []
+    posted = 0
+    quarantined = 0
+    rejected = 0
+    noop = 0
+    rules = await merchant_rules_repo.list_active_rules_for_matching(conn)
+
+    def classify(merchant: str) -> ClassificationResult:
+        return match_merchant(merchant, rules)
+
+    for i, raw in enumerate(trimmed_rows, start=2):
+        if not any(str(value).strip() for value in raw.values() if value is not None):
+            continue
+        canon = canonical_row_for_import(raw)
+        if "date" not in canon or "amount" not in canon:
+            failed += 1
+            errors.append(
+                (
+                    i,
+                    "could not find date and amount columns (rename headers to include date, "
+                    "amount, "
+                    "or debit/credit; category defaults to Other if omitted)",
+                ),
+            )
+            continue
+        try:
+            parsed = parse_import_row(canon, classify=classify)
+            narration = parsed.notes or parsed.merchant
+            classification_input = canon.get("merchant") or parsed.merchant or parsed.notes or ""
+            classification = classify(classification_input)
+            candidate = Candidate(
+                source=SOURCE_IMPORT,
+                tx_date=parsed.tx_date,
+                amount_paise=parsed.amount_paise,
+                direction="in" if parsed.transaction_type == "credit" else "out",
+                suggested_account_id=account_id,
+                payee=parsed.merchant or parsed.notes,
+                narration=narration,
+                suggested_category=parsed.category,
+                confidence=0.9 if classification.category is not None else 0.5,
+                external_key=make_external_key(
+                    source=SOURCE_IMPORT,
+                    provider_id=None,
+                    date=parsed.tx_date.isoformat(),
+                    amount_paise=parsed.amount_paise,
+                    narration=parsed.merchant or parsed.notes or "",
+                    account_id=account_id,
+                ),
+            )
+            decision, _ = await ingest(conn, candidate)
+        except Exception as e:
+            failed += 1
+            errors.append((i, str(e)))
+            continue
+        if decision == Decision.POSTED:
+            posted += 1
+        elif decision == Decision.QUARANTINED:
+            quarantined += 1
+        elif decision == Decision.REJECTED:
+            rejected += 1
+        else:
+            noop += 1
+    return failed, errors, posted, quarantined, rejected, noop

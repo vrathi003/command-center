@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import sqlite3
 from io import BytesIO
 
-import pytest
 from starlette.testclient import TestClient
 
 from finance_common.classification.matcher import ClassificationResult
@@ -21,7 +22,29 @@ from finance_common.parsing.transaction_import import (
 )
 
 
+def _use_legacy_engine(api_client: TestClient) -> None:
+    response = api_client.put(
+        "/api/settings/",
+        json={"project_config": {"ledger_engine": "legacy"}},
+    )
+    assert response.status_code == 200, response.text
+
+
+def _create_import_bank_account(api_client: TestClient) -> int:
+    response = api_client.post(
+        "/api/accounts/",
+        json={
+            "name": "Import Bank",
+            "type": "savings",
+            "account_class": "asset_cash",
+        },
+    )
+    assert response.status_code == 201, response.text
+    return int(response.json()["id"])
+
+
 def test_import_transactions_csv(api_client: TestClient) -> None:
+    _use_legacy_engine(api_client)
     csv_content = (
         "date,amount,category,merchant,payment_mode\n"
         "2025-06-15,1500.50,Groceries,BigBasket,UPI\n"
@@ -88,6 +111,7 @@ def test_canonical_row_hdfc_inr_withdrawal_deposit_columns() -> None:
 
 def test_import_transactions_hdfc_inr_column_names(api_client: TestClient) -> None:
     """HDFC netbanking export: Value Date + Withdrawal/Deposit Amount(INR) + Transaction Remarks."""
+    _use_legacy_engine(api_client)
     csv_content = (
         "S No.,Value Date,Transaction Date,Cheque Number,Transaction Remarks,"
         "Withdrawal Amount(INR),Deposit Amount(INR),Balance(INR)\n"
@@ -106,6 +130,7 @@ def test_import_transactions_hdfc_inr_column_names(api_client: TestClient) -> No
 
 def test_import_transactions_bank_debit_credit_without_category(api_client: TestClient) -> None:
     """HDFC-style: date + particulars + separate Debit/Credit; category column optional."""
+    _use_legacy_engine(api_client)
     csv_content = (
         "Booking Date,Particulars,Debit,Credit\n"
         "2025-06-15,UPI merchant,1500.50,\n"
@@ -125,7 +150,13 @@ def test_import_transactions_rejects_non_xlsx_content(api_client: TestClient) ->
     """.xlsx must be OOXML (zip); CSV renamed or .xls mislabeled raises 400 with a clear message."""
     r = api_client.post(
         "/api/transactions/import",
-        files={"file": ("fake.xlsx", BytesIO(b"date,amount,category\n"), "application/octet-stream")},
+        files={
+            "file": (
+                "fake.xlsx",
+                BytesIO(b"date,amount,category\n"),
+                "application/octet-stream",
+            )
+        },
     )
     assert r.status_code == 400
     detail = r.json()["detail"]
@@ -234,6 +265,7 @@ class TestTrimTrailerRows:
 
 def test_import_csv_with_bank_preamble(api_client: TestClient) -> None:
     """HDFC-style CSV: preamble rows before the actual header row."""
+    _use_legacy_engine(api_client)
     csv_content = (
         "HDFC BANK LTD,,,,\n"
         "Account No: XXXX1234,,,,\n"
@@ -255,6 +287,7 @@ def test_import_csv_with_bank_preamble(api_client: TestClient) -> None:
 
 def test_import_csv_with_trailer_rows(api_client: TestClient) -> None:
     """CSV with summary/total rows at the bottom that should be ignored."""
+    _use_legacy_engine(api_client)
     csv_content = (
         "Date,Particulars,Debit,Credit\n"
         "15/06/2025,UPI-SWIGGY,350,\n"
@@ -278,6 +311,7 @@ def test_import_csv_with_trailer_rows(api_client: TestClient) -> None:
 
 def test_import_debit_credit_type_detected(api_client: TestClient) -> None:
     """Separate Debit/Credit columns should set transaction_type correctly."""
+    _use_legacy_engine(api_client)
     csv_content = (
         "Date,Details,Debit,Credit\n"
         "2025-06-15,UPI/Zomato Ltd,345.69,\n"
@@ -302,6 +336,7 @@ def test_import_debit_credit_type_detected(api_client: TestClient) -> None:
 
 def test_import_details_column_maps_to_merchant(api_client: TestClient) -> None:
     """The 'Details' column should map to merchant field."""
+    _use_legacy_engine(api_client)
     csv_content = (
         "Date,Details,Debit,Credit\n"
         "2025-06-15,WDL TFR UPI/DR/Zomato,370.20,\n"
@@ -349,6 +384,7 @@ def test_auto_categorize_from_merchant() -> None:
 
 def test_import_auto_categorizes_zomato(api_client: TestClient) -> None:
     """Zomato in merchant should auto-categorize as Food Delivery."""
+    _use_legacy_engine(api_client)
     csv_content = (
         "Date,Narration,Debit,Credit\n"
         "2025-06-15,UPI/Zomato Ltd/YESB,345.69,\n"
@@ -361,7 +397,11 @@ def test_import_auto_categorizes_zomato(api_client: TestClient) -> None:
     assert r.json()["imported"] == 1
 
     txns = api_client.get("/api/transactions/?limit=5").json()
-    imported = [t for t in txns if t["source"] == "import" and t["merchant"] and "Zomato" in t["merchant"]]
+    imported = [
+        t
+        for t in txns
+        if t["source"] == "import" and t["merchant"] and "Zomato" in t["merchant"]
+    ]
     assert len(imported) >= 1
     assert imported[0]["category"] == "Food Delivery"
 
@@ -414,6 +454,7 @@ def test_parse_import_row_falls_back_to_static_hints_without_classify() -> None:
 
 def test_list_transactions_date_filter(api_client: TestClient) -> None:
     """API should support start_date/end_date query params."""
+    _use_legacy_engine(api_client)
     csv_content = (
         "date,amount,category\n"
         "2024-01-15,100,Other\n"
@@ -425,8 +466,87 @@ def test_list_transactions_date_filter(api_client: TestClient) -> None:
     )
     assert r.status_code == 200
 
-    filtered = api_client.get("/api/transactions/?limit=100&start_date=2024-01-01&end_date=2024-12-31")
+    filtered = api_client.get(
+        "/api/transactions/?limit=100&start_date=2024-01-01&end_date=2024-12-31"
+    )
     assert filtered.status_code == 200
     rows = filtered.json()
     dates = [t["date"] for t in rows]
     assert all(d.startswith("2024") for d in dates)
+
+
+def test_double_entry_import_requires_account_id(api_client: TestClient) -> None:
+    response = api_client.post(
+        "/api/transactions/import",
+        files={
+            "file": (
+                "statement.csv",
+                BytesIO(b"date,amount,merchant\n2026-08-01,100,Zomato\n"),
+                "text/csv",
+            )
+        },
+    )
+
+    assert response.status_code == 422
+    assert "account_id" in response.text
+
+
+def test_double_entry_import_posts_and_quarantines_without_legacy_rows(
+    api_client: TestClient,
+) -> None:
+    account_id = _create_import_bank_account(api_client)
+    csv_content = (
+        "date,amount,merchant\n"
+        "2026-08-01,100,Zomato\n"
+        "2026-08-02,200,Unrecognized Merchant\n"
+    )
+
+    response = api_client.post(
+        "/api/transactions/import",
+        data={"account_id": str(account_id)},
+        files={"file": ("statement.csv", BytesIO(csv_content.encode()), "text/csv")},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "imported": 2,
+        "failed": 0,
+        "errors": [],
+        "posted": 1,
+        "quarantined": 1,
+        "rejected": 0,
+        "noop": 0,
+    }
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    legacy_count = conn.execute(
+        "SELECT COUNT(*) FROM transactions WHERE source = 'import'"
+    ).fetchone()[0]
+    candidate_statuses = {
+        row[0] for row in conn.execute("SELECT status FROM intake_candidates")
+    }
+    ledger_count = conn.execute("SELECT COUNT(*) FROM ledger_transactions").fetchone()[0]
+    conn.close()
+    assert legacy_count == 0
+    assert candidate_statuses == {"posted", "pending"}
+    assert ledger_count == 1
+
+
+def test_double_entry_reimport_is_a_noop(api_client: TestClient) -> None:
+    account_id = _create_import_bank_account(api_client)
+    csv_content = "date,amount,merchant\n2026-08-01,100,Zomato\n"
+    request = {
+        "data": {"account_id": str(account_id)},
+        "files": {"file": ("statement.csv", BytesIO(csv_content.encode()), "text/csv")},
+    }
+
+    first = api_client.post("/api/transactions/import", **request)
+    second = api_client.post("/api/transactions/import", **request)
+
+    assert first.status_code == 200, first.text
+    assert first.json()["posted"] == 1
+    assert second.status_code == 200, second.text
+    assert second.json()["noop"] == 1
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    ledger_count = conn.execute("SELECT COUNT(*) FROM ledger_transactions").fetchone()[0]
+    conn.close()
+    assert ledger_count == 1

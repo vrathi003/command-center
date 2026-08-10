@@ -23,6 +23,7 @@ from finance_api.schemas.transactions import (
 )
 from finance_api.services.transaction_import_service import (
     MAX_BYTES,
+    import_rows_through_intake,
     import_transactions_from_rows,
     load_rows_from_upload,
 )
@@ -31,6 +32,7 @@ from finance_common.parsing.bank_statement_pdf import (
     BankStatementPdfError,
     pdf_bytes_to_import_rows,
 )
+from finance_common.project_config import load_project_config
 from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import email_staging as staging_repo
 from finance_common.repositories import transactions as tx_repo
@@ -335,6 +337,7 @@ async def import_transactions(
     file: UploadFile = File(...),
     pdf_password: str | None = Form(default=None),
     account_name: str | None = Form(default=None),
+    account_id: int | None = Form(default=None),
 ) -> TransactionImportResponse:
     """Upload a `.csv`, `.xlsx`, `.xlsm`, `.xls` (Excel 97–2003), or `.pdf` bank statement.
 
@@ -388,6 +391,27 @@ async def import_transactions(
         raise HTTPException(status_code=400, detail=str(e)) from e
     if not rows:
         raise HTTPException(status_code=400, detail="no data rows found")
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "double_entry":
+        if account_id is None or account_id <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail="account_id is required for double-entry imports",
+            )
+        failed, errs, posted, quarantined, rejected, noop = await import_rows_through_intake(
+            conn,
+            rows,
+            account_id=account_id,
+        )
+        return TransactionImportResponse(
+            imported=posted + quarantined,
+            failed=failed,
+            errors=[TransactionImportRowError(row=r, message=m) for r, m in errs[:50]],
+            posted=posted,
+            quarantined=quarantined,
+            rejected=rejected,
+            noop=noop,
+        )
     acct = account_name.strip() if account_name else None
     imported, failed, errs = await import_transactions_from_rows(
         conn, rows, account_name=acct or None

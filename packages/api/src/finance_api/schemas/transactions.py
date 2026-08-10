@@ -16,6 +16,10 @@ class TransactionImportResponse(BaseModel):
     imported: int = Field(ge=0)
     failed: int = Field(ge=0)
     errors: list[TransactionImportRowError] = Field(default_factory=list)
+    posted: int = Field(default=0, ge=0)
+    quarantined: int = Field(default=0, ge=0)
+    rejected: int = Field(default=0, ge=0)
+    noop: int = Field(default=0, ge=0)
 
 
 class TransactionBulkDeleteBody(BaseModel):
