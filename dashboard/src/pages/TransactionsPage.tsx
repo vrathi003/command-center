@@ -13,6 +13,7 @@ import {
   bulkDeleteTransactions,
   fetchAccounts,
   fetchIntakeCandidates,
+  fetchSettings,
   fetchTransactions,
   importTransactionsFile,
 } from '@/lib/api'
@@ -86,12 +87,19 @@ export function TransactionsPage() {
     staleTime: 60_000,
   })
   const knownAccounts = useMemo(() => accountsQ.data ?? [], [accountsQ.data])
+  const settingsQ = useQuery({
+    queryKey: ['settings'],
+    queryFn: fetchSettings,
+    staleTime: 60_000,
+  })
+  const legacyCutoverAt = settingsQ.data?.project_config.legacy_cutover_at ?? null
   const pendingIntakeQ = useQuery({
     queryKey: ['intake-candidates', 'pending'],
     queryFn: () => fetchIntakeCandidates('pending'),
     staleTime: 30_000,
   })
   const pendingIntakeCount = pendingIntakeQ.data?.length ?? 0
+  const showQuarantineBanner = Boolean(legacyCutoverAt) && pendingIntakeCount > 0
 
   const q = useQuery({
     queryKey: ['transactions', startDate, endDate],
@@ -360,7 +368,7 @@ export function TransactionsPage() {
           </div>
         </div>
 
-        {pendingIntakeCount > 0 ? (
+        {showQuarantineBanner ? (
           <Link
             to="/transactions/quarantine"
             className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 hover:bg-amber-100"
