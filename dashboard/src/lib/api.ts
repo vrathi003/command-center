@@ -8,6 +8,7 @@ import type {
   AssetPaymentOut,
   AssetSummaryOut,
   BudgetVsActualResponse,
+  AlertNotification,
   DashboardAlerts,
   DashboardSummary,
   DebtOut,
@@ -164,6 +165,19 @@ export async function fetchDashboardSummary(): Promise<DashboardSummary> {
 export async function fetchDashboardAlerts(): Promise<DashboardAlerts> {
   const res = await apiFetch(`${apiBase()}/api/dashboard/alerts`)
   return parseJson<DashboardAlerts>(res)
+}
+
+export async function fetchAlerts(
+  status: 'unread' | 'acked' | 'all' = 'unread',
+): Promise<AlertNotification[]> {
+  const params = new URLSearchParams({ status })
+  const res = await apiFetch(`${apiBase()}/api/alerts?${params}`)
+  return parseJson<AlertNotification[]>(res)
+}
+
+export async function ackAlert(id: number): Promise<AlertNotification> {
+  const res = await apiFetch(`${apiBase()}/api/alerts/${id}/ack`, { method: 'POST' })
+  return parseJson<AlertNotification>(res)
 }
 
 export async function fetchTransactions(

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppShell } from '@/components/layout/AppShell'
+import { AlertsPage } from '@/pages/AlertsPage'
 import { AccountsPage } from '@/pages/AccountsPage'
 import { EmailInboxPage } from '@/pages/EmailInboxPage'
 import { AssetDetailPage } from '@/pages/AssetDetailPage'
@@ -74,6 +75,7 @@ function AppRoutes() {
           <Route path="journal" element={<JournalPage />} />
           <Route path="email-inbox" element={<EmailInboxPage />} />
           <Route path="transactions/quarantine" element={<IntakeQuarantinePage />} />
+          <Route path="alerts" element={<AlertsPage />} />
           <Route path="statement-import" element={<StatementImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
