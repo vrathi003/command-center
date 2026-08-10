@@ -176,7 +176,7 @@ async def test_fetch_cc_statements_matches_by_last_four_and_stages() -> None:
                 return_value=fake_service,
             ),
             patch(
-                "finance_api.services.credit_card_statement_service.extract_text_from_pdf_bytes",
+                "finance_api.services.credit_card_statement_service.extract_credit_card_pdf_text",
                 return_value=pdf_text,
             ),
         ):
