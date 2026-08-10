@@ -47,6 +47,7 @@ import type {
   ConstructionUploadResponse,
   CreditCardStatementOut,
   SettingsOut,
+  LegacyLedgerMigrationReport,
   SubscriptionOut,
   ClassifyConfirmResult,
   LlmSuggestionOut,
@@ -967,6 +968,20 @@ export async function putSettings(body: {
     body: JSON.stringify(body),
   })
   return parseJson<SettingsOut>(res)
+}
+
+export async function dryRunLegacyLedgerMigration(): Promise<LegacyLedgerMigrationReport> {
+  const res = await apiFetch(`${apiBase()}/api/migration/legacy-ledger/dry-run`, {
+    method: 'POST',
+  })
+  return parseJson<LegacyLedgerMigrationReport>(res)
+}
+
+export async function applyLegacyLedgerMigration(): Promise<LegacyLedgerMigrationReport> {
+  const res = await apiFetch(`${apiBase()}/api/migration/legacy-ledger/apply`, {
+    method: 'POST',
+  })
+  return parseJson<LegacyLedgerMigrationReport>(res)
 }
 
 export async function fetchFYSpending(fy?: string): Promise<FYSpendingReport> {

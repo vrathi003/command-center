@@ -419,6 +419,28 @@ export type SettingsOut = {
   tax_regime: string | null
   tax_80c_annual_paise: number | null
   tax_80d_annual_paise: number | null
+  project_config: ProjectConfigOut
+}
+
+export type ProjectConfigOut = {
+  discord_enabled: boolean
+  discord_alerts_enabled: boolean
+  alerts_in_app_enabled: boolean
+  ledger_engine: 'legacy' | 'double_entry'
+  intake_auto_post_min_confidence: number
+  intake_duplicate_date_window_days: number
+  legacy_cutover_at: string | null
+  legacy_archive: boolean
+}
+
+export type LegacyLedgerMigrationReport = {
+  migrated: number
+  quarantined: number
+  skipped_deleted: number
+  noop: number
+  backup_path: string | null
+  cutover_at: string | null
+  backup_sha256: string | null
 }
 
 export type FYSpendingReport = {
