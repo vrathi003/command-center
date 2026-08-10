@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 import aiosqlite
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 
 from finance_api.deps import get_conn, get_settings
+from finance_api.deps_ledger import require_ledger_writes
 from finance_api.schemas.credit_card import (
     CreditCardCreateBody,
     CreditCardEmiCreateBody,
@@ -32,12 +33,16 @@ from finance_api.services.credit_card_statement_service import (
 )
 from finance_api.settings import ApiSettings
 from finance_common.fy import current_fy_from_date, fy_start
+from finance_common.intake import Candidate, make_external_key
+from finance_common.intake.service import ingest
 from finance_common.parsing.credit_card_statement import (
+    _classify_cc_description,
     infer_cc_payment_mode,
     line_items_json_loads,
     summary_json_loads,
 )
 from finance_common.parsing.transaction_import import parse_transaction_date
+from finance_common.project_config import load_project_config
 from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import credit_cards as cc_repo
 from finance_common.repositories import debts as debt_repo
@@ -47,6 +52,8 @@ from finance_common.repositories.credit_cards import (
     CreditCardRow,
     CreditCardStatementRow,
 )
+from finance_common.repositories.domain_events import append_event
+from finance_common.repositories.intake_candidates import save_candidate
 from finance_common.types import Category, Paise, PaymentMode
 
 router = APIRouter(prefix="/credit-cards", tags=["credit-cards"])
@@ -519,6 +526,7 @@ async def upload_statement(
 )
 async def apply_statement(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
     card_id: int,
     statement_id: int,
 ) -> CreditCardStatementApplyResponse:
@@ -541,40 +549,105 @@ async def apply_statement(
             ),
         )
 
-    default_pm = infer_cc_payment_mode(card.issuer)
     imported = 0
-    for it in items:
-        try:
-            d_raw = it.get("date")
-            if not d_raw:
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "double_entry":
+        if card.account_id is None:
+            raise HTTPException(status_code=422, detail="card has no linked account_id")
+        require_ledger_writes(request)
+        for line_idx, it in enumerate(items):
+            try:
+                d_raw = it.get("date")
+                if not d_raw:
+                    continue
+                tx_date = parse_transaction_date(str(d_raw))
+                amount_paise = int(it.get("amount_paise") or 0)
+                if amount_paise <= 0:
+                    continue
+                description = str(it.get("description") or "")[:2000]
+                classification = _classify_cc_description(description)
+                tx_type = str(it.get("transaction_type") or classification["transaction_type"])
+                direction: Literal["in", "out"] = "in" if tx_type == "credit" else "out"
+                category = Category.from_string(
+                    str(it.get("category") or classification["category"] or "Other")
+                ).value
+                candidate = Candidate(
+                    source="cc_statement",
+                    tx_date=tx_date,
+                    amount_paise=amount_paise,
+                    direction=direction,
+                    suggested_account_id=card.account_id,
+                    payee=description or None,
+                    narration=f"CC statement · {description}"[:2000],
+                    suggested_category=category,
+                    external_key=make_external_key(
+                        source="cc_statement",
+                        provider_id=f"{statement_id}:{line_idx}",
+                        date=tx_date.isoformat(),
+                        amount_paise=amount_paise,
+                        narration=description,
+                        account_id=card.account_id,
+                    ),
+                    confidence=0.9 if category != Category.OTHER.value else 0.6,
+                    raw_payload=dict(it),
+                )
+                is_payment = classification["kind"] == "payment" or it.get("tx_kind") == "payment"
+                if is_payment:
+                    candidate_id = await save_candidate(
+                        conn,
+                        candidate,
+                        status="pending",
+                        quarantine_reason="cc_payment",
+                    )
+                    await append_event(
+                        conn,
+                        event_type="intake.quarantine_created",
+                        payload={
+                            "candidate_id": candidate_id,
+                            "reason": "cc_payment",
+                            "source": candidate.source,
+                            "external_key": candidate.external_key,
+                        },
+                    )
+                else:
+                    await ingest(conn, candidate)
+                imported += 1
+            except ValueError, TypeError:
                 continue
-            tx_date = parse_transaction_date(str(d_raw))
-            ap = int(it.get("amount_paise") or 0)
-            if ap <= 0:
+    else:
+        default_pm = infer_cc_payment_mode(card.issuer)
+        for it in items:
+            try:
+                d_raw = it.get("date")
+                if not d_raw:
+                    continue
+                tx_date = parse_transaction_date(str(d_raw))
+                ap = int(it.get("amount_paise") or 0)
+                if ap <= 0:
+                    continue
+                cat = Category.from_string(str(it.get("category") or "Other")).value
+                pm_raw = str(it.get("payment_mode") or default_pm)
+                pm = PaymentMode.from_string(pm_raw).value
+                desc = it.get("description")
+                merchant = str(desc)[:2000] if desc else None
+                tx_type_raw = it.get("transaction_type") or "debit"
+                tx_type = str(tx_type_raw) if tx_type_raw in ("debit", "credit") else "debit"
+                await tx_repo.insert_transaction(
+                    conn,
+                    tx_date=tx_date,
+                    amount_paise=Paise(ap),
+                    category=cat,
+                    merchant=merchant,
+                    payment_mode=pm,
+                    account=card.name,
+                    notes=f"CC import · stmt #{statement_id}",
+                    source="cc_statement_import",
+                    transaction_type=tx_type,
+                    account_id=card.account_id,
+                )
+                imported += 1
+            except ValueError, TypeError:
                 continue
-            cat = Category.from_string(str(it.get("category") or "Other")).value
-            pm_raw = str(it.get("payment_mode") or default_pm)
-            pm = PaymentMode.from_string(pm_raw).value
-            desc = it.get("description")
-            merchant = str(desc)[:2000] if desc else None
-            tx_type_raw = it.get("transaction_type") or "debit"
-            tx_type = str(tx_type_raw) if tx_type_raw in ("debit", "credit") else "debit"
-            await tx_repo.insert_transaction(
-                conn,
-                tx_date=tx_date,
-                amount_paise=Paise(ap),
-                category=cat,
-                merchant=merchant,
-                payment_mode=pm,
-                account=card.name,
-                notes=f"CC import · stmt #{statement_id}",
-                source="cc_statement_import",
-                transaction_type=tx_type,
-                account_id=card.account_id,
-            )
-            imported += 1
-        except (ValueError, TypeError):
-            continue
 
     await cc_repo.update_statement_status(conn, statement_id, status="applied")
 
