@@ -12,6 +12,7 @@ import { PageError, PageLoading } from '@/components/ui/PageStatus'
 import {
   bulkDeleteTransactions,
   fetchAccounts,
+  fetchIntakeCandidates,
   fetchTransactions,
   importTransactionsFile,
 } from '@/lib/api'
@@ -85,6 +86,12 @@ export function TransactionsPage() {
     staleTime: 60_000,
   })
   const knownAccounts = useMemo(() => accountsQ.data ?? [], [accountsQ.data])
+  const pendingIntakeQ = useQuery({
+    queryKey: ['intake-candidates', 'pending'],
+    queryFn: () => fetchIntakeCandidates('pending'),
+    staleTime: 30_000,
+  })
+  const pendingIntakeCount = pendingIntakeQ.data?.length ?? 0
 
   const q = useQuery({
     queryKey: ['transactions', startDate, endDate],
@@ -352,6 +359,18 @@ export function TransactionsPage() {
             </button>
           </div>
         </div>
+
+        {pendingIntakeCount > 0 ? (
+          <Link
+            to="/transactions/quarantine"
+            className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 hover:bg-amber-100"
+          >
+            <span>
+              {pendingIntakeCount} {pendingIntakeCount === 1 ? 'entry' : 'entries'} awaiting ledger review.
+            </span>
+            <span className="shrink-0 font-semibold">Open quarantine desk →</span>
+          </Link>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200/80 bg-white px-3 py-2 shadow-sm ring-1 ring-zinc-900/[0.03]">
           <label className="flex items-center gap-1.5 text-xs text-zinc-600">

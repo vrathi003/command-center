@@ -123,6 +123,49 @@ def test_approve_as_transfer_posts_balanced_transfer(api_client: TestClient) -> 
     ]
 
 
+def test_approve_opening_balance_posts_balanced_asset_entry(api_client: TestClient) -> None:
+    ids, candidate_id = _seed_accounts_and_candidate()
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    conn.execute(
+        """
+        UPDATE intake_candidates
+        SET amount_paise = 0, quarantine_reason = 'needs_opening_balance'
+        WHERE id = ?
+        """,
+        (candidate_id,),
+    )
+    opening_balance_equity_id = conn.execute(
+        "SELECT id FROM accounts WHERE name = 'Opening Balance Equity'"
+    ).fetchone()
+    conn.commit()
+    conn.close()
+    assert opening_balance_equity_id is not None
+
+    missing_amount = api_client.post(
+        f"/api/intake/candidates/{candidate_id}/approve",
+        json={"account_id": ids["Bank"]},
+    )
+    assert missing_amount.status_code == 422
+
+    response = api_client.post(
+        f"/api/intake/candidates/{candidate_id}/approve",
+        json={"account_id": ids["Bank"], "amount_paise": 50_000},
+    )
+
+    assert response.status_code == 200, response.text
+    ledger_transaction_id = response.json()["ledger_transaction_id"]
+    transaction = api_client.get(f"/api/ledger/transactions/{ledger_transaction_id}")
+    assert transaction.json()["postings"] == [
+        {"id": 1, "account_id": ids["Bank"], "amount_paise": 50_000, "category": None},
+        {
+            "id": 2,
+            "account_id": opening_balance_equity_id[0],
+            "amount_paise": -50_000,
+            "category": None,
+        },
+    ]
+
+
 def test_reject_intake_candidate_emits_event(api_client: TestClient) -> None:
     _, candidate_id = _seed_accounts_and_candidate()
 

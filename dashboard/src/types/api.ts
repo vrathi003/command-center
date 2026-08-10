@@ -877,6 +877,7 @@ export type IntakeCandidate = {
 
 export type IntakeCandidateApproveBody = {
   account_id?: number | null
+  amount_paise?: number | null
   category?: string | null
   counter_account_id?: number | null
   as_transfer?: boolean

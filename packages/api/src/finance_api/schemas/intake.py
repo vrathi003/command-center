@@ -13,6 +13,7 @@ CandidateDirection = Literal["out", "in"]
 
 class ApproveBody(BaseModel):
     account_id: int | None = Field(default=None, gt=0)
+    amount_paise: int | None = Field(default=None, gt=0)
     category: str | None = Field(default=None, max_length=100)
     counter_account_id: int | None = Field(default=None, gt=0)
     as_transfer: bool = False

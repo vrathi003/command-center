@@ -46,6 +46,7 @@ function CandidateReviewModal({
   onClose: () => void
   onApprove: (body: {
     account_id?: number | null
+    amount_paise?: number | null
     category?: string | null
     as_transfer?: boolean
     to_account_id?: number | null
@@ -57,9 +58,14 @@ function CandidateReviewModal({
   const [category, setCategory] = useState(candidate.suggested_category ?? '')
   const [asTransfer, setAsTransfer] = useState(false)
   const [toAccountId, setToAccountId] = useState('')
+  const [openingBalanceAmount, setOpeningBalanceAmount] = useState('')
+  const isOpeningBalance = candidate.quarantine_reason === 'needs_opening_balance'
   const effectiveAccountId = accountId || String(candidate.suggested_account_id ?? '')
   const requiresAccount = candidate.suggested_account_id == null
-  const valid = Boolean(effectiveAccountId) && (!asTransfer || Boolean(toAccountId))
+  const amountPaise = Math.round(Number(openingBalanceAmount) * 100)
+  const valid = isOpeningBalance
+    ? Boolean(effectiveAccountId) && Number.isFinite(amountPaise) && amountPaise > 0
+    : Boolean(effectiveAccountId) && (!asTransfer || Boolean(toAccountId))
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -96,33 +102,53 @@ function CandidateReviewModal({
             ) : null}
           </label>
 
-          <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
-            Category <span className="font-normal text-zinc-400">(optional)</span>
-            <select
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <option value="">No category</option>
-              {MANUAL_TX_CATEGORIES.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
+          {isOpeningBalance ? (
+            <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
+              Opening balance amount (₹)
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                inputMode="decimal"
+                value={openingBalanceAmount}
+                onChange={(event) => setOpeningBalanceAmount(event.target.value)}
+                placeholder="0.00"
+                required
+                className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <span className="font-normal text-amber-700">
+                This balance will be posted against Opening Balance Equity.
+              </span>
+            </label>
+          ) : (
+            <>
+              <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
+                Category <span className="font-normal text-zinc-400">(optional)</span>
+                <select
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value)}
+                  className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="">No category</option>
+                  {MANUAL_TX_CATEGORIES.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          <label className="flex items-center gap-2 text-sm text-zinc-700">
-            <input
-              type="checkbox"
-              checked={asTransfer}
-              onChange={(event) => setAsTransfer(event.target.checked)}
-              className="size-4 rounded border-zinc-300 accent-emerald-600"
-            />
-            Approve as transfer
-          </label>
+              <label className="flex items-center gap-2 text-sm text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={asTransfer}
+                  onChange={(event) => setAsTransfer(event.target.checked)}
+                  className="size-4 rounded border-zinc-300 accent-emerald-600"
+                />
+                Approve as transfer
+              </label>
 
-          {asTransfer ? (
+              {asTransfer ? (
             <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
               To account
               <select
@@ -140,7 +166,9 @@ function CandidateReviewModal({
                   ))}
               </select>
             </label>
-          ) : null}
+              ) : null}
+            </>
+          )}
 
           {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
         </div>
@@ -157,6 +185,7 @@ function CandidateReviewModal({
             onClick={() =>
               onApprove({
                 account_id: accountId ? Number(accountId) : null,
+                amount_paise: isOpeningBalance ? amountPaise : null,
                 category: category || null,
                 as_transfer: asTransfer,
                 to_account_id: toAccountId ? Number(toAccountId) : null,
@@ -178,6 +207,9 @@ export function IntakeQuarantinePage() {
   const queryClient = useQueryClient()
   const [reviewing, setReviewing] = useState<IntakeCandidate | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [reasonFilter, setReasonFilter] = useState<
+    'all' | 'legacy_migration' | 'needs_opening_balance' | 'other'
+  >('all')
 
   const candidatesQ = useQuery({
     queryKey: ['intake-candidates', 'pending'],
@@ -213,6 +245,16 @@ export function IntakeQuarantinePage() {
 
   const candidates = candidatesQ.data ?? []
   const accounts = accountsQ.data ?? []
+  const filteredCandidates = candidates.filter((candidate) => {
+    if (reasonFilter === 'all') return true
+    if (reasonFilter === 'other') {
+      return (
+        candidate.quarantine_reason !== 'legacy_migration' &&
+        candidate.quarantine_reason !== 'needs_opening_balance'
+      )
+    }
+    return candidate.quarantine_reason === reasonFilter
+  })
 
   return (
     <div className="flex flex-col gap-6">
@@ -249,6 +291,35 @@ export function IntakeQuarantinePage() {
         </Panel>
       ) : (
         <Panel className="overflow-hidden p-0">
+          <div className="flex flex-wrap gap-2 border-b border-zinc-100 px-4 py-3">
+            {(
+              [
+                ['all', 'All'],
+                ['legacy_migration', 'Legacy migration'],
+                ['needs_opening_balance', 'Opening balances'],
+                ['other', 'Other'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setReasonFilter(value)}
+                className={[
+                  'rounded-full px-3 py-1 text-xs font-medium transition',
+                  reasonFilter === value
+                    ? 'bg-emerald-100 text-emerald-900'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200',
+                ].join(' ')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {filteredCandidates.length === 0 ? (
+            <p className="px-4 py-10 text-center text-sm text-zinc-500">
+              No pending entries match this filter.
+            </p>
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="border-b border-zinc-200 bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
@@ -262,7 +333,7 @@ export function IntakeQuarantinePage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {candidates.map((candidate) => (
+                {filteredCandidates.map((candidate) => (
                   <tr key={candidate.id} className="align-top">
                     <td className="px-4 py-4">
                       <p className="font-medium text-zinc-800">{candidate.payee ?? 'Unknown payee'}</p>
@@ -303,6 +374,7 @@ export function IntakeQuarantinePage() {
               </tbody>
             </table>
           </div>
+          )}
           {rejectMutation.isError ? (
             <p className="border-t border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
               {(rejectMutation.error as Error).message}

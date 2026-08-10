@@ -21,6 +21,7 @@ from finance_common.intake.models import Candidate
 from finance_common.intake.posting_plan import IntakePlanError, plan_postings, plan_transfer
 from finance_common.ledger import service as ledger_service
 from finance_common.ledger.errors import LedgerError
+from finance_common.ledger.models import NewPosting, PostTransactionInput
 from finance_common.repositories.domain_events import append_event
 from finance_common.repositories.intake_candidates import (
     get_candidate,
@@ -71,6 +72,47 @@ async def _pending_candidate(
     return candidate
 
 
+async def _opening_balance_plan(
+    conn: aiosqlite.Connection, candidate: Candidate, amount_paise: int
+) -> PostTransactionInput:
+    """Create an opening-balance entry against the system equity account."""
+    if candidate.suggested_account_id is None:
+        raise HTTPException(status_code=422, detail="account_id is required for opening balances")
+
+    account_cursor = await conn.execute(
+        "SELECT account_class FROM accounts WHERE id = ?", (candidate.suggested_account_id,)
+    )
+    account_row = await account_cursor.fetchone()
+    if account_row is None:
+        raise HTTPException(status_code=422, detail="account_id does not reference an account")
+
+    equity_cursor = await conn.execute(
+        "SELECT id FROM accounts WHERE name = 'Opening Balance Equity'"
+    )
+    equity_row = await equity_cursor.fetchone()
+    if equity_row is None:
+        raise HTTPException(status_code=422, detail="Opening Balance Equity account is unavailable")
+
+    if str(account_row[0]) == "liability_cc":
+        postings = (
+            NewPosting(candidate.suggested_account_id, -amount_paise),
+            NewPosting(int(equity_row[0]), amount_paise),
+        )
+    else:
+        postings = (
+            NewPosting(candidate.suggested_account_id, amount_paise),
+            NewPosting(int(equity_row[0]), -amount_paise),
+        )
+    return PostTransactionInput(
+        tx_date=candidate.tx_date,
+        postings=postings,
+        payee=candidate.payee,
+        notes=candidate.narration,
+        source=candidate.source,
+        external_key=candidate.external_key,
+    )
+
+
 @router.get("/candidates", response_model=list[IntakeCandidateResponse])
 async def get_candidates(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
@@ -94,7 +136,13 @@ async def approve_candidate(
     row = await _pending_candidate(conn, candidate_id)
     candidate = _candidate_from_row(row, body)
     try:
-        if body.as_transfer:
+        if row["quarantine_reason"] == "needs_opening_balance":
+            if body.amount_paise is None:
+                raise HTTPException(
+                    status_code=422, detail="amount_paise is required for opening balances"
+                )
+            posting_plan = await _opening_balance_plan(conn, candidate, body.amount_paise)
+        elif body.as_transfer:
             if body.to_account_id is None:
                 raise HTTPException(
                     status_code=422, detail="to_account_id is required for transfers"
