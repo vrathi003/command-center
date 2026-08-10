@@ -16,6 +16,7 @@ export type AccountOut = {
   id: number
   name: string
   type: string
+  account_class?: string
   institution: string | null
   currency: string
   is_active: boolean

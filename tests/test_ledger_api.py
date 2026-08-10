@@ -180,3 +180,41 @@ def test_month_summary_uses_cash_accounts_and_posted_transactions(api_client: Te
         "net_worth_paise": 75_000,
         "budget_spend_by_category": {"Food": 25_000},
     }
+
+
+def test_accounts_api_assigns_and_accepts_account_class(api_client: TestClient) -> None:
+    credit_card = api_client.post(
+        "/api/accounts/",
+        json={"name": "Visa", "type": "credit_card"},
+    )
+    assert credit_card.status_code == 201, credit_card.text
+    assert credit_card.json()["account_class"] == "liability_cc"
+
+    custom = api_client.post(
+        "/api/accounts/",
+        json={
+            "name": "Brokerage",
+            "type": "other",
+            "account_class": "asset_investment",
+        },
+    )
+    assert custom.status_code == 201, custom.text
+    assert custom.json()["account_class"] == "asset_investment"
+
+    updated = api_client.put(
+        f"/api/accounts/{custom.json()['id']}",
+        json={
+            "name": "Brokerage",
+            "type": "loan",
+            "account_class": "liability_cc",
+            "is_active": True,
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["account_class"] == "liability_cc"
+
+    listed = api_client.get("/api/accounts/")
+    assert listed.status_code == 200
+    assert next(item for item in listed.json() if item["id"] == credit_card.json()["id"])[
+        "account_class"
+    ] == "liability_cc"
