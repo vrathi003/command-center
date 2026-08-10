@@ -100,9 +100,11 @@ async def get_transaction(
         raise HTTPException(status_code=422, detail="transaction_id must be positive")
     if await is_legacy_cutover(conn):
         try:
-            return await ledger_facade.get_transaction_row(conn, transaction_id)
+            out = await ledger_facade.get_transaction_row(conn, transaction_id)
         except LedgerError as e:
             raise HTTPException(status_code=404, detail="transaction not found") from e
+        out["transfer_sibling"] = None
+        return out
     row = await tx_repo.get_by_id(conn, transaction_id)
     if row is None:
         raise HTTPException(status_code=404, detail="transaction not found")

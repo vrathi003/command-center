@@ -121,6 +121,7 @@ def test_transaction_get_maps_ledger_credit_after_cutover(api_client: TestClient
         "account_id": ids["Bank"],
         "transfer_pair_id": None,
         "tags": None,
+        "transfer_sibling": None,
     }
 
 
@@ -151,3 +152,87 @@ def test_transactions_list_maps_ledger_transfer_after_cutover(api_client: TestCl
     assert row["transfer_pair_id"] == "transfer:1"
     assert row["account_id"] == ids["Bank"]
     assert row["account"] == "Bank"
+
+
+def test_transactions_list_filters_by_account_before_limit_after_cutover(
+    api_client: TestClient,
+) -> None:
+    ids = _seed_accounts()
+    matching_id = _post(
+        api_client,
+        {
+            "date": "2026-08-03",
+            "pattern": "bank_expense",
+            "amount_paise": 10_000,
+            "bank_account_id": ids["Bank"],
+            "expense_account_id": ids["Expense"],
+            "category": "Food",
+        },
+    )
+    _post(
+        api_client,
+        {
+            "date": "2026-08-04",
+            "pattern": "bank_expense",
+            "amount_paise": 20_000,
+            "bank_account_id": ids["Bank 2"],
+            "expense_account_id": ids["Expense"],
+            "category": "Food",
+        },
+    )
+    _mark_cutover()
+
+    response = api_client.get(
+        f"/api/transactions/?account=Bank&account_id={ids['Bank']}&limit=1"
+    )
+
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()] == [matching_id]
+
+
+def test_transaction_get_returns_404_for_void_ledger_entry_after_cutover(
+    api_client: TestClient,
+) -> None:
+    ids = _seed_accounts()
+    transaction_id = _post(
+        api_client,
+        {
+            "date": "2026-08-03",
+            "pattern": "bank_expense",
+            "amount_paise": 50_000,
+            "bank_account_id": ids["Bank"],
+            "expense_account_id": ids["Expense"],
+            "category": "Food",
+        },
+    )
+    assert (
+        api_client.post(f"/api/ledger/transactions/{transaction_id}/void").status_code == 200
+    )
+    _mark_cutover()
+
+    response = api_client.get(f"/api/transactions/{transaction_id}")
+
+    assert response.status_code == 404
+
+
+def test_transaction_get_includes_transfer_sibling_after_cutover(
+    api_client: TestClient,
+) -> None:
+    ids = _seed_accounts()
+    transaction_id = _post(
+        api_client,
+        {
+            "date": "2026-08-03",
+            "pattern": "transfer",
+            "amount_paise": 75_000,
+            "from_account_id": ids["Bank"],
+            "to_account_id": ids["Bank 2"],
+            "external_key": "transfer:1",
+        },
+    )
+    _mark_cutover()
+
+    response = api_client.get(f"/api/transactions/{transaction_id}")
+
+    assert response.status_code == 200
+    assert response.json()["transfer_sibling"] is None

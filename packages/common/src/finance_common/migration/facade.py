@@ -7,6 +7,7 @@ from datetime import date
 import aiosqlite
 
 from finance_common.ledger import service as ledger_service
+from finance_common.ledger.errors import LedgerError
 from finance_common.ledger.models import PostedTransaction
 
 _CASH_OR_CC_CLASSES = frozenset({"asset_cash", "liability_cc"})
@@ -100,24 +101,46 @@ async def list_transaction_rows(
     account_id: int | None,
 ) -> list[dict[str, object]]:
     """List posted ledger transactions in the legacy TransactionRow shape."""
-    rows = [
-        await transaction_row(conn, transaction)
-        for transaction in await ledger_service.list_transactions(
-            conn,
-            start=None if start_date is None else date.fromisoformat(start_date),
-            end=None if end_date is None else date.fromisoformat(end_date),
-            limit=limit,
-        )
+    start = None if start_date is None else date.fromisoformat(start_date)
+    end = None if end_date is None else date.fromisoformat(end_date)
+    cursor = await conn.execute(
+        """
+        SELECT DISTINCT tx.id
+        FROM ledger_transactions AS tx
+        JOIN ledger_postings AS posting ON posting.transaction_id = tx.id
+        JOIN accounts AS account ON account.id = posting.account_id
+        WHERE tx.status = 'posted'
+          AND (? IS NULL OR tx.date >= ?)
+          AND (? IS NULL OR tx.date <= ?)
+          AND (? IS NULL OR account.name = ?)
+          AND (? IS NULL OR posting.account_id = ?)
+        ORDER BY tx.date DESC, tx.id DESC
+        LIMIT ?
+        """,
+        (
+            None if start is None else start.isoformat(),
+            None if start is None else start.isoformat(),
+            None if end is None else end.isoformat(),
+            None if end is None else end.isoformat(),
+            account,
+            account,
+            account_id,
+            account_id,
+            limit,
+        ),
+    )
+    transaction_ids = [int(row[0]) for row in await cursor.fetchall()]
+    return [
+        await transaction_row(conn, await ledger_service.get_transaction(conn, transaction_id))
+        for transaction_id in transaction_ids
     ]
-    if account is not None:
-        rows = [row for row in rows if row["account"] == account]
-    if account_id is not None:
-        rows = [row for row in rows if row["account_id"] == account_id]
-    return rows
 
 
 async def get_transaction_row(
     conn: aiosqlite.Connection, transaction_id: int
 ) -> dict[str, object]:
     """Get a posted ledger transaction in the legacy TransactionRow shape."""
-    return await transaction_row(conn, await ledger_service.get_transaction(conn, transaction_id))
+    transaction = await ledger_service.get_transaction(conn, transaction_id)
+    if transaction.status != "posted":
+        raise LedgerError(f"Transaction {transaction_id} is not posted")
+    return await transaction_row(conn, transaction)
