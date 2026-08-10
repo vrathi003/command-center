@@ -7,7 +7,7 @@ import aiosqlite
 import pytest
 
 from finance_common.db import ensure_database
-from finance_common.ledger import service as ledger_service
+from finance_common.ledger import builders, service as ledger_service
 from finance_common.ledger.errors import LedgerError, UnbalancedTransactionError
 from finance_common.ledger.models import NewPosting, PostTransactionInput
 
@@ -171,3 +171,90 @@ async def test_void_marks_header_and_rejects_double_void(tmp_path: Path) -> None
         assert (await ledger_service.get_transaction(conn, tx_id)).status == "void"
         with pytest.raises(LedgerError):
             await ledger_service.void(conn, tx_id)
+
+
+def _assert_balanced(postings: tuple[NewPosting, ...]) -> None:
+    assert len(postings) >= 2
+    assert sum(p.amount_paise for p in postings) == 0
+    assert all(p.amount_paise != 0 for p in postings)
+
+
+def test_build_bank_expense() -> None:
+    postings = builders.build_bank_expense(
+        bank_id=1,
+        expense_account_id=2,
+        amount_paise=10_000,
+        category="Food Delivery",
+    )
+    assert postings == (
+        NewPosting(2, 10_000, "Food Delivery"),
+        NewPosting(1, -10_000),
+    )
+    _assert_balanced(postings)
+
+
+def test_build_bank_income() -> None:
+    postings = builders.build_bank_income(
+        bank_id=1,
+        income_account_id=3,
+        amount_paise=50_000,
+        category="Salary",
+    )
+    assert postings == (
+        NewPosting(1, 50_000),
+        NewPosting(3, -50_000, "Salary"),
+    )
+    _assert_balanced(postings)
+
+
+def test_build_transfer() -> None:
+    postings = builders.build_transfer(
+        from_account_id=1,
+        to_account_id=4,
+        amount_paise=25_000,
+    )
+    assert postings == (
+        NewPosting(4, 25_000),
+        NewPosting(1, -25_000),
+    )
+    _assert_balanced(postings)
+
+
+def test_build_cc_swipe() -> None:
+    postings = builders.build_cc_swipe(
+        cc_id=5,
+        expense_account_id=2,
+        amount_paise=10_000,
+        category="Shopping",
+    )
+    assert postings == (
+        NewPosting(2, 10_000, "Shopping"),
+        NewPosting(5, -10_000),
+    )
+    _assert_balanced(postings)
+
+
+def test_build_cc_bill_pay() -> None:
+    postings = builders.build_cc_bill_pay(
+        bank_id=1,
+        cc_id=5,
+        amount_paise=10_000,
+    )
+    assert postings == (
+        NewPosting(5, 10_000),
+        NewPosting(1, -10_000),
+    )
+    _assert_balanced(postings)
+
+
+def test_build_investment_buy() -> None:
+    postings = builders.build_investment_buy(
+        bank_id=1,
+        investment_account_id=6,
+        amount_paise=100_000,
+    )
+    assert postings == (
+        NewPosting(6, 100_000),
+        NewPosting(1, -100_000),
+    )
+    _assert_balanced(postings)
