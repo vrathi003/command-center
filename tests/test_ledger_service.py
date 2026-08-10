@@ -67,7 +67,9 @@ async def test_post_balanced_expense(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_post_rejects_zero_and_single_posting(tmp_path: Path) -> None:
+async def test_post_rejects_zero_amount_in_otherwise_balanced_postings(
+    tmp_path: Path,
+) -> None:
     db = tmp_path / "l.db"
     await ensure_database(db)
     async with aiosqlite.connect(db) as conn:
@@ -77,13 +79,60 @@ async def test_post_rejects_zero_and_single_posting(tmp_path: Path) -> None:
                 conn,
                 PostTransactionInput(
                     tx_date=date(2026, 8, 1),
-                    postings=(NewPosting(ids["A"], 0),),
+                    postings=(
+                        NewPosting(ids["E"], 10_000, "Food Delivery"),
+                        NewPosting(ids["A"], 0),
+                        NewPosting(ids["A"], -10_000),
+                    ),
                 ),
             )
 
 
 @pytest.mark.asyncio
-async def test_post_is_idempotent_by_external_key(tmp_path: Path) -> None:
+async def test_post_rejects_missing_account_id(tmp_path: Path) -> None:
+    db = tmp_path / "l.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        ids = await _account_ids(conn)
+        with pytest.raises(LedgerError, match="Unknown account ids"):
+            await ledger_service.post(
+                conn,
+                PostTransactionInput(
+                    tx_date=date(2026, 8, 1),
+                    postings=(
+                        NewPosting(None, 500),  # type: ignore[arg-type]
+                        NewPosting(ids["A"], -500),
+                    ),
+                ),
+            )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("amount", [500.0, True])
+async def test_post_rejects_non_integer_amount_paise(
+    tmp_path: Path, amount: float | bool
+) -> None:
+    db = tmp_path / "l.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        ids = await _account_ids(conn)
+        with pytest.raises(LedgerError, match="integer paise"):
+            await ledger_service.post(
+                conn,
+                PostTransactionInput(
+                    tx_date=date(2026, 8, 1),
+                    postings=(
+                        NewPosting(ids["E"], amount),  # type: ignore[arg-type]
+                        NewPosting(ids["A"], -amount),  # type: ignore[arg-type,operator]
+                    ),
+                ),
+            )
+
+
+@pytest.mark.asyncio
+async def test_post_returns_existing_id_for_malformed_idempotent_retry(
+    tmp_path: Path,
+) -> None:
     db = tmp_path / "l.db"
     await ensure_database(db)
     async with aiosqlite.connect(db) as conn:
@@ -94,7 +143,14 @@ async def test_post_is_idempotent_by_external_key(tmp_path: Path) -> None:
             external_key="import:row:1",
         )
         first_id = await ledger_service.post(conn, inp)
-        second_id = await ledger_service.post(conn, inp)
+        second_id = await ledger_service.post(
+            conn,
+            PostTransactionInput(
+                tx_date=date(2026, 8, 2),
+                postings=(NewPosting(ids["E"], 500), NewPosting(ids["A"], -400)),
+                external_key="import:row:1",
+            ),
+        )
         assert second_id == first_id
 
 

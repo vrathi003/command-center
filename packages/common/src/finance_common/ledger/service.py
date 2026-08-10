@@ -44,6 +44,12 @@ async def _verify_accounts_exist(
 def _validate_postings(postings: tuple[NewPosting, ...]) -> None:
     if len(postings) < 2:
         raise LedgerError("A transaction requires at least two postings")
+    if any(
+        isinstance(posting.amount_paise, bool)
+        or not isinstance(posting.amount_paise, int)
+        for posting in postings
+    ):
+        raise LedgerError("Posting amounts must be integer paise")
     if sum(posting.amount_paise for posting in postings) != 0:
         raise UnbalancedTransactionError("Signed postings must sum to zero")
     if any(posting.amount_paise == 0 for posting in postings):
@@ -52,15 +58,14 @@ def _validate_postings(postings: tuple[NewPosting, ...]) -> None:
 
 async def post(conn: aiosqlite.Connection, inp: PostTransactionInput) -> int:
     """Atomically store a balanced transaction and return its identifier."""
+    if inp.external_key is not None:
+        existing_id = await _existing_transaction_id(conn, inp.external_key)
+        if existing_id is not None:
+            return existing_id
+
     _validate_postings(inp.postings)
     await conn.execute("BEGIN IMMEDIATE")
     try:
-        if inp.external_key is not None:
-            existing_id = await _existing_transaction_id(conn, inp.external_key)
-            if existing_id is not None:
-                await conn.rollback()
-                return existing_id
-
         await _verify_accounts_exist(conn, inp.postings)
         cursor = await conn.execute(
             """
