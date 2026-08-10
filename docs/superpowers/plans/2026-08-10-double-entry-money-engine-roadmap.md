@@ -7,7 +7,7 @@ Implement **one phase plan at a time**. Each plan must leave the repo green and 
 | Phase | Plan | Deliverable | Depends on |
 |-------|------|-------------|------------|
 | **P1** | [`2026-08-10-double-entry-money-engine-p1.md`](./2026-08-10-double-entry-money-engine-p1.md) | Ledger schema, LedgerService, builders, balances, budget/cash lenses, project_config, Discord off, ledger API | — |
-| **P2** | [`2026-08-10-double-entry-money-engine-p2.md`](./2026-08-10-double-entry-money-engine-p2.md) | IntakeService, candidates, quarantine, dedupe, email/file/CC→LedgerService | P1 |
+| **P2** ✅ Done | [`2026-08-10-double-entry-money-engine-p2.md`](./2026-08-10-double-entry-money-engine-p2.md) · [acceptance report](../../../.superpowers/sdd/task-11-report.md) | IntakeService, candidates, quarantine, dedupe, email/file/CC→LedgerService | P1 |
 | **P3** | write after P2 | In-place migration, quarantine desk UI, cutover, legacy archive | P1+P2 |
 | **P4** | write after P3 | ReconciliationService, statement match UX | P3 |
 | **P5** | write after P1 (can parallel P2) | Standalone AlertService + in-app channel; later Discord channel | P1 (events/outbox) |
