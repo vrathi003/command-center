@@ -67,6 +67,24 @@ class LedgerTransactionCreated(BaseModel):
     id: int
 
 
+class LedgerPostingListItem(BaseModel):
+    account_id: int
+    amount_paise: int
+    category: str | None
+
+
+class LedgerTransactionListItem(BaseModel):
+    id: int
+    date: date
+    payee: str | None
+    notes: str | None
+    source: str
+    external_key: str | None
+    status: str
+    amount_paise: int
+    postings: list[LedgerPostingListItem]
+
+
 class LedgerAccountBalanceResponse(BaseModel):
     account_id: int
     balance_paise: int

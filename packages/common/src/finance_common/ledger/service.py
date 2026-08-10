@@ -170,3 +170,38 @@ async def get_transaction(conn: aiosqlite.Connection, transaction_id: int) -> Po
         external_key=None if row[7] is None else str(row[7]),
         postings=postings,
     )
+
+
+async def list_transactions(
+    conn: aiosqlite.Connection,
+    *,
+    start: date | None = None,
+    end: date | None = None,
+    limit: int = 50,
+    include_void: bool = False,
+) -> tuple[PostedTransaction, ...]:
+    """Return ledger transactions newest first, with their postings."""
+    start_date = None if start is None else start.isoformat()
+    end_date = None if end is None else end.isoformat()
+    cursor = await conn.execute(
+        """
+        SELECT id
+        FROM ledger_transactions
+        WHERE (? = 1 OR status = 'posted')
+          AND (? IS NULL OR date >= ?)
+          AND (? IS NULL OR date <= ?)
+        ORDER BY date DESC, id DESC
+        LIMIT ?
+        """,
+        (
+            int(include_void),
+            start_date,
+            start_date,
+            end_date,
+            end_date,
+            limit,
+        ),
+    )
+    return tuple(
+        [await get_transaction(conn, int(row[0])) for row in await cursor.fetchall()]
+    )

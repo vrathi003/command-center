@@ -14,9 +14,11 @@ from finance_api.deps_ledger import require_ledger_writes
 from finance_api.schemas.ledger import (
     LedgerAccountBalanceResponse,
     LedgerMonthSummaryResponse,
+    LedgerPostingListItem,
     LedgerPostingResponse,
     LedgerTransactionCreate,
     LedgerTransactionCreated,
+    LedgerTransactionListItem,
     LedgerTransactionResponse,
 )
 from finance_common.ledger import balances, builders, reports
@@ -114,6 +116,27 @@ def _transaction_response(transaction: PostedTransaction) -> LedgerTransactionRe
     )
 
 
+def _transaction_list_item(transaction: PostedTransaction) -> LedgerTransactionListItem:
+    return LedgerTransactionListItem(
+        id=transaction.id,
+        date=transaction.date,
+        payee=transaction.payee,
+        notes=transaction.notes,
+        source=transaction.source,
+        external_key=transaction.external_key,
+        status=transaction.status,
+        amount_paise=sum(abs(posting.amount_paise) for posting in transaction.postings) // 2,
+        postings=[
+            LedgerPostingListItem(
+                account_id=posting.account_id,
+                amount_paise=posting.amount_paise,
+                category=posting.category,
+            )
+            for posting in transaction.postings
+        ],
+    )
+
+
 @router.post("/transactions", response_model=LedgerTransactionCreated, status_code=201)
 async def create_transaction(
     body: LedgerTransactionCreate,
@@ -136,6 +159,20 @@ async def create_transaction(
     except LedgerError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return LedgerTransactionCreated(id=transaction_id)
+
+
+@router.get("/transactions", response_model=list[LedgerTransactionListItem])
+async def list_transactions(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    start: Annotated[date | None, Query(alias="from")] = None,
+    end: Annotated[date | None, Query(alias="to")] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    include_void: bool = False,
+) -> list[LedgerTransactionListItem]:
+    transactions = await ledger_service.list_transactions(
+        conn, start=start, end=end, limit=limit, include_void=include_void
+    )
+    return [_transaction_list_item(transaction) for transaction in transactions]
 
 
 @router.post("/transactions/{transaction_id}/void", response_model=LedgerTransactionResponse)

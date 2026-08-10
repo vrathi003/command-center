@@ -79,6 +79,54 @@ def test_create_get_balance_and_void_bank_expense(api_client: TestClient) -> Non
     }
 
 
+def test_list_transactions_returns_posted_entry_with_postings(api_client: TestClient) -> None:
+    ids = _seed_accounts()
+    created = api_client.post(
+        "/api/ledger/transactions",
+        json={
+            "date": "2026-08-01",
+            "pattern": "bank_expense",
+            "amount_paise": 50_000,
+            "bank_account_id": ids["Bank"],
+            "expense_account_id": ids["Expense"],
+            "category": "Food Delivery",
+            "payee": "Swiggy",
+            "notes": "Dinner",
+            "source": "import",
+            "external_key": "statement:1",
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    response = api_client.get("/api/ledger/transactions")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "id": created.json()["id"],
+            "date": "2026-08-01",
+            "payee": "Swiggy",
+            "notes": "Dinner",
+            "source": "import",
+            "external_key": "statement:1",
+            "status": "posted",
+            "amount_paise": 50_000,
+            "postings": [
+                {
+                    "account_id": ids["Expense"],
+                    "amount_paise": 50_000,
+                    "category": "Food Delivery",
+                },
+                {
+                    "account_id": ids["Bank"],
+                    "amount_paise": -50_000,
+                    "category": None,
+                },
+            ],
+        }
+    ]
+
+
 def test_create_all_pattern_types(api_client: TestClient) -> None:
     ids = _seed_accounts()
     bodies = [
