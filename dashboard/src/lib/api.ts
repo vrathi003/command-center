@@ -76,6 +76,11 @@ import type {
   IntakeCandidateApproveBody,
   IntakeCandidateApprovedResponse,
   IntakeCandidateRejectedResponse,
+  LedgerTransactionListItem,
+  ReconMatchProposal,
+  ReconPeriodStatus,
+  ReconStatement,
+  ReconWorkspace,
 } from '@/types/api'
 
 function apiBase(): string {
@@ -1935,4 +1940,88 @@ export async function bulkDeleteStatementImportTransactions(
     },
   )
   return parseJson<StatementImportSnapshotOut>(res)
+}
+
+// ── Reconciliation ──────────────────────────────────────────────────────────
+
+export async function fetchReconStatements(accountId: number): Promise<ReconStatement[]> {
+  const res = await apiFetch(`${apiBase()}/api/recon/statements?account_id=${accountId}`)
+  return parseJson<ReconStatement[]>(res)
+}
+
+export async function fetchReconWorkspace(statementId: number): Promise<ReconWorkspace> {
+  const res = await apiFetch(`${apiBase()}/api/recon/statements/${statementId}`)
+  return parseJson<ReconWorkspace>(res)
+}
+
+export async function suggestReconMatches(statementId: number): Promise<ReconMatchProposal[]> {
+  const res = await apiFetch(`${apiBase()}/api/recon/statements/${statementId}/suggest`, {
+    method: 'POST',
+  })
+  const data = await parseJson<{ proposals: ReconMatchProposal[] }>(res)
+  return data.proposals
+}
+
+export async function confirmReconMatch(
+  statementId: number,
+  lineId: number,
+  ledgerTransactionId: number,
+  method: 'suggested' | 'manual',
+): Promise<void> {
+  const res = await apiFetch(`${apiBase()}/api/recon/statements/${statementId}/lines/${lineId}/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ledger_transaction_id: ledgerTransactionId, method }),
+  })
+  await parseJson(res)
+}
+
+export async function ignoreReconLine(statementId: number, lineId: number, reason?: string): Promise<void> {
+  const res = await apiFetch(`${apiBase()}/api/recon/statements/${statementId}/lines/${lineId}/ignore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason || null }),
+  })
+  if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`)
+}
+
+export async function createReconAdjustment(
+  statementId: number,
+  body: {
+    line_id: number
+    counterpart_account_id: number
+    category: string
+    payee?: string | null
+    notes?: string | null
+  },
+): Promise<void> {
+  const res = await apiFetch(`${apiBase()}/api/recon/statements/${statementId}/adjust`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  await parseJson(res)
+}
+
+export async function softCloseReconStatement(statementId: number): Promise<ReconPeriodStatus> {
+  const res = await apiFetch(`${apiBase()}/api/recon/statements/${statementId}/soft-close`, {
+    method: 'POST',
+  })
+  return parseJson<ReconPeriodStatus>(res)
+}
+
+export async function reopenReconStatement(statementId: number): Promise<void> {
+  const res = await apiFetch(`${apiBase()}/api/recon/statements/${statementId}/reopen`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`)
+}
+
+export async function fetchLedgerTransactions(
+  from: string,
+  to: string,
+): Promise<LedgerTransactionListItem[]> {
+  const params = new URLSearchParams({ from, to, limit: '200' })
+  const res = await apiFetch(`${apiBase()}/api/ledger/transactions?${params}`)
+  return parseJson<LedgerTransactionListItem[]>(res)
 }

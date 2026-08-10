@@ -894,3 +894,83 @@ export type IntakeCandidateRejectedResponse = {
   candidate_id: number
   status: 'rejected'
 }
+
+// ── Reconciliation ──────────────────────────────────────────────────────────
+
+export type ReconStatement = {
+  id: number
+  account_id: number
+  period_start: string
+  period_end: string
+  opening_balance_paise: number
+  closing_balance_paise: number
+  status: 'open' | 'reconciled'
+  source: string
+  filename: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ReconStatementLine = {
+  id: number
+  statement_id: number
+  tx_date: string
+  amount_paise: number
+  direction: 'in' | 'out'
+  payee: string | null
+  narration: string | null
+  external_key: string | null
+  status: 'unmatched' | 'matched' | 'ignored'
+  ignore_reason: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ReconMatch = {
+  id: number
+  line_id: number
+  ledger_transaction_id: number
+  method: 'suggested' | 'manual'
+  confirmed_at: string
+}
+
+export type ReconPeriodStatus = {
+  statement_id: number
+  ledger_balance_paise: number
+  statement_closing_balance_paise: number
+  balance_difference_paise: number
+  unmatched_line_count: number
+  unmatched_ledger_count: number
+  is_balanced: boolean
+  can_soft_close: boolean
+}
+
+export type ReconWorkspace = {
+  statement: ReconStatement
+  lines: ReconStatementLine[]
+  matches: ReconMatch[]
+  period_status: ReconPeriodStatus
+}
+
+export type ReconMatchProposal = {
+  line_id: number
+  ledger_transaction_id: number
+  score: number
+  reasons: string[]
+}
+
+export type LedgerTransactionListItem = {
+  id: number
+  date: string
+  payee: string | null
+  notes: string | null
+  source: string
+  external_key: string | null
+  status: string
+  amount_paise: number
+  postings: Array<{
+    account_id: number
+    amount_paise: number
+    category: string | null
+  }>
+}

@@ -26,6 +26,7 @@ import { MerchantRulesPage } from '@/pages/MerchantRulesPage'
 import { StocksPortfolioPage } from '@/pages/StocksPortfolioPage'
 import { NetWorthPage } from '@/pages/NetWorthPage'
 import { RecurringPaymentsPage } from '@/pages/RecurringPaymentsPage'
+import { ReconciliationPage } from '@/pages/ReconciliationPage'
 import { ReportsPage } from '@/pages/ReportsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { StatementImportPage } from '@/pages/StatementImportPage'
@@ -43,6 +44,7 @@ function AppRoutes() {
         <Route element={<AppShell />}>
           <Route index element={<DashboardPage />} />
           <Route path="accounts" element={<AccountsPage />} />
+          <Route path="reconciliation" element={<ReconciliationPage />} />
           <Route path="transactions/templates" element={<TransactionTemplatesPage />} />
           <Route path="transactions/merchants" element={<MerchantRulesPage />} />
           <Route path="merchants" element={<MerchantRulesPage />} />

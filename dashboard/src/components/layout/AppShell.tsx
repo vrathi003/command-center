@@ -16,6 +16,7 @@ import {
   NotebookPen,
   PieChart,
   Repeat,
+  ScanLine,
   Scale,
   Settings,
   Shield,
@@ -42,6 +43,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/accounts', label: 'Accounts', icon: Wallet },
       { to: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
+      { to: '/reconciliation', label: 'Reconciliation', icon: ScanLine },
       { to: '/merchants', label: 'Merchants', icon: Store },
       { to: '/budget', label: 'Budget', icon: PieChart },
     ],
