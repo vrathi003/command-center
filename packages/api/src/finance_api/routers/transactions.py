@@ -28,11 +28,13 @@ from finance_api.services.transaction_import_service import (
     load_rows_from_upload,
 )
 from finance_api.settings import ApiSettings
+from finance_common.ledger.errors import LedgerError
+from finance_common.migration import facade as ledger_facade
 from finance_common.parsing.bank_statement_pdf import (
     BankStatementPdfError,
     pdf_bytes_to_import_rows,
 )
-from finance_common.project_config import load_project_config
+from finance_common.project_config import is_legacy_cutover, load_project_config
 from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import email_staging as staging_repo
 from finance_common.repositories import transactions as tx_repo
@@ -68,6 +70,15 @@ async def list_transactions(
     account: str | None = Query(default=None),
     account_id: int | None = Query(default=None),
 ) -> list[dict[str, object]]:
+    if await is_legacy_cutover(conn):
+        return await ledger_facade.list_transaction_rows(
+            conn,
+            limit=limit,
+            start_date=start_date,
+            end_date=end_date,
+            account=account,
+            account_id=account_id,
+        )
     rows = await tx_repo.list_recent(
         conn,
         limit=limit,
@@ -87,6 +98,11 @@ async def get_transaction(
     """Single transaction for editing; includes ``transfer_sibling`` when part of a pair."""
     if transaction_id <= 0:
         raise HTTPException(status_code=422, detail="transaction_id must be positive")
+    if await is_legacy_cutover(conn):
+        try:
+            return await ledger_facade.get_transaction_row(conn, transaction_id)
+        except LedgerError as e:
+            raise HTTPException(status_code=404, detail="transaction not found") from e
     row = await tx_repo.get_by_id(conn, transaction_id)
     if row is None:
         raise HTTPException(status_code=404, detail="transaction not found")
