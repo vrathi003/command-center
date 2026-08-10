@@ -36,3 +36,7 @@ P5 delivers the standalone AlertService: `alert_notifications` schema + outbox `
 - `recon.period_*` events not emitted.
 - No unread badge on Alerts nav item.
 - CC due payload omits outstanding balance (was Discord-only decoration).
+
+## Fix: separate P4/P5 report paths (2026-08-11)
+
+P4 and P5 both wrote to `.superpowers/sdd/task-7-report.md`; P5 overwrote P4. Restored P4 content from `1992c15` to `p4-task-7-report.md`, moved P5 content to `p5-task-7-report.md`, deleted ambiguous `task-7-report.md`, and updated roadmap acceptance links.
