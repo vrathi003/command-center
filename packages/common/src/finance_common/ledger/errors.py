@@ -9,5 +9,9 @@ class UnbalancedTransactionError(LedgerError):
     """Raised when signed postings do not sum to zero."""
 
 
+class LedgerIntegrityError(LedgerError):
+    """Raised when persisted ledger data violates a required invariant."""
+
+
 class DuplicateExternalKeyError(LedgerError):
     """Raised when an external key cannot be reused."""

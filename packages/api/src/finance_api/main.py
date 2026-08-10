@@ -42,7 +42,10 @@ from finance_api.routers import (
 )
 from finance_api.services.background_jobs import register_background_jobs
 from finance_api.settings import ApiSettings
-from finance_common.db import ensure_database
+from finance_common.db import ensure_database, open_db
+from finance_common.ledger.errors import LedgerIntegrityError
+from finance_common.ledger.integrity import assert_ledger_healthy
+from finance_common.project_config import load_project_config
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     api_settings = ApiSettings()
     app.state.settings = api_settings
     await ensure_database(api_settings.db_path)
+    app.state.ledger_writes_enabled = True
+    async with open_db(api_settings.db_path) as conn:
+        project_config = await load_project_config(conn)
+        if project_config.ledger_engine == "double_entry":
+            try:
+                await assert_ledger_healthy(conn)
+            except LedgerIntegrityError:
+                logger.exception(
+                    "Ledger integrity check failed; disabling ledger write routes"
+                )
+                app.state.ledger_writes_enabled = False
 
     scheduler = AsyncIOScheduler()
     register_background_jobs(scheduler, api_settings)
