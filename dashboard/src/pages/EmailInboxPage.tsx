@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, CalendarSearch, CheckCircle, RefreshCw, RotateCcw, Trash2, XCircle, Zap } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { PageHero } from '@/components/ui/PageHero'
 import { Panel } from '@/components/ui/Panel'
@@ -972,6 +973,17 @@ export function EmailInboxPage() {
           </button>
         }
       />
+
+      <Link
+        to="/transactions/quarantine"
+        className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 hover:bg-amber-100"
+      >
+        <span>
+          <span className="font-semibold">Ledger quarantine</span> — review uncertain intake candidates
+          before they are posted.
+        </span>
+        <ArrowRight className="size-4 shrink-0" />
+      </Link>
 
       {syncMut.isSuccess && (
         <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">

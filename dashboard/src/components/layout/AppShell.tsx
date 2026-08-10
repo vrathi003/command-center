@@ -12,6 +12,7 @@ import {
   Landmark,
   LayoutDashboard,
   Mail,
+  ShieldAlert,
   NotebookPen,
   PieChart,
   Repeat,
@@ -50,6 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/statement-import', label: 'Statement import', icon: FileDown },
       { to: '/email-inbox', label: 'Gmail inbox', icon: Mail },
+      { to: '/transactions/quarantine', label: 'Ledger quarantine', icon: ShieldAlert },
     ],
   },
   {

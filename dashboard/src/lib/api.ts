@@ -71,6 +71,10 @@ import type {
   StatementImportSnapshotOut,
   StatementImportTransactionBody,
   GmailStatusOut,
+  IntakeCandidate,
+  IntakeCandidateApproveBody,
+  IntakeCandidateApprovedResponse,
+  IntakeCandidateRejectedResponse,
 } from '@/types/api'
 
 function apiBase(): string {
@@ -1754,6 +1758,36 @@ export async function historicalSyncGmail(
     body: JSON.stringify({ from_date, to_date }),
   })
   return parseJson<HistoricalSyncResult>(res)
+}
+
+// ── Intake quarantine ─────────────────────────────────────────────────────────
+
+export async function fetchIntakeCandidates(
+  status: 'pending' | 'posted' | 'rejected' = 'pending',
+): Promise<IntakeCandidate[]> {
+  const res = await apiFetch(
+    `${apiBase()}/api/intake/candidates?status=${encodeURIComponent(status)}`,
+  )
+  return parseJson<IntakeCandidate[]>(res)
+}
+
+export async function approveIntakeCandidate(
+  id: number,
+  body: IntakeCandidateApproveBody,
+): Promise<IntakeCandidateApprovedResponse> {
+  const res = await apiFetch(`${apiBase()}/api/intake/candidates/${id}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<IntakeCandidateApprovedResponse>(res)
+}
+
+export async function rejectIntakeCandidate(id: number): Promise<IntakeCandidateRejectedResponse> {
+  const res = await apiFetch(`${apiBase()}/api/intake/candidates/${id}/reject`, {
+    method: 'POST',
+  })
+  return parseJson<IntakeCandidateRejectedResponse>(res)
 }
 
 // ── Statement import ──────────────────────────────────────────────────────────

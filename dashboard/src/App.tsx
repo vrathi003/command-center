@@ -19,6 +19,7 @@ import { HomeInventoryPage } from '@/pages/HomeInventoryPage'
 import { HomeItemDetailPage } from '@/pages/HomeItemDetailPage'
 import { IncomeTaxPage } from '@/pages/IncomeTaxPage'
 import { InsurancePage } from '@/pages/InsurancePage'
+import { IntakeQuarantinePage } from '@/pages/IntakeQuarantinePage'
 import { InvestmentsPage } from '@/pages/InvestmentsPage'
 import { JournalPage } from '@/pages/JournalPage'
 import { MerchantRulesPage } from '@/pages/MerchantRulesPage'
@@ -70,6 +71,7 @@ function AppRoutes() {
           <Route path="reports" element={<ReportsPage />} />
           <Route path="journal" element={<JournalPage />} />
           <Route path="email-inbox" element={<EmailInboxPage />} />
+          <Route path="transactions/quarantine" element={<IntakeQuarantinePage />} />
           <Route path="statement-import" element={<StatementImportPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

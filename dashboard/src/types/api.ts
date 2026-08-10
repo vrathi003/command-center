@@ -830,3 +830,44 @@ export type GmailStatusOut = {
   llm_enabled?: boolean
   llm_model?: string | null
 }
+
+// ── Intake quarantine ─────────────────────────────────────────────────────────
+
+export type IntakeCandidateStatus = 'pending' | 'posted' | 'rejected'
+
+export type IntakeCandidate = {
+  id: number
+  status: IntakeCandidateStatus
+  source: string
+  tx_date: string
+  amount_paise: number
+  direction: 'out' | 'in'
+  payee: string | null
+  narration: string | null
+  suggested_account_id: number | null
+  suggested_counter_account_id: number | null
+  suggested_category: string | null
+  confidence: number
+  quarantine_reason: string | null
+  ledger_transaction_id: number | null
+  external_key: string | null
+}
+
+export type IntakeCandidateApproveBody = {
+  account_id?: number | null
+  category?: string | null
+  counter_account_id?: number | null
+  as_transfer?: boolean
+  to_account_id?: number | null
+}
+
+export type IntakeCandidateApprovedResponse = {
+  candidate_id: number
+  ledger_transaction_id: number
+  status: 'posted'
+}
+
+export type IntakeCandidateRejectedResponse = {
+  candidate_id: number
+  status: 'rejected'
+}
