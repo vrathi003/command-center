@@ -5,7 +5,10 @@ from __future__ import annotations
 import os
 import sqlite3
 
+import pytest
 from starlette.testclient import TestClient
+
+from finance_api.routers import transactions as transactions_router
 
 
 def _seed_accounts_and_cutover() -> dict[str, int]:
@@ -133,3 +136,75 @@ def test_cutover_update_voids_and_reposts_then_bulk_delete_voids(
     ).fetchall()
     conn.close()
     assert statuses == [(old_id, "void"), (new_id, "void")]
+
+
+def _ledger_status(transaction_id: int) -> str:
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    status = str(
+        conn.execute(
+            "SELECT status FROM ledger_transactions WHERE id = ?",
+            (transaction_id,),
+        ).fetchone()[0]
+    )
+    conn.close()
+    return status
+
+
+def test_cutover_update_validates_manual_body_before_voiding(api_client: TestClient) -> None:
+    ids = _seed_accounts_and_cutover()
+    created = api_client.post("/api/transactions/", json=_manual_debit(ids["Bank"]))
+    old_id = int(created.json()["id"])
+
+    response = api_client.put(
+        f"/api/transactions/{old_id}",
+        json={
+            "date": "2026-08-10",
+            "amount_paise": 75_000,
+            "account_id": ids["Bank"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert _ledger_status(old_id) == "posted"
+
+
+def test_cutover_update_rejects_same_account_transfer_before_voiding(
+    api_client: TestClient,
+) -> None:
+    ids = _seed_accounts_and_cutover()
+    created = api_client.post("/api/transactions/", json=_manual_debit(ids["Bank"]))
+    old_id = int(created.json()["id"])
+
+    response = api_client.put(
+        f"/api/transactions/{old_id}",
+        json={
+            "date": "2026-08-10",
+            "amount_paise": 75_000,
+            "from_account_id": ids["Bank"],
+            "to_account_id": ids["Bank"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert _ledger_status(old_id) == "posted"
+
+
+def test_cutover_update_reports_post_failure_after_void(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ids = _seed_accounts_and_cutover()
+    created = api_client.post("/api/transactions/", json=_manual_debit(ids["Bank"]))
+    old_id = int(created.json()["id"])
+
+    async def fail_post(*_args: object, **_kwargs: object) -> int:
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(transactions_router.ledger_service, "post", fail_post)
+    response = api_client.put(
+        f"/api/transactions/{old_id}",
+        json=_manual_debit(ids["Bank"], amount_paise=75_000),
+    )
+
+    assert response.status_code == 500
+    assert "voided" in response.json()["detail"]
+    assert _ledger_status(old_id) == "void"

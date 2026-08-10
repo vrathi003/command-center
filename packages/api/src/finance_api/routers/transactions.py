@@ -33,6 +33,7 @@ from finance_common.intake.models import Candidate
 from finance_common.intake.posting_plan import IntakePlanError, plan_postings, plan_transfer
 from finance_common.ledger import service as ledger_service
 from finance_common.ledger.errors import LedgerError
+from finance_common.ledger.models import PostTransactionInput
 from finance_common.migration import facade as ledger_facade
 from finance_common.parsing.bank_statement_pdf import (
     BankStatementPdfError,
@@ -47,7 +48,7 @@ from finance_common.types import Paise
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
-async def _post_cutover_manual(
+async def _plan_cutover_manual(
     conn: aiosqlite.Connection,
     *,
     tx_date: date,
@@ -60,8 +61,8 @@ async def _post_cutover_manual(
     notes: str | None,
     tags: str | None,
     source: str,
-) -> int:
-    """Plan and post a dashboard debit or credit through the ledger."""
+) -> PostTransactionInput:
+    """Build a validated dashboard debit or credit ledger input."""
     del payment_mode  # Legacy field; payment modes are not ledger posting metadata.
     if account_id is None:
         raise HTTPException(status_code=422, detail="account_id is required after ledger cutover")
@@ -82,8 +83,69 @@ async def _post_cutover_manual(
                 suggested_category=category,
             ),
         )
-        return await ledger_service.post(conn, replace(plan, tags=tags))
-    except (IntakePlanError, LedgerError) as exc:
+        return replace(plan, tags=tags)
+    except IntakePlanError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+async def _post_cutover_manual(
+    conn: aiosqlite.Connection,
+    *,
+    tx_date: date,
+    amount_paise: int,
+    category: str,
+    merchant: str | None,
+    payment_mode: str,
+    transaction_type: str,
+    account_id: int | None,
+    notes: str | None,
+    tags: str | None,
+    source: str,
+) -> int:
+    """Plan and post a dashboard debit or credit through the ledger."""
+    plan = await _plan_cutover_manual(
+        conn,
+        tx_date=tx_date,
+        amount_paise=amount_paise,
+        category=category,
+        merchant=merchant,
+        payment_mode=payment_mode,
+        transaction_type=transaction_type,
+        account_id=account_id,
+        notes=notes,
+        tags=tags,
+        source=source,
+    )
+    try:
+        return await ledger_service.post(conn, plan)
+    except LedgerError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+async def _plan_cutover_transfer(
+    conn: aiosqlite.Connection,
+    *,
+    tx_date: date,
+    amount_paise: int,
+    from_account_id: int,
+    to_account_id: int,
+    notes: str | None,
+    tags: str | None,
+    source: str,
+) -> PostTransactionInput:
+    """Build a validated dashboard transfer ledger input."""
+    try:
+        plan = await plan_transfer(
+            conn,
+            from_account_id=from_account_id,
+            to_account_id=to_account_id,
+            amount_paise=amount_paise,
+            tx_date=tx_date,
+            source=source,
+            notes=notes,
+        )
+        return replace(plan, tags=tags)
+    except IntakePlanError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
@@ -99,18 +161,19 @@ async def _post_cutover_transfer(
     source: str,
 ) -> int:
     """Plan and post a dashboard transfer through the ledger."""
+    plan = await _plan_cutover_transfer(
+        conn,
+        tx_date=tx_date,
+        amount_paise=amount_paise,
+        from_account_id=from_account_id,
+        to_account_id=to_account_id,
+        notes=notes,
+        tags=tags,
+        source=source,
+    )
     try:
-        plan = await plan_transfer(
-            conn,
-            from_account_id=from_account_id,
-            to_account_id=to_account_id,
-            amount_paise=amount_paise,
-            tx_date=tx_date,
-            source=source,
-            notes=notes,
-        )
-        return await ledger_service.post(conn, replace(plan, tags=tags))
-    except (IntakePlanError, LedgerError) as exc:
+        return await ledger_service.post(conn, plan)
+    except LedgerError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
@@ -256,46 +319,74 @@ async def update_transaction(
             old_transaction = await ledger_service.get_transaction(conn, transaction_id)
             if old_transaction.status != "posted":
                 raise LedgerError(f"Transaction {transaction_id} is not posted")
-            await ledger_service.void(conn, transaction_id)
-            if body.from_account_id is not None and body.to_account_id is not None:
-                replacement_id = await _post_cutover_transfer(
-                    conn,
-                    tx_date=d,
-                    amount_paise=body.amount_paise,
-                    from_account_id=body.from_account_id,
-                    to_account_id=body.to_account_id,
-                    notes=body.notes,
-                    tags=body.tags,
-                    source=old_transaction.source,
-                )
-            else:
-                if (
-                    body.category is None
-                    or body.payment_mode is None
-                    or body.transaction_type is None
-                ):
-                    raise HTTPException(
-                        status_code=422,
-                        detail=(
-                            "category, payment_mode, and transaction_type are required "
-                            "for debit/credit edits"
-                        ),
-                    )
-                replacement_id = await _post_cutover_manual(
-                    conn,
-                    tx_date=d,
-                    amount_paise=body.amount_paise,
-                    category=body.category,
-                    merchant=body.merchant,
-                    payment_mode=body.payment_mode,
-                    transaction_type=body.transaction_type,
-                    account_id=body.account_id,
-                    notes=body.notes,
-                    tags=body.tags,
-                    source=old_transaction.source,
-                )
         except LedgerError as exc:
             raise HTTPException(status_code=404, detail="transaction not found") from exc
+
+        if (body.from_account_id is None) != (body.to_account_id is None):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "from_account_id and to_account_id must be supplied together "
+                    "for transfer edits"
+                ),
+            )
+        if body.from_account_id is not None and body.to_account_id is not None:
+            if body.from_account_id == body.to_account_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="from_account_id and to_account_id must differ",
+                )
+            replacement = await _plan_cutover_transfer(
+                conn,
+                tx_date=d,
+                amount_paise=body.amount_paise,
+                from_account_id=body.from_account_id,
+                to_account_id=body.to_account_id,
+                notes=body.notes,
+                tags=body.tags,
+                source=old_transaction.source,
+            )
+        else:
+            if (
+                body.category is None
+                or body.payment_mode is None
+                or body.transaction_type is None
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "category, payment_mode, and transaction_type are required "
+                        "for debit/credit edits"
+                    ),
+                )
+            replacement = await _plan_cutover_manual(
+                conn,
+                tx_date=d,
+                amount_paise=body.amount_paise,
+                category=body.category,
+                merchant=body.merchant,
+                payment_mode=body.payment_mode,
+                transaction_type=body.transaction_type,
+                account_id=body.account_id,
+                notes=body.notes,
+                tags=body.tags,
+                source=old_transaction.source,
+            )
+
+        try:
+            await ledger_service.void(conn, transaction_id)
+        except LedgerError as exc:
+            raise HTTPException(status_code=404, detail="transaction not found") from exc
+        try:
+            replacement_id = await ledger_service.post(conn, replacement)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "transaction was voided but replacement posting failed; "
+                    "review the transaction and retry the edit"
+                ),
+            ) from exc
         return TransactionUpdated(id=replacement_id)
     row = await tx_repo.get_by_id(conn, transaction_id)
     if row is None:
@@ -566,6 +657,14 @@ async def import_transactions(
     if not rows:
         raise HTTPException(status_code=400, detail="no data rows found")
     project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "legacy" and await is_legacy_cutover(conn):
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "legacy is archived after ledger cutover; "
+                "use the double_entry import with account_id"
+            ),
+        )
     if project_config.ledger_engine == "double_entry":
         if account_id is None or account_id <= 0:
             raise HTTPException(

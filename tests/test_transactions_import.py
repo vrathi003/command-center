@@ -30,6 +30,19 @@ def _use_legacy_engine(api_client: TestClient) -> None:
     assert response.status_code == 200, response.text
 
 
+def _mark_legacy_cutover() -> None:
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    conn.execute(
+        """
+        INSERT INTO settings (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        ("project_config.migration.legacy_cutover_at", "2026-08-10T12:00:00+00:00"),
+    )
+    conn.commit()
+    conn.close()
+
+
 def _create_import_bank_account(api_client: TestClient) -> int:
     response = api_client.post(
         "/api/accounts/",
@@ -489,6 +502,25 @@ def test_double_entry_import_requires_account_id(api_client: TestClient) -> None
 
     assert response.status_code == 422
     assert "account_id" in response.text
+
+
+def test_cutover_legacy_engine_import_is_gone(api_client: TestClient) -> None:
+    _use_legacy_engine(api_client)
+    _mark_legacy_cutover()
+
+    response = api_client.post(
+        "/api/transactions/import",
+        files={
+            "file": (
+                "statement.csv",
+                BytesIO(b"date,amount,merchant\n2026-08-01,100,Zomato\n"),
+                "text/csv",
+            )
+        },
+    )
+
+    assert response.status_code == 410
+    assert "legacy is archived" in response.json()["detail"]
 
 
 def test_double_entry_import_posts_and_quarantines_without_legacy_rows(
