@@ -8,7 +8,12 @@ from starlette.testclient import TestClient
 
 
 def _import_csv(api_client: TestClient, rows: list[tuple[str, str, str]]) -> None:
-    """rows: (date, amount, merchant) with category left as Other."""
+    """Import legacy transactions for merchant-rule application coverage."""
+    settings = api_client.put(
+        "/api/settings/",
+        json={"project_config": {"ledger_engine": "legacy"}},
+    )
+    assert settings.status_code == 200
     lines = ["date,amount,category,merchant"]
     for d, amt, merchant in rows:
         lines.append(f"{d},{amt},Other,{merchant}")
