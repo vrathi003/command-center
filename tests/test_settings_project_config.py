@@ -12,6 +12,13 @@ def test_settings_get_includes_discord_disabled_by_default(api_client: TestClien
     assert response.json()["project_config"]["discord_enabled"] is False
 
 
+def _assert_patched_project_config(actual: dict, expected: dict) -> None:
+    for key, value in expected.items():
+        assert actual[key] == value
+    assert actual["legacy_archive"] is False
+    assert actual["legacy_cutover_at"] is None
+
+
 def test_settings_project_config_patch_roundtrips(api_client: TestClient) -> None:
     payload = {
         "project_config": {
@@ -23,16 +30,17 @@ def test_settings_project_config_patch_roundtrips(api_client: TestClient) -> Non
             "intake_duplicate_date_window_days": 3,
         }
     }
+    expected = payload["project_config"]
 
     response = api_client.put("/api/settings/", json=payload)
 
     assert response.status_code == 200
-    assert response.json()["project_config"] == payload["project_config"]
+    _assert_patched_project_config(response.json()["project_config"], expected)
 
     response = api_client.get("/api/settings/")
 
     assert response.status_code == 200
-    assert response.json()["project_config"] == payload["project_config"]
+    _assert_patched_project_config(response.json()["project_config"], expected)
 
 
 def test_settings_project_config_null_fields_do_not_crash(api_client: TestClient) -> None:
