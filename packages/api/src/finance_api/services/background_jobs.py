@@ -14,9 +14,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from finance_api.services.debt_emi import auto_advance_active_debts
 from finance_api.services.budget_service import build_vs_actual
 from finance_api.services.cc_statement_fetch import fetch_cc_statements
+from finance_api.services.debt_emi import auto_advance_active_debts
 from finance_api.services.discord_notify import send_discord_dm
 from finance_api.services.gmail_sync import sync_gmail_transactions
 from finance_api.services.investment_sync import sync_investment_prices
@@ -28,9 +28,8 @@ from finance_common.reports_fy import build_fy_spending, build_fy_summary
 from finance_common.repositories import budgets as budget_repo
 from finance_common.repositories import credit_cards as cc_repo
 from finance_common.repositories import debts as debt_repo
+from finance_common.repositories import domain_events, settings_repo
 from finance_common.repositories import net_worth as nw_repo
-from finance_common.repositories import settings_repo
-from finance_common.repositories import transactions as tx_repo
 
 logger = logging.getLogger(__name__)
 
@@ -77,16 +76,14 @@ async def job_backup_2am(db_path: Path, backup_dir: Path | None) -> None:
 
 
 async def job_budget_and_alerts(db_path: Path, api: ApiSettings) -> None:
-    """8:00 — budget vs actual scan + 75% / over-budget Discord DMs."""
-    token = api.discord_bot_token
-    uid = api.discord_user_id
+    """8:00 — budget vs actual scan; emit budget.threshold domain events."""
+    del api
     async with open_db(db_path) as conn:
         today = date.today()
         fy = await settings_repo.get_current_fy(conn)
         _, rows = await build_vs_actual(conn, fy=str(fy), year=today.year, month=today.month)
         ym = f"{today.year:04d}-{today.month:02d}"
         state = await _load_json_state(conn, "job_budget_dm_state")
-        lines: list[str] = []
         for row in rows:
             if row.status not in ("warn", "over"):
                 continue
@@ -96,35 +93,44 @@ async def job_budget_and_alerts(db_path: Path, api: ApiSettings) -> None:
             prev = state.get(key)
             if row.status == "warn" and prev is None:
                 pct = (row.pct_of_budget or 0) * 100
-                lines.append(
-                    f"**Budget 75%+** · {row.category}: spent {_rupees(row.spent_paise)} / "
-                    f"budget {_rupees(row.budget_paise)} (~{pct:.0f}%)",
+                await domain_events.append_event(
+                    conn,
+                    event_type="budget.threshold",
+                    payload={
+                        "ym": ym,
+                        "category": row.category,
+                        "status": "warn",
+                        "spent_paise": row.spent_paise,
+                        "budget_paise": row.budget_paise,
+                        "pct": pct,
+                    },
                 )
                 state[key] = "warn"
             elif row.status == "over" and prev != "over":
-                lines.append(
-                    f"**Over budget** · {row.category}: spent {_rupees(row.spent_paise)} vs "
-                    f"budget {_rupees(row.budget_paise)}",
+                payload: dict[str, object] = {
+                    "ym": ym,
+                    "category": row.category,
+                    "status": "over",
+                    "spent_paise": row.spent_paise,
+                    "budget_paise": row.budget_paise,
+                }
+                if row.pct_of_budget is not None:
+                    payload["pct"] = row.pct_of_budget * 100
+                await domain_events.append_event(
+                    conn,
+                    event_type="budget.threshold",
+                    payload=payload,
                 )
                 state[key] = "over"
         await _save_json_state(conn, "job_budget_dm_state", state)
 
-    if not lines or not token or not uid:
-        if lines and (not token or not uid):
-            logger.info("Budget alerts skipped (Discord not configured): %s", len(lines))
-        return
-    body = "**Finance OS — budget check**\n" + "\n".join(lines[:25])
-    await send_discord_dm(bot_token=token, user_id=uid, content=body)
-
 
 async def job_emi_reminders(db_path: Path, api: ApiSettings) -> None:
-    token = api.discord_bot_token
-    uid = api.discord_user_id
+    del api
     async with open_db(db_path) as conn:
         debts = await debt_repo.list_debts(conn, status="active")
         today = date.today()
         state = await _load_json_state(conn, "job_emi_dm_state")
-        msgs: list[str] = []
         for d in debts:
             if not d.next_emi_date:
                 continue
@@ -139,31 +145,27 @@ async def job_emi_reminders(db_path: Path, api: ApiSettings) -> None:
             if state.get(key):
                 continue
             state[key] = "1"
-            when = "today" if delta == 0 else f"in {delta} day(s)"
-            msgs.append(f"**EMI** · {d.name}: due {when} ({d.next_emi_date})")
+            await domain_events.append_event(
+                conn,
+                event_type="debt.emi_due",
+                payload={
+                    "debt_id": d.id,
+                    "name": d.name,
+                    "due_date": d.next_emi_date,
+                    "days_until": delta,
+                },
+            )
         await _save_json_state(conn, "job_emi_dm_state", state)
-
-    if not msgs or not token or not uid:
-        return
-    await send_discord_dm(
-        bot_token=token,
-        user_id=uid,
-        content="**Finance OS — EMI reminder**\n" + "\n".join(msgs[:20]),
-    )
 
 
 async def job_cc_due_date_alerts(db_path: Path, api: ApiSettings) -> None:
-    """Daily 8:05 AM — alert when a CC bill is due today or tomorrow."""
-    token = api.discord_bot_token
-    uid = api.discord_user_id
-    if not token or not uid:
-        return
+    """Daily 8:05 AM — emit credit_card.due when bill due today or tomorrow."""
+    del api
     today = date.today()
     tomorrow = today + timedelta(days=1)
     async with open_db(db_path) as conn:
         cards = await cc_repo.list_credit_cards(conn, active_only=True)
         state = await _load_json_state(conn, "job_cc_due_state")
-        msgs: list[str] = []
         for card in cards:
             if card.due_day is None:
                 continue
@@ -175,23 +177,18 @@ async def job_cc_due_date_alerts(db_path: Path, api: ApiSettings) -> None:
                 if state.get(key):
                     continue
                 state[key] = "1"
-                # Get live balance if linked
-                live_bal_str = ""
-                if card.account_id is not None:
-                    bal = await tx_repo.cc_live_balance(conn, card.account_id)
-                    if bal > 0:
-                        live_bal_str = f" — outstanding {_rupees(bal)}"
                 when = "today" if check_date == today else "tomorrow"
-                msgs.append(f"**{card.name}** bill due {when} ({due_str}){live_bal_str}")
+                await domain_events.append_event(
+                    conn,
+                    event_type="credit_card.due",
+                    payload={
+                        "card_id": card.id,
+                        "name": card.name,
+                        "due_date": due_str,
+                        "when": when,
+                    },
+                )
         await _save_json_state(conn, "job_cc_due_state", state)
-
-    if not msgs:
-        return
-    await send_discord_dm(
-        bot_token=token,
-        user_id=uid,
-        content="**Finance OS — CC bill due**\n" + "\n".join(msgs[:10]),
-    )
 
 
 async def job_weekly_discord(db_path: Path, api: ApiSettings) -> None:
