@@ -28,6 +28,7 @@ class DashboardSummary(BaseModel):
 
 
 class AlertItem(BaseModel):
+    id: int | None = None
     kind: str
     message: str
     severity: str = "info"

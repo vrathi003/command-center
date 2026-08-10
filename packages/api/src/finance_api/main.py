@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 
 from finance_api.routers import (
     accounts,
+    alerts,
     assets,
     budget,
     construction_progress,
@@ -46,6 +47,7 @@ from finance_api.routers import (
 )
 from finance_api.services.background_jobs import register_background_jobs
 from finance_api.settings import ApiSettings
+from finance_common.alerts.service import poll_once
 from finance_common.db import ensure_database, open_db
 from finance_common.ledger.errors import LedgerIntegrityError
 from finance_common.ledger.integrity import assert_ledger_healthy
@@ -70,6 +72,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     "Ledger integrity check failed; disabling ledger write routes"
                 )
                 app.state.ledger_writes_enabled = False
+        await poll_once(conn)
 
     scheduler = AsyncIOScheduler()
     register_background_jobs(scheduler, api_settings)
@@ -115,6 +118,7 @@ def create_app() -> FastAPI:
     app.middleware("http")(_auth_middleware)
     app.include_router(health.router)
     app.include_router(accounts.router, prefix="/api")
+    app.include_router(alerts.router, prefix="/api")
     app.include_router(dashboard.router, prefix="/api")
     app.include_router(transactions.router, prefix="/api")
     app.include_router(transaction_templates.router, prefix="/api")

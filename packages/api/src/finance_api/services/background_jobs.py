@@ -22,6 +22,7 @@ from finance_api.services.gmail_sync import sync_gmail_transactions
 from finance_api.services.investment_sync import sync_investment_prices
 from finance_api.services.net_worth_service import compute_totals_from_holdings
 from finance_api.settings import ApiSettings
+from finance_common.alerts.service import poll_once
 from finance_common.db import open_db
 from finance_common.fy import date_to_fy
 from finance_common.reports_fy import build_fy_spending, build_fy_summary
@@ -54,6 +55,13 @@ async def _save_json_state(conn: aiosqlite.Connection, key: str, state: dict[str
         items = list(state.items())[-150:]
         state = dict(items)
     await settings_repo.set_value(conn, key, json.dumps(state))
+
+
+async def job_alert_poll(db_path: Path) -> None:
+    async with open_db(db_path) as conn:
+        processed = await poll_once(conn)
+        if processed:
+            logger.info("Alert poll: processed %s domain event(s)", processed)
 
 
 async def job_price_sync_6am(db_path: Path) -> None:
@@ -418,6 +426,13 @@ def register_background_jobs(scheduler: AsyncIOScheduler, api: ApiSettings) -> N
         IntervalTrigger(hours=3, timezone=tz),
         args=[db_path, api],
         id="gmail_sync_3h",
+        **common,
+    )
+    scheduler.add_job(
+        job_alert_poll,
+        IntervalTrigger(seconds=90, timezone=tz),
+        args=[db_path],
+        id="alert_poll_90s",
         **common,
     )
     scheduler.add_job(
