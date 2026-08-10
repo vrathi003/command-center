@@ -6,7 +6,15 @@ import aiosqlite
 
 from finance_common.parsing.expense_parser import CATEGORY_HINTS
 from finance_common.parsing.transaction_import import MERCHANT_CATEGORY_HINTS
-from finance_common.types import Category
+from finance_common.types import AccountClass, Category
+
+
+_SYSTEM_ACCOUNTS = [
+    ("Opening Balance Equity", "equity", AccountClass.EQUITY.value),
+    ("Uncategorized Expense", "expense", AccountClass.EXPENSE.value),
+    ("Uncategorized Income", "income", AccountClass.INCOME.value),
+    ("Suspense", "other", AccountClass.EQUITY.value),
+]
 
 
 async def _column_names(conn: aiosqlite.Connection, table: str) -> set[str]:
@@ -731,3 +739,90 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
             """
         )
         await conn.commit()
+
+    # ── Double-entry ledger: account_class + ledger tables + system accounts ───
+    acct_cols = await _column_names(conn, "accounts")
+    if "account_class" not in acct_cols:
+        await conn.execute(
+            "ALTER TABLE accounts ADD COLUMN account_class TEXT NOT NULL DEFAULT 'asset_cash'"
+        )
+        await conn.commit()
+
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='ledger_transactions'"
+    )
+    if await cur.fetchone() is None:
+        await conn.executescript(
+            """
+            CREATE TABLE ledger_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                payee TEXT,
+                notes TEXT,
+                tags TEXT,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'posted'
+                    CHECK (status IN ('posted', 'void')),
+                external_key TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE UNIQUE INDEX idx_ledger_tx_external_key
+                ON ledger_transactions(external_key)
+                WHERE external_key IS NOT NULL;
+            CREATE INDEX idx_ledger_tx_date ON ledger_transactions(date);
+            CREATE INDEX idx_ledger_tx_status ON ledger_transactions(status);
+
+            CREATE TABLE ledger_postings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                transaction_id INTEGER NOT NULL REFERENCES ledger_transactions(id),
+                account_id INTEGER NOT NULL REFERENCES accounts(id),
+                amount_paise INTEGER NOT NULL CHECK (amount_paise != 0),
+                category TEXT,
+                reconciled_statement_line_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_ledger_postings_tx ON ledger_postings(transaction_id);
+            CREATE INDEX idx_ledger_postings_account ON ledger_postings(account_id);
+            CREATE INDEX idx_ledger_postings_category ON ledger_postings(category);
+            """
+        )
+        await conn.commit()
+
+    for name, acct_type, account_class in _SYSTEM_ACCOUNTS:
+        cur = await conn.execute("SELECT id FROM accounts WHERE name = ?", (name,))
+        if await cur.fetchone() is None:
+            await conn.execute(
+                """
+                INSERT INTO accounts (name, type, account_class)
+                VALUES (?, ?, ?)
+                """,
+                (name, acct_type, account_class),
+            )
+    await conn.commit()
+
+    await conn.execute(
+        """
+        UPDATE accounts
+        SET account_class = ?
+        WHERE account_class = 'asset_cash' AND type = 'credit_card'
+        """,
+        (AccountClass.LIABILITY_CC.value,),
+    )
+    await conn.execute(
+        """
+        UPDATE accounts
+        SET account_class = ?
+        WHERE account_class = 'asset_cash' AND type = 'loan'
+        """,
+        (AccountClass.LIABILITY_LOAN.value,),
+    )
+    await conn.execute(
+        """
+        UPDATE accounts
+        SET account_class = ?
+        WHERE account_class = 'asset_cash' AND type = 'investment'
+        """,
+        (AccountClass.ASSET_INVESTMENT.value,),
+    )
+    await conn.commit()

@@ -275,3 +275,17 @@ class InsuranceStatus(StrEnum):
     LAPSED = "lapsed"
     SURRENDERED = "surrendered"
     MATURED = "matured"
+
+
+# ── Ledger account classes (double-entry) ──────────────────────────────────────
+
+
+class AccountClass(StrEnum):
+    ASSET_CASH = "asset_cash"
+    ASSET_INVESTMENT = "asset_investment"
+    ASSET_OTHER = "asset_other"
+    LIABILITY_CC = "liability_cc"
+    LIABILITY_LOAN = "liability_loan"
+    EQUITY = "equity"
+    INCOME = "income"
+    EXPENSE = "expense"
