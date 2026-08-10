@@ -17,4 +17,4 @@ build/
 .env.example
 .qwen/
 .local/
-data/
+data/.worktrees/
