@@ -1,4 +1,4 @@
-.PHONY: install dev dev-dashboard seed-demo seed-construction seed-construction-replace test lint fmt migrate clean pdf-to-csv install-services configure-tailscale service-status health
+.PHONY: install dev dev-dashboard seed-demo seed-construction seed-construction-replace test lint fmt migrate clean pdf-to-csv install-services configure-tailscale service-status health check-ledger-writes
 
 XLSX ?= $(HOME)/Documents/Personal/Personal\ Finance/Personal_Finance_OS.xlsx
 DB   ?= ~/finance/finance.db
@@ -28,7 +28,10 @@ seed-construction-replace:
 test:
 	uv run pytest tests/ -v --asyncio-mode=auto
 
-lint:
+check-ledger-writes:
+	uv run python scripts/ci_check_ledger_writes.py
+
+lint: check-ledger-writes
 	uv run ruff check packages/ scripts/ tests/
 	uv run mypy packages/
 
