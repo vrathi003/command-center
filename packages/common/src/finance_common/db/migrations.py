@@ -931,6 +931,51 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
             )
             await conn.commit()
 
+    # ── Alert notifications + domain event outbox processed_at ────────────────
+    # Keep this upgrade DDL aligned with db/schema.sql.
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='domain_events'"
+    )
+    if await cur.fetchone() is not None:
+        event_cols = await _column_names(conn, "domain_events")
+        if "processed_at" not in event_cols:
+            await conn.execute("ALTER TABLE domain_events ADD COLUMN processed_at TEXT")
+            await conn.commit()
+        await conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_domain_events_unprocessed
+                ON domain_events(id) WHERE processed_at IS NULL
+            """
+        )
+        await conn.commit()
+
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='alert_notifications'"
+    )
+    if await cur.fetchone() is None:
+        await conn.executescript(
+            """
+            CREATE TABLE alert_notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER REFERENCES domain_events(id),
+                event_type TEXT NOT NULL,
+                fingerprint TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                severity TEXT NOT NULL DEFAULT 'info'
+                    CHECK (severity IN ('info', 'warn', 'error')),
+                status TEXT NOT NULL DEFAULT 'unread'
+                    CHECK (status IN ('unread', 'acked')),
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                acked_at TEXT
+            );
+            CREATE INDEX idx_alert_notifications_status_created
+                ON alert_notifications(status, created_at DESC);
+            """
+        )
+        await conn.commit()
+
     # ── Reconciliation control book ───────────────────────────────────────────
     cur = await conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='recon_statements'"
