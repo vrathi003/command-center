@@ -47,11 +47,12 @@ async def ack_alert(
     notification_id: int,
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
 ) -> AlertNotificationResponse:
-    ok = await alerts.ack_notification(conn, notification_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Notification not found or already acked")
-    rows = await alerts.list_notifications(conn, status="acked", limit=500)
-    row = next((item for item in rows if item.id == notification_id), None)
+    row = await alerts.get_notification(conn, notification_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Notification not found")
+    if row.status == "unread":
+        await alerts.ack_notification(conn, notification_id)
+        row = await alerts.get_notification(conn, notification_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Notification not found")
     return _notification_response(row)

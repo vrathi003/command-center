@@ -72,6 +72,13 @@ async def test_alert_notification_insert_list_and_ack(tmp_path: Path) -> None:
         assert unread[0].status == "unread"
         assert unread[0].acked_at is None
 
+        fetched = await alerts.get_notification(conn, notification_id)
+        assert fetched is not None
+        assert fetched.id == notification_id
+        assert fetched.status == "unread"
+
+        assert await alerts.get_notification(conn, 99999) is None
+
         assert await alerts.ack_notification(conn, notification_id) is True
         assert await alerts.ack_notification(conn, notification_id) is False
 

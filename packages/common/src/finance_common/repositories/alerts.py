@@ -88,6 +88,24 @@ async def list_notifications(
     return [_notification_from_row(row) for row in rows]
 
 
+async def get_notification(
+    conn: aiosqlite.Connection, notification_id: int
+) -> AlertNotification | None:
+    """Fetch a single notification by id."""
+    cursor = await conn.execute(
+        f"""
+        SELECT {_NOTIFICATION_COLUMNS}
+        FROM alert_notifications
+        WHERE id = ?
+        """,
+        (notification_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    return _notification_from_row(row)
+
+
 async def ack_notification(conn: aiosqlite.Connection, notification_id: int) -> bool:
     """Mark a notification as acknowledged; return False if already acked or missing."""
     cursor = await conn.execute(

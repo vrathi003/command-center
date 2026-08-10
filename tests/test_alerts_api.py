@@ -87,6 +87,32 @@ def test_ack_alert_404_when_missing(api_client: TestClient) -> None:
     assert r.status_code == 404
 
 
+def test_ack_alert_returns_updated_body(alert_client: tuple[TestClient, int]) -> None:
+    client, alert_id = alert_client
+    r = client.post(f"/api/alerts/{alert_id}/ack")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == alert_id
+    assert body["status"] == "acked"
+    assert body["acked_at"] is not None
+    assert body["kind"] == "budget"
+    assert body["title"]
+
+
+def test_ack_alert_reack_is_idempotent(alert_client: tuple[TestClient, int]) -> None:
+    client, alert_id = alert_client
+    first = client.post(f"/api/alerts/{alert_id}/ack")
+    assert first.status_code == 200
+    first_body = first.json()
+
+    second = client.post(f"/api/alerts/{alert_id}/ack")
+    assert second.status_code == 200
+    second_body = second.json()
+    assert second_body["id"] == alert_id
+    assert second_body["status"] == "acked"
+    assert second_body["acked_at"] == first_body["acked_at"]
+
+
 def test_dashboard_alerts_unread(alert_client: tuple[TestClient, int]) -> None:
     client, alert_id = alert_client
     r = client.get("/api/dashboard/alerts")
