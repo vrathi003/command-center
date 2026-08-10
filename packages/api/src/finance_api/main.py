@@ -29,6 +29,7 @@ from finance_api.routers import (
     insurance,
     investment,
     journal,
+    ledger,
     merchant_rules,
     net_worth,
     reports,
@@ -118,6 +119,7 @@ def create_app() -> FastAPI:
     app.include_router(budget.router, prefix="/api")
     app.include_router(debt.router, prefix="/api")
     app.include_router(investment.router, prefix="/api")
+    app.include_router(ledger.router, prefix="/api")
     app.include_router(journal.router, prefix="/api")
     app.include_router(fixed_income.router, prefix="/api")
     app.include_router(net_worth.router, prefix="/api")
