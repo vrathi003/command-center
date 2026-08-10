@@ -181,20 +181,16 @@ async def get_month_summary(
 ) -> LedgerMonthSummaryResponse:
     start = date(year, month, 1)
     end = date(year, month, calendar.monthrange(year, month)[1])
-    cash_accounts = await conn.execute(
-        "SELECT id FROM accounts WHERE account_class = 'asset_cash'"
-    )
+    cash_accounts = await conn.execute("SELECT id FROM accounts WHERE account_class = 'asset_cash'")
     cash_account_ids = [int(row[0]) for row in await cash_accounts.fetchall()]
     cash_in, cash_out = await reports.cash_flow_for_accounts(
         conn, account_ids=cash_account_ids, start=start, end=end
     )
-    _, _, net_worth = await balances.net_worth_totals(conn)
+    _, _, net_worth = await balances.net_worth_totals(conn, as_of=end)
     return LedgerMonthSummaryResponse(
         budget_spend_month_paise=await reports.budget_spend_total(conn, start=start, end=end),
         cash_out_month_paise=cash_out,
         cash_in_month_paise=cash_in,
         net_worth_paise=net_worth,
-        budget_spend_by_category=await reports.budget_spend_by_category(
-            conn, start=start, end=end
-        ),
+        budget_spend_by_category=await reports.budget_spend_by_category(conn, start=start, end=end),
     )

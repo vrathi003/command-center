@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import aiosqlite
 
 
@@ -44,10 +46,13 @@ async def balances_for_accounts(
     return {account_id: balances.get(account_id, 0) for account_id in account_ids}
 
 
-async def net_worth_totals(conn: aiosqlite.Connection) -> tuple[int, int, int]:
+async def net_worth_totals(
+    conn: aiosqlite.Connection, *, as_of: date | None = None
+) -> tuple[int, int, int]:
     """Return assets, liabilities, and net worth from posted ledger balances."""
+    as_of_clause = "" if as_of is None else " AND tx.date <= ?"
     cursor = await conn.execute(
-        """
+        f"""
         SELECT
             COALESCE(SUM(
                 CASE WHEN account.account_class LIKE 'asset_%'
@@ -60,8 +65,9 @@ async def net_worth_totals(conn: aiosqlite.Connection) -> tuple[int, int, int]:
         FROM ledger_postings AS posting
         JOIN ledger_transactions AS tx ON tx.id = posting.transaction_id
         JOIN accounts AS account ON account.id = posting.account_id
-        WHERE tx.status = 'posted'
-        """
+        WHERE tx.status = 'posted'{as_of_clause}
+        """,
+        () if as_of is None else (as_of.isoformat(),),
     )
     row = await cursor.fetchone()
     if row is None:

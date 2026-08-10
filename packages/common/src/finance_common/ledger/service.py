@@ -15,9 +15,7 @@ from finance_common.ledger.models import (
 )
 
 
-async def _existing_transaction_id(
-    conn: aiosqlite.Connection, external_key: str
-) -> int | None:
+async def _existing_transaction_id(conn: aiosqlite.Connection, external_key: str) -> int | None:
     cursor = await conn.execute(
         "SELECT id FROM ledger_transactions WHERE external_key = ?",
         (external_key,),
@@ -26,27 +24,27 @@ async def _existing_transaction_id(
     return None if row is None else int(row[0])
 
 
-async def _verify_accounts_exist(
+async def _account_classes(
     conn: aiosqlite.Connection, postings: tuple[NewPosting, ...]
-) -> None:
+) -> dict[int, str]:
     account_ids = {posting.account_id for posting in postings}
     placeholders = ", ".join("?" for _ in account_ids)
     cursor = await conn.execute(
-        f"SELECT id FROM accounts WHERE id IN ({placeholders})",  # noqa: S608
+        f"SELECT id, account_class FROM accounts WHERE id IN ({placeholders})",  # noqa: S608
         tuple(account_ids),
     )
-    found_ids = {int(row[0]) for row in await cursor.fetchall()}
-    missing_ids = account_ids - found_ids
+    account_classes = {int(row[0]): str(row[1]) for row in await cursor.fetchall()}
+    missing_ids = account_ids - account_classes.keys()
     if missing_ids:
         raise LedgerError(f"Unknown account ids: {sorted(missing_ids)}")
+    return account_classes
 
 
 def _validate_postings(postings: tuple[NewPosting, ...]) -> None:
     if len(postings) < 2:
         raise LedgerError("A transaction requires at least two postings")
     if any(
-        isinstance(posting.amount_paise, bool)
-        or not isinstance(posting.amount_paise, int)
+        isinstance(posting.amount_paise, bool) or not isinstance(posting.amount_paise, int)
         for posting in postings
     ):
         raise LedgerError("Posting amounts must be integer paise")
@@ -54,6 +52,16 @@ def _validate_postings(postings: tuple[NewPosting, ...]) -> None:
         raise UnbalancedTransactionError("Signed postings must sum to zero")
     if any(posting.amount_paise == 0 for posting in postings):
         raise LedgerError("Postings must not have a zero amount")
+
+
+def _validate_posting_categories(
+    postings: tuple[NewPosting, ...], account_classes: dict[int, str]
+) -> None:
+    for posting in postings:
+        if account_classes[posting.account_id] in {"expense", "income"} and (
+            posting.category is None or not posting.category.strip()
+        ):
+            raise LedgerError("Expense and income postings require a non-empty category")
 
 
 async def post(conn: aiosqlite.Connection, inp: PostTransactionInput) -> int:
@@ -66,7 +74,8 @@ async def post(conn: aiosqlite.Connection, inp: PostTransactionInput) -> int:
     _validate_postings(inp.postings)
     await conn.execute("BEGIN IMMEDIATE")
     try:
-        await _verify_accounts_exist(conn, inp.postings)
+        account_classes = await _account_classes(conn, inp.postings)
+        _validate_posting_categories(inp.postings, account_classes)
         cursor = await conn.execute(
             """
             INSERT INTO ledger_transactions (
@@ -118,9 +127,7 @@ async def void(conn: aiosqlite.Connection, transaction_id: int) -> None:
     await conn.commit()
 
 
-async def get_transaction(
-    conn: aiosqlite.Connection, transaction_id: int
-) -> PostedTransaction:
+async def get_transaction(conn: aiosqlite.Connection, transaction_id: int) -> PostedTransaction:
     """Return a persisted transaction and its postings."""
     cursor = await conn.execute(
         """

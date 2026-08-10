@@ -13,7 +13,7 @@ async def budget_spend_by_category(
     """Return expense debits by category for posted transactions in a date range."""
     cursor = await conn.execute(
         """
-        SELECT COALESCE(posting.category, account.name), SUM(posting.amount_paise)
+        SELECT COALESCE(posting.category, 'Uncategorized'), SUM(posting.amount_paise)
         FROM ledger_postings AS posting
         JOIN ledger_transactions AS tx ON tx.id = posting.transaction_id
         JOIN accounts AS account ON account.id = posting.account_id
@@ -21,19 +21,14 @@ async def budget_spend_by_category(
           AND posting.amount_paise > 0
           AND tx.status = 'posted'
           AND tx.date BETWEEN ? AND ?
-        GROUP BY COALESCE(posting.category, account.name)
+        GROUP BY COALESCE(posting.category, 'Uncategorized')
         """,
         (start.isoformat(), end.isoformat()),
     )
-    return {
-        str(category): int(amount_paise)
-        for category, amount_paise in await cursor.fetchall()
-    }
+    return {str(category): int(amount_paise) for category, amount_paise in await cursor.fetchall()}
 
 
-async def budget_spend_total(
-    conn: aiosqlite.Connection, *, start: date, end: date
-) -> int:
+async def budget_spend_total(conn: aiosqlite.Connection, *, start: date, end: date) -> int:
     """Return total expense debits for posted transactions in a date range."""
     cursor = await conn.execute(
         """

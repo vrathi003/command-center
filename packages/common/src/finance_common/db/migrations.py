@@ -8,7 +8,6 @@ from finance_common.parsing.expense_parser import CATEGORY_HINTS
 from finance_common.parsing.transaction_import import MERCHANT_CATEGORY_HINTS
 from finance_common.types import AccountClass, Category
 
-
 _SYSTEM_ACCOUNTS = [
     ("Opening Balance Equity", "equity", AccountClass.EQUITY.value),
     ("Uncategorized Expense", "expense", AccountClass.EXPENSE.value),
@@ -210,9 +209,7 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
     await conn.commit()
 
     # ── Assets + Insurance module ──────────────────────────────────────────────
-    cur = await conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='assets'"
-    )
+    cur = await conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='assets'")
     if await cur.fetchone() is None:
         await conn.executescript(
             """
@@ -388,9 +385,7 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
     # ── Asset cost enhancements: is_paid flag ────────────────────────────────
     cost_cols = await _column_names(conn, "asset_costs")
     if "is_paid" not in cost_cols:
-        await conn.execute(
-            "ALTER TABLE asset_costs ADD COLUMN is_paid INTEGER NOT NULL DEFAULT 1"
-        )
+        await conn.execute("ALTER TABLE asset_costs ADD COLUMN is_paid INTEGER NOT NULL DEFAULT 1")
         await conn.commit()
 
     # ── Asset payment enhancements: is_paid flag ─────────────────────────────
@@ -741,6 +736,9 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
         await conn.commit()
 
     # ── Double-entry ledger: account_class + ledger tables + system accounts ───
+    # Keep this upgrade DDL aligned with db/schema.sql. The migration test covers
+    # a pre-ledger database so upgrades remain safe while schema.sql bootstraps
+    # new installations.
     acct_cols = await _column_names(conn, "accounts")
     if "account_class" not in acct_cols:
         await conn.execute(

@@ -96,7 +96,7 @@ async def put_settings(
 
     if body.project_config is not None:
         current_project_config = await load_project_config(conn)
-        project_config_patch = body.project_config.model_dump(exclude_unset=True)
+        project_config_patch = body.project_config.model_dump(exclude_unset=True, exclude_none=True)
         await save_project_config(
             conn,
             replace(current_project_config, **project_config_patch),

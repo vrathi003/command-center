@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import aiosqlite
 
+from finance_common.types import AccountClass
+
 _ACCOUNT_CLASS_BY_TYPE = {
     "credit_card": "liability_cc",
     "loan": "liability_loan",
@@ -15,6 +17,12 @@ _ACCOUNT_CLASS_BY_TYPE = {
 
 def _default_account_class(account_type: str) -> str:
     return _ACCOUNT_CLASS_BY_TYPE.get(account_type, "asset_cash")
+
+
+def _validated_account_class(account_class: str | None) -> str | None:
+    if account_class is None:
+        return None
+    return AccountClass(account_class).value
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,9 +75,7 @@ async def get_account(conn: aiosqlite.Connection, account_id: int) -> AccountRow
     return _row_to_account(r) if r else None
 
 
-async def get_account_by_name(
-    conn: aiosqlite.Connection, name: str
-) -> AccountRow | None:
+async def get_account_by_name(conn: aiosqlite.Connection, name: str) -> AccountRow | None:
     cur = await conn.execute(
         "SELECT id, name, type, account_class, institution, currency, is_active "
         "FROM accounts WHERE name = ? COLLATE NOCASE LIMIT 1",
@@ -88,7 +94,7 @@ async def create_account(
     currency: str = "INR",
     account_class: str | None = None,
 ) -> int:
-    resolved_account_class = account_class or _default_account_class(type)
+    resolved_account_class = _validated_account_class(account_class) or _default_account_class(type)
     cur = await conn.execute(
         """
         INSERT INTO accounts (name, type, account_class, institution, currency, updated_at)
@@ -114,11 +120,12 @@ async def update_account(
     is_active: bool,
     account_class: str | None = None,
 ) -> bool:
-    resolved_account_class = account_class or _default_account_class(type)
+    resolved_account_class = _validated_account_class(account_class)
     cur = await conn.execute(
         """
         UPDATE accounts
-        SET name = ?, type = ?, account_class = ?, institution = ?, currency = ?,
+        SET name = ?, type = ?, account_class = COALESCE(?, account_class),
+            institution = ?, currency = ?,
             is_active = ?, updated_at = datetime('now')
         WHERE id = ?
         """,

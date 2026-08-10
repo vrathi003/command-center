@@ -33,3 +33,13 @@ def test_settings_project_config_patch_roundtrips(api_client: TestClient) -> Non
 
     assert response.status_code == 200
     assert response.json()["project_config"] == payload["project_config"]
+
+
+def test_settings_project_config_null_fields_do_not_crash(api_client: TestClient) -> None:
+    response = api_client.put(
+        "/api/settings/",
+        json={"project_config": {"ledger_engine": None}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["project_config"]["ledger_engine"] == "double_entry"

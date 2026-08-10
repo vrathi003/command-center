@@ -7,7 +7,8 @@ import aiosqlite
 import pytest
 
 from finance_common.db import ensure_database
-from finance_common.ledger import builders, service as ledger_service
+from finance_common.ledger import builders
+from finance_common.ledger import service as ledger_service
 from finance_common.ledger.errors import LedgerError, UnbalancedTransactionError
 from finance_common.ledger.models import NewPosting, PostTransactionInput
 
@@ -67,6 +68,25 @@ async def test_post_balanced_expense(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_post_rejects_expense_posting_without_category(tmp_path: Path) -> None:
+    db = tmp_path / "l.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        ids = await _account_ids(conn)
+        with pytest.raises(LedgerError, match="category"):
+            await ledger_service.post(
+                conn,
+                PostTransactionInput(
+                    tx_date=date(2026, 8, 1),
+                    postings=(
+                        NewPosting(ids["E"], 50_000),
+                        NewPosting(ids["A"], -50_000),
+                    ),
+                ),
+            )
+
+
+@pytest.mark.asyncio
 async def test_post_rejects_zero_amount_in_otherwise_balanced_postings(
     tmp_path: Path,
 ) -> None:
@@ -109,9 +129,7 @@ async def test_post_rejects_missing_account_id(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("amount", [500.0, True])
-async def test_post_rejects_non_integer_amount_paise(
-    tmp_path: Path, amount: float | bool
-) -> None:
+async def test_post_rejects_non_integer_amount_paise(tmp_path: Path, amount: float | bool) -> None:
     db = tmp_path / "l.db"
     await ensure_database(db)
     async with aiosqlite.connect(db) as conn:
@@ -139,7 +157,7 @@ async def test_post_returns_existing_id_for_malformed_idempotent_retry(
         ids = await _account_ids(conn)
         inp = PostTransactionInput(
             tx_date=date(2026, 8, 1),
-            postings=(NewPosting(ids["E"], 500), NewPosting(ids["A"], -500)),
+            postings=(NewPosting(ids["E"], 500, "Other"), NewPosting(ids["A"], -500)),
             external_key="import:row:1",
         )
         first_id = await ledger_service.post(conn, inp)
@@ -164,7 +182,7 @@ async def test_void_marks_header_and_rejects_double_void(tmp_path: Path) -> None
             conn,
             PostTransactionInput(
                 tx_date=date(2026, 8, 1),
-                postings=(NewPosting(ids["E"], 500), NewPosting(ids["A"], -500)),
+                postings=(NewPosting(ids["E"], 500, "Other"), NewPosting(ids["A"], -500)),
             ),
         )
         await ledger_service.void(conn, tx_id)

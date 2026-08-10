@@ -428,6 +428,7 @@ export async function putAccount(
     type: string
     institution: string | null
     currency: string
+    account_class?: string
     is_active: boolean
   },
 ): Promise<AccountOut> {

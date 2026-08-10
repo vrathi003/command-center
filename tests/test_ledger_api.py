@@ -182,6 +182,28 @@ def test_month_summary_uses_cash_accounts_and_posted_transactions(api_client: Te
     }
 
 
+def test_month_summary_net_worth_is_as_of_requested_month(api_client: TestClient) -> None:
+    ids = _seed_accounts()
+    for posted_date, amount_paise in (("2026-01-15", 100_000), ("2026-08-15", 50_000)):
+        response = api_client.post(
+            "/api/ledger/transactions",
+            json={
+                "date": posted_date,
+                "pattern": "bank_income",
+                "amount_paise": amount_paise,
+                "bank_account_id": ids["Bank"],
+                "income_account_id": ids["Income"],
+                "category": "Salary",
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    response = api_client.get("/api/ledger/summary/month?year=2026&month=1")
+
+    assert response.status_code == 200
+    assert response.json()["net_worth_paise"] == 100_000
+
+
 def test_accounts_api_assigns_and_accepts_account_class(api_client: TestClient) -> None:
     credit_card = api_client.post(
         "/api/accounts/",
@@ -215,6 +237,40 @@ def test_accounts_api_assigns_and_accepts_account_class(api_client: TestClient) 
 
     listed = api_client.get("/api/accounts/")
     assert listed.status_code == 200
-    assert next(item for item in listed.json() if item["id"] == credit_card.json()["id"])[
-        "account_class"
-    ] == "liability_cc"
+    assert (
+        next(item for item in listed.json() if item["id"] == credit_card.json()["id"])[
+            "account_class"
+        ]
+        == "liability_cc"
+    )
+
+
+def test_accounts_api_preserves_custom_account_class_when_update_omits_it(
+    api_client: TestClient,
+) -> None:
+    created = api_client.post(
+        "/api/accounts/",
+        json={
+            "name": "Brokerage",
+            "type": "other",
+            "account_class": "asset_investment",
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    updated = api_client.put(
+        f"/api/accounts/{created.json()['id']}",
+        json={"name": "Renamed Brokerage", "type": "other"},
+    )
+
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["account_class"] == "asset_investment"
+
+
+def test_accounts_api_rejects_unknown_account_class(api_client: TestClient) -> None:
+    response = api_client.post(
+        "/api/accounts/",
+        json={"name": "Invalid", "type": "other", "account_class": "banana"},
+    )
+
+    assert response.status_code == 422
