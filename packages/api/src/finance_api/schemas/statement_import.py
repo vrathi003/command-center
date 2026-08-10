@@ -16,6 +16,7 @@ class StatementImportRuleOut(BaseModel):
     pdf_password: str | None = None
     credit_card_id: int | None = None
     is_enabled: bool
+    fetch_months: int = 6
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -28,6 +29,7 @@ class StatementImportRuleCreate(BaseModel):
     pdf_password: str | None = None
     credit_card_id: int | None = None
     is_enabled: bool = True
+    fetch_months: int = Field(default=6, ge=0, le=60)
 
 
 class StatementImportRuleUpdate(BaseModel):
@@ -38,6 +40,7 @@ class StatementImportRuleUpdate(BaseModel):
     pdf_password: str | None = None
     credit_card_id: int | None = None
     is_enabled: bool = True
+    fetch_months: int = Field(default=6, ge=0, le=60)
 
 
 class StatementTagRuleOut(BaseModel):
@@ -60,6 +63,8 @@ class StatementTagRulesPutBody(BaseModel):
 class GmailStatusOut(BaseModel):
     configured: bool
     credentials_path: str | None = None
+    llm_enabled: bool = False
+    llm_model: str | None = None
 
 
 class StatementImportFetchResponse(BaseModel):
@@ -68,6 +73,9 @@ class StatementImportFetchResponse(BaseModel):
     skipped: list[dict[str, str]]
     transactions: list[dict[str, Any]]
     snapshot_id: int | None = None
+    llm_model: str | None = None
+    tags_source: str = "regex"
+    category_source: str = "rules"
 
 
 class StatementImportSnapshotOut(BaseModel):
@@ -77,3 +85,21 @@ class StatementImportSnapshotOut(BaseModel):
     statements_parsed: int
     skipped: list[dict[str, str]]
     transactions: list[dict[str, Any]]
+
+
+class StatementImportTransactionBody(BaseModel):
+    date: str = Field(min_length=1)
+    bank: str = Field(min_length=1)
+    card: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    amount: float
+    currency: str = "INR"
+    category: str | None = None
+    tx_kind: str = "spend"
+    tags: str = ""
+    statement_period: str = ""
+    gmail_message_id: str = ""
+
+
+class StatementImportTransactionBulkDeleteBody(BaseModel):
+    ids: list[str] = Field(min_length=1)

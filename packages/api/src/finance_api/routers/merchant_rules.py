@@ -28,7 +28,10 @@ router = APIRouter(prefix="/merchant-rules", tags=["merchant-rules"])
 
 
 def _out(
-    r: merchant_rules_repo.MerchantRuleRow, *, retroactively_applied: int | None = None
+    r: merchant_rules_repo.MerchantRuleRow,
+    *,
+    retroactively_applied: int | None = None,
+    statement_import_applied: int | None = None,
 ) -> dict[str, object]:
     return {
         "id": r.id,
@@ -45,6 +48,7 @@ def _out(
         "updated_at": r.updated_at,
         "last_matched_at": r.last_matched_at,
         "retroactively_applied": retroactively_applied,
+        "statement_import_applied": statement_import_applied,
     }
 
 
@@ -65,7 +69,10 @@ async def list_uncategorized(
     groups = await merchant_rules_repo.list_uncategorized_grouped(conn, limit=limit)
     return [
         UncategorizedGroupOut(
-            merchant=g.merchant, frequency=g.frequency, total_paise=g.total_paise
+            merchant=g.merchant,
+            frequency=g.frequency,
+            total_paise=g.total_paise,
+            sources=list(g.sources),
         )
         for g in groups
     ]
@@ -92,11 +99,15 @@ async def create_rule(
         raise HTTPException(
             status_code=409, detail="an active rule already exists for this match value"
         ) from e
-    applied = await merchant_rules_repo.bulk_apply_rule_to_transactions(conn, rid)
+    ledger_applied, statement_applied = await merchant_rules_repo.bulk_apply_rule(conn, rid)
     row = await merchant_rules_repo.get_rule(conn, rid)
     if row is None:
         raise HTTPException(status_code=500, detail="rule not found after create")
-    return _out(row, retroactively_applied=applied)
+    return _out(
+        row,
+        retroactively_applied=ledger_applied,
+        statement_import_applied=statement_applied,
+    )
 
 
 @router.put("/{rule_id}", response_model=MerchantRuleOut)
@@ -123,11 +134,15 @@ async def update_rule(
         ) from e
     if not ok:
         raise HTTPException(status_code=404, detail="rule not found")
-    applied = await merchant_rules_repo.bulk_apply_rule_to_transactions(conn, rule_id)
+    ledger_applied, statement_applied = await merchant_rules_repo.bulk_apply_rule(conn, rule_id)
     row = await merchant_rules_repo.get_rule(conn, rule_id)
     if row is None:
         raise HTTPException(status_code=500, detail="rule not found after update")
-    return _out(row, retroactively_applied=applied)
+    return _out(
+        row,
+        retroactively_applied=ledger_applied,
+        statement_import_applied=statement_applied,
+    )
 
 
 @router.delete("/{rule_id}", status_code=204)
@@ -180,7 +195,8 @@ async def classify_confirm(
 ) -> ClassifyConfirmResult:
     """Persists only the suggestions the user explicitly approved (source='llm')."""
     created: list[MerchantRuleOut] = []
-    total_applied = 0
+    total_ledger = 0
+    total_statement = 0
     for s in body.suggestions:
         try:
             rid = await merchant_rules_repo.create_rule(
@@ -195,12 +211,22 @@ async def classify_confirm(
             )
         except sqlite3.IntegrityError:
             continue  # a rule for this merchant already exists — skip rather than fail the batch
-        applied = await merchant_rules_repo.bulk_apply_rule_to_transactions(conn, rid)
-        total_applied += applied
+        ledger_applied, statement_applied = await merchant_rules_repo.bulk_apply_rule(conn, rid)
+        total_ledger += ledger_applied
+        total_statement += statement_applied
         row = await merchant_rules_repo.get_rule(conn, rid)
         if row is not None:
-            created.append(MerchantRuleOut.model_validate(_out(row, retroactively_applied=applied)))
+            created.append(
+                MerchantRuleOut.model_validate(
+                    _out(
+                        row,
+                        retroactively_applied=ledger_applied,
+                        statement_import_applied=statement_applied,
+                    )
+                )
+            )
     return ClassifyConfirmResult(
         created=created,
-        total_retroactively_applied=total_applied,
+        total_retroactively_applied=total_ledger,
+        total_statement_import_applied=total_statement,
     )

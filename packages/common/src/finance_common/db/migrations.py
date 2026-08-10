@@ -695,6 +695,7 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
                 pdf_password TEXT,
                 credit_card_id INTEGER REFERENCES credit_cards(id) ON DELETE SET NULL,
                 is_enabled INTEGER NOT NULL DEFAULT 1,
+                fetch_months INTEGER NOT NULL DEFAULT 3,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
@@ -729,5 +730,14 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
             CREATE INDEX idx_statement_import_fetched_rule
                 ON statement_import_fetched_messages(rule_id);
             """
+        )
+        await conn.commit()
+
+    cur = await conn.execute("PRAGMA table_info(statement_import_rules)")
+    si_cols = {str(row[1]) for row in await cur.fetchall()}
+    if si_cols and "fetch_months" not in si_cols:
+        await conn.execute(
+            "ALTER TABLE statement_import_rules "
+            "ADD COLUMN fetch_months INTEGER NOT NULL DEFAULT 3"
         )
         await conn.commit()

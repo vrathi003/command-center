@@ -37,12 +37,14 @@ class MerchantRuleOut(BaseModel):
     updated_at: str
     last_matched_at: str | None
     retroactively_applied: int | None = None
+    statement_import_applied: int | None = None
 
 
 class UncategorizedGroupOut(BaseModel):
     merchant: str
     frequency: int
     total_paise: int
+    sources: list[str] = Field(default_factory=list)
 
 
 class ClassifySuggestBody(BaseModel):
@@ -72,3 +74,4 @@ class ClassifyConfirmBody(BaseModel):
 class ClassifyConfirmResult(BaseModel):
     created: list[MerchantRuleOut]
     total_retroactively_applied: int
+    total_statement_import_applied: int = 0

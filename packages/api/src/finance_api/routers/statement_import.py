@@ -17,13 +17,20 @@ from finance_api.schemas.statement_import import (
     StatementImportRuleOut,
     StatementImportRuleUpdate,
     StatementImportSnapshotOut,
+    StatementImportTransactionBody,
+    StatementImportTransactionBulkDeleteBody,
     StatementTagRuleOut,
     StatementTagRulesPutBody,
 )
 from finance_api.services.statement_import_service import (
+    create_snapshot_transaction,
+    delete_snapshot_transactions,
+    ensure_transaction_ids,
     fetch_and_parse,
+    get_latest_transactions,
     migrate_from_local_config,
     transactions_to_csv,
+    update_snapshot_transaction,
 )
 from finance_api.settings import ApiSettings
 from finance_common.repositories import statement_import as si_repo
@@ -41,6 +48,7 @@ def _rule_out(row: si_repo.StatementImportRuleRow) -> StatementImportRuleOut:
         pdf_password=row.pdf_password,
         credit_card_id=row.credit_card_id,
         is_enabled=row.is_enabled,
+        fetch_months=row.fetch_months,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -68,7 +76,7 @@ def _snapshot_out(row: si_repo.StatementImportSnapshotRow) -> StatementImportSna
     try:
         raw_tx = json.loads(row.transactions_json)
         if isinstance(raw_tx, list):
-            transactions = raw_tx
+            transactions = ensure_transaction_ids([dict(x) for x in raw_tx if isinstance(x, dict)])
     except json.JSONDecodeError:
         pass
     return StatementImportSnapshotOut(
@@ -89,6 +97,8 @@ async def gmail_status(
     return GmailStatusOut(
         configured=creds is not None and creds.is_file(),
         credentials_path=str(creds) if creds else None,
+        llm_enabled=settings.local_llm_active,
+        llm_model=settings.local_llm_model if settings.local_llm_active else None,
     )
 
 
@@ -115,6 +125,7 @@ async def create_rule(
         pdf_password=body.pdf_password,
         credit_card_id=body.credit_card_id,
         is_enabled=body.is_enabled,
+        fetch_months=body.fetch_months,
     )
     row = await si_repo.get_rule(conn, rid)
     if row is None:
@@ -138,6 +149,7 @@ async def update_rule(
         pdf_password=body.pdf_password,
         credit_card_id=body.credit_card_id,
         is_enabled=body.is_enabled,
+        fetch_months=body.fetch_months,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -181,6 +193,7 @@ async def replace_tags(
 async def fetch_statements(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
     settings: Annotated[ApiSettings, Depends(get_settings)],
+    force: bool = False,
 ) -> StatementImportFetchResponse:
     if settings.gmail_credentials_path is None or not settings.gmail_credentials_path.is_file():
         raise HTTPException(
@@ -192,6 +205,8 @@ async def fetch_statements(
             conn,
             settings.gmail_credentials_path,
             settings.gmail_token_path,
+            settings,
+            force=force,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
@@ -201,6 +216,9 @@ async def fetch_statements(
         skipped=result.skipped,
         transactions=result.transactions,
         snapshot_id=result.snapshot_id,
+        llm_model=result.llm_model,
+        tags_source=result.tags_source,
+        category_source=result.category_source,
     )
 
 
@@ -211,25 +229,99 @@ async def get_latest_snapshot(
     row = await si_repo.get_latest_snapshot(conn)
     if row is None:
         return None
-    return _snapshot_out(row)
+    try:
+        transactions = await get_latest_transactions(conn)
+    except ValueError:
+        transactions = []
+    base = _snapshot_out(row)
+    return StatementImportSnapshotOut(
+        id=base.id,
+        fetched_at=base.fetched_at,
+        gmail_scanned=base.gmail_scanned,
+        statements_parsed=base.statements_parsed,
+        skipped=base.skipped,
+        transactions=transactions,
+    )
 
 
 @router.get("/snapshots/latest/csv")
 async def download_latest_csv(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
 ) -> PlainTextResponse:
-    row = await si_repo.get_latest_snapshot(conn)
-    if row is None:
-        raise HTTPException(status_code=404, detail="No snapshot available")
     try:
-        transactions = json.loads(row.transactions_json)
-    except json.JSONDecodeError as e:
+        transactions = await get_latest_transactions(conn)
+    except ValueError as e:
+        if str(e) == "no_snapshot":
+            raise HTTPException(status_code=404, detail="No snapshot available") from e
         raise HTTPException(status_code=500, detail="Invalid snapshot data") from e
-    if not isinstance(transactions, list):
-        transactions = []
     csv_text = transactions_to_csv(transactions)
     return PlainTextResponse(
         content=csv_text,
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="statement_import.csv"'},
     )
+
+
+async def _latest_snapshot_out(
+    conn: aiosqlite.Connection,
+    transactions: list[dict],
+) -> StatementImportSnapshotOut:
+    row = await si_repo.get_latest_snapshot(conn)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No snapshot available")
+    base = _snapshot_out(row)
+    return StatementImportSnapshotOut(
+        id=base.id,
+        fetched_at=base.fetched_at,
+        gmail_scanned=base.gmail_scanned,
+        statements_parsed=base.statements_parsed,
+        skipped=base.skipped,
+        transactions=transactions,
+    )
+
+
+@router.post("/snapshots/latest/transactions", response_model=StatementImportSnapshotOut)
+async def create_snapshot_transaction_route(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    body: StatementImportTransactionBody,
+) -> StatementImportSnapshotOut:
+    try:
+        transactions = await create_snapshot_transaction(conn, body.model_dump())
+    except ValueError as e:
+        if str(e) == "no_snapshot":
+            raise HTTPException(status_code=404, detail="No snapshot available") from e
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return await _latest_snapshot_out(conn, transactions)
+
+
+@router.put("/snapshots/latest/transactions/{tx_id}", response_model=StatementImportSnapshotOut)
+async def update_snapshot_transaction_route(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    tx_id: str,
+    body: StatementImportTransactionBody,
+) -> StatementImportSnapshotOut:
+    try:
+        transactions = await update_snapshot_transaction(conn, tx_id, body.model_dump())
+    except ValueError as e:
+        if str(e) == "no_snapshot":
+            raise HTTPException(status_code=404, detail="No snapshot available") from e
+        if str(e) == "not_found":
+            raise HTTPException(status_code=404, detail="Transaction not found") from e
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return await _latest_snapshot_out(conn, transactions)
+
+
+@router.post("/snapshots/latest/transactions/bulk-delete", response_model=StatementImportSnapshotOut)
+async def bulk_delete_snapshot_transactions(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    body: StatementImportTransactionBulkDeleteBody,
+) -> StatementImportSnapshotOut:
+    try:
+        transactions = await delete_snapshot_transactions(conn, body.ids)
+    except ValueError as e:
+        if str(e) == "no_snapshot":
+            raise HTTPException(status_code=404, detail="No snapshot available") from e
+        if str(e) in ("not_found", "empty_ids"):
+            raise HTTPException(status_code=404, detail="Transaction not found") from e
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return await _latest_snapshot_out(conn, transactions)

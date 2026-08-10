@@ -17,4 +17,6 @@ build/
 .env.example
 .qwen/
 .local/
-data/.worktrees/
+data/
+.worktrees/
+uv.lock

@@ -564,6 +564,7 @@ CREATE TABLE IF NOT EXISTS statement_import_rules (
     pdf_password TEXT,
     credit_card_id INTEGER REFERENCES credit_cards(id) ON DELETE SET NULL,
     is_enabled INTEGER NOT NULL DEFAULT 1,
+    fetch_months INTEGER NOT NULL DEFAULT 3,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

@@ -15,11 +15,13 @@ def test_statement_import_rules_crud(api_client: TestClient) -> None:
             "subject_contains": "statement",
             "pdf_password": "secret",
             "is_enabled": True,
+            "fetch_months": 6,
         },
     )
     assert create.status_code == 201, create.text
     rule = create.json()
     assert rule["bank"] == "ICICI"
+    assert rule["fetch_months"] == 6
     rid = rule["id"]
 
     listed = api_client.get("/api/statement-import/rules")
@@ -35,11 +37,13 @@ def test_statement_import_rules_crud(api_client: TestClient) -> None:
             "subject_contains": "statement",
             "pdf_password": "secret",
             "is_enabled": False,
+            "fetch_months": 12,
         },
     )
     assert updated.status_code == 200
     assert updated.json()["card"] == "Updated Card"
     assert updated.json()["is_enabled"] is False
+    assert updated.json()["fetch_months"] == 12
 
     deleted = api_client.delete(f"/api/statement-import/rules/{rid}")
     assert deleted.status_code == 204

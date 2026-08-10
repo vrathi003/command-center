@@ -69,6 +69,7 @@ import type {
   StatementTagRuleBody,
   StatementImportFetchResponse,
   StatementImportSnapshotOut,
+  StatementImportTransactionBody,
   GmailStatusOut,
 } from '@/types/api'
 
@@ -1813,8 +1814,9 @@ export async function putStatementImportTags(
   return parseJson<StatementTagRuleOut[]>(res)
 }
 
-export async function fetchStatementsImportNow(): Promise<StatementImportFetchResponse> {
-  const res = await apiFetch(`${apiBase()}/api/statement-import/fetch`, { method: 'POST' })
+export async function fetchStatementsImportNow(force = false): Promise<StatementImportFetchResponse> {
+  const q = force ? '?force=true' : ''
+  const res = await apiFetch(`${apiBase()}/api/statement-import/fetch${q}`, { method: 'POST' })
   return parseJson<StatementImportFetchResponse>(res)
 }
 
@@ -1843,4 +1845,44 @@ export async function downloadStatementImportCsv(): Promise<void> {
   } finally {
     URL.revokeObjectURL(url)
   }
+}
+
+export async function createStatementImportTransaction(
+  body: StatementImportTransactionBody,
+): Promise<StatementImportSnapshotOut> {
+  const res = await apiFetch(`${apiBase()}/api/statement-import/snapshots/latest/transactions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<StatementImportSnapshotOut>(res)
+}
+
+export async function updateStatementImportTransaction(
+  id: string,
+  body: StatementImportTransactionBody,
+): Promise<StatementImportSnapshotOut> {
+  const res = await apiFetch(
+    `${apiBase()}/api/statement-import/snapshots/latest/transactions/${encodeURIComponent(id)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  )
+  return parseJson<StatementImportSnapshotOut>(res)
+}
+
+export async function bulkDeleteStatementImportTransactions(
+  ids: string[],
+): Promise<StatementImportSnapshotOut> {
+  const res = await apiFetch(
+    `${apiBase()}/api/statement-import/snapshots/latest/transactions/bulk-delete`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    },
+  )
+  return parseJson<StatementImportSnapshotOut>(res)
 }

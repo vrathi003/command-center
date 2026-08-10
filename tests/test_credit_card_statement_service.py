@@ -23,7 +23,7 @@ async def test_build_payload_uses_bank_specific_parser_for_known_issuer() -> Non
     await ensure_database(settings.db_path)
     async with open_db(settings.db_path) as conn:
         with patch(
-            "finance_api.services.credit_card_statement_service.extract_text_from_pdf_bytes",
+            "finance_api.services.credit_card_statement_service.extract_credit_card_pdf_text",
             return_value=_HDFC_TEXT,
         ):
             summary, lines, preview = await build_credit_card_statement_payload(
@@ -46,7 +46,7 @@ async def test_build_payload_raises_for_unsupported_issuer() -> None:
     await ensure_database(settings.db_path)
     async with open_db(settings.db_path) as conn:
         with patch(
-            "finance_api.services.credit_card_statement_service.extract_text_from_pdf_bytes",
+            "finance_api.services.credit_card_statement_service.extract_credit_card_pdf_text",
             return_value="totally unrecognized statement text",
         ):
             with pytest.raises(ValueError, match="Supported banks"):
@@ -67,7 +67,7 @@ async def test_build_payload_raises_when_known_bank_finds_no_rows() -> None:
     await ensure_database(settings.db_path)
     async with open_db(settings.db_path) as conn:
         with patch(
-            "finance_api.services.credit_card_statement_service.extract_text_from_pdf_bytes",
+            "finance_api.services.credit_card_statement_service.extract_credit_card_pdf_text",
             return_value="no transaction-shaped lines here at all",
         ):
             with pytest.raises(ValueError, match="Supported banks"):
