@@ -17,6 +17,7 @@ KEY_ALERTS_IN_APP_ENABLED = "project_config.alerts.in_app.enabled"
 KEY_LEDGER_ENGINE = "project_config.ledger.engine"
 KEY_INTAKE_AUTO_POST_MIN_CONFIDENCE = "project_config.intake.auto_post.min_confidence"
 KEY_INTAKE_DUPLICATE_DATE_WINDOW_DAYS = "project_config.intake.duplicate.date_window_days"
+KEY_RECON_MATCH_DATE_WINDOW_DAYS = "project_config.recon.match.date_window_days"
 KEY_MIGRATION_LEGACY_CUTOVER_AT = "project_config.migration.legacy_cutover_at"
 KEY_MIGRATION_LEGACY_ARCHIVE = "project_config.migration.legacy_archive"
 
@@ -29,6 +30,7 @@ class ProjectConfig:
     ledger_engine: LedgerEngine = "double_entry"
     intake_auto_post_min_confidence: float = 0.85
     intake_duplicate_date_window_days: int = 1
+    recon_match_date_window_days: int = 2
     legacy_cutover_at: str | None = None
     legacy_archive: bool = False
 
@@ -88,6 +90,10 @@ async def load_project_config(conn: aiosqlite.Connection) -> ProjectConfig:
             await get_value(conn, KEY_INTAKE_DUPLICATE_DATE_WINDOW_DAYS),
             defaults.intake_duplicate_date_window_days,
         ),
+        recon_match_date_window_days=_parse_int(
+            await get_value(conn, KEY_RECON_MATCH_DATE_WINDOW_DAYS),
+            defaults.recon_match_date_window_days,
+        ),
         legacy_cutover_at=_parse_optional_str(
             await get_value(conn, KEY_MIGRATION_LEGACY_CUTOVER_AT)
         ),
@@ -116,6 +122,11 @@ async def save_project_config(conn: aiosqlite.Connection, cfg: ProjectConfig) ->
         conn,
         KEY_INTAKE_DUPLICATE_DATE_WINDOW_DAYS,
         str(cfg.intake_duplicate_date_window_days),
+    )
+    await set_value(
+        conn,
+        KEY_RECON_MATCH_DATE_WINDOW_DAYS,
+        str(cfg.recon_match_date_window_days),
     )
     await set_value(conn, KEY_MIGRATION_LEGACY_CUTOVER_AT, cfg.legacy_cutover_at or "")
     await set_value(conn, KEY_MIGRATION_LEGACY_ARCHIVE, _bool_str(cfg.legacy_archive))

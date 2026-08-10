@@ -21,6 +21,7 @@ async def test_defaults_discord_off(tmp_path: Path) -> None:
         cfg = await load_project_config(conn)
     assert cfg.discord_enabled is False
     assert cfg.ledger_engine == "double_entry"
+    assert cfg.recon_match_date_window_days == 2
 
 
 @pytest.mark.asyncio
@@ -53,3 +54,14 @@ async def test_roundtrip(tmp_path: Path) -> None:
         cfg = await load_project_config(conn)
     assert cfg.discord_enabled is True
     assert cfg.ledger_engine == "legacy"
+
+
+@pytest.mark.asyncio
+async def test_recon_match_date_window_roundtrips(tmp_path: Path) -> None:
+    db = tmp_path / "c.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        await save_project_config(conn, ProjectConfig(recon_match_date_window_days=4))
+        cfg = await load_project_config(conn)
+
+    assert cfg.recon_match_date_window_days == 4

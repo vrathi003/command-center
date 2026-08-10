@@ -931,3 +931,62 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
             )
             await conn.commit()
 
+    # ── Reconciliation control book ───────────────────────────────────────────
+    cur = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='recon_statements'"
+    )
+    if await cur.fetchone() is None:
+        await conn.executescript(
+            """
+            CREATE TABLE recon_statements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL REFERENCES accounts(id),
+                period_start TEXT NOT NULL,
+                period_end TEXT NOT NULL,
+                opening_balance_paise INTEGER NOT NULL,
+                closing_balance_paise INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open'
+                    CHECK (status IN ('open', 'reconciled')),
+                source TEXT NOT NULL,
+                filename TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_recon_statements_account_period
+                ON recon_statements(account_id, period_start, period_end);
+
+            CREATE TABLE recon_statement_lines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                statement_id INTEGER NOT NULL REFERENCES recon_statements(id) ON DELETE CASCADE,
+                tx_date TEXT NOT NULL,
+                amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+                direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),
+                payee TEXT,
+                narration TEXT,
+                external_key TEXT,
+                status TEXT NOT NULL DEFAULT 'unmatched'
+                    CHECK (status IN ('unmatched', 'matched', 'ignored')),
+                ignore_reason TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_recon_statement_lines_statement_status
+                ON recon_statement_lines(statement_id, status);
+            CREATE UNIQUE INDEX idx_recon_statement_lines_external_key
+                ON recon_statement_lines(statement_id, external_key)
+                WHERE external_key IS NOT NULL;
+
+            CREATE TABLE recon_matches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                line_id INTEGER NOT NULL UNIQUE
+                    REFERENCES recon_statement_lines(id) ON DELETE CASCADE,
+                ledger_transaction_id INTEGER NOT NULL REFERENCES ledger_transactions(id),
+                method TEXT NOT NULL CHECK (method IN ('suggested', 'manual')),
+                confirmed_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_recon_matches_ledger_transaction
+                ON recon_matches(ledger_transaction_id);
+            """
+        )
+        await conn.commit()
+

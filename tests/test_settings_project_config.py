@@ -10,6 +10,7 @@ def test_settings_get_includes_discord_disabled_by_default(api_client: TestClien
 
     assert response.status_code == 200
     assert response.json()["project_config"]["discord_enabled"] is False
+    assert response.json()["project_config"]["recon_match_date_window_days"] == 2
 
 
 def _assert_patched_project_config(actual: dict, expected: dict) -> None:
@@ -28,6 +29,7 @@ def test_settings_project_config_patch_roundtrips(api_client: TestClient) -> Non
             "ledger_engine": "legacy",
             "intake_auto_post_min_confidence": 0.9,
             "intake_duplicate_date_window_days": 3,
+            "recon_match_date_window_days": 4,
         }
     }
     expected = payload["project_config"]
