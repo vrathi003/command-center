@@ -9,6 +9,15 @@ from finance_common.db import ensure_database
 from finance_common.repositories import alerts, domain_events
 
 
+def test_alerts_package_imports_without_cycle() -> None:
+    from finance_common.alerts import AlertNotification, DomainEventRow, poll_once, route_event
+
+    assert AlertNotification is not None
+    assert DomainEventRow is domain_events.DomainEventRow
+    assert callable(poll_once)
+    assert callable(route_event)
+
+
 @pytest.mark.asyncio
 async def test_domain_event_outbox_drain_lifecycle(tmp_path: Path) -> None:
     db = tmp_path / "alerts_repo.db"

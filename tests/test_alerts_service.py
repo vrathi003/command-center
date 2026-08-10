@@ -98,6 +98,38 @@ def test_route_event_known_types(
     assert routed.message
 
 
+def test_route_event_budget_pct_formats_as_integer_percent() -> None:
+    routed = route_event(
+        "budget.threshold",
+        {
+            "ym": "2026-08",
+            "category": "Food",
+            "status": "warn",
+            "spent_paise": 800000,
+            "budget_paise": 1000000,
+            "pct": 80,
+        },
+        event_id=1,
+    )
+    assert routed is not None
+    assert "80% utilized" in routed.message
+
+
+def test_route_event_budget_pct_float_rounds_for_display() -> None:
+    routed = route_event(
+        "budget.threshold",
+        {
+            "ym": "2026-08",
+            "category": "Food",
+            "status": "warn",
+            "pct": 80.4,
+        },
+        event_id=1,
+    )
+    assert routed is not None
+    assert "80% utilized" in routed.message
+
+
 def test_route_event_unknown_returns_none() -> None:
     assert route_event("recon.period_closed", {"statement_id": 1}, event_id=5) is None
 

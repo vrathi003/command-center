@@ -1,6 +1,14 @@
 import { Check, RefreshCw } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 import type { DashboardAlerts } from '@/types/api'
+
+const DASHBOARD_ALERTS_CAP = 5
+
+function isWarningSeverity(severity: string): boolean {
+  const normalized = severity.toLowerCase()
+  return normalized === 'warning' || normalized === 'warn'
+}
 
 export function AlertsBanner({
   data,
@@ -21,7 +29,7 @@ export function AlertsBanner({
         const isAcking = canAck && ackingId === alert.id
         const severity = alert.severity.toLowerCase()
         const isError = severity === 'error' || severity === 'critical'
-        const isWarning = severity === 'warning'
+        const isWarning = isWarningSeverity(severity)
 
         const borderClass = isError
           ? 'border-red-200/80 from-red-50 to-red-50/30 text-red-950 shadow-red-900/5 ring-red-900/[0.04]'
@@ -71,6 +79,13 @@ export function AlertsBanner({
           </div>
         )
       })}
+      {data.alerts.length >= DASHBOARD_ALERTS_CAP ? (
+        <p className="text-right text-xs">
+          <Link to="/alerts" className="font-medium text-emerald-700 hover:text-emerald-800">
+            View all alerts
+          </Link>
+        </p>
+      ) : null}
     </div>
   )
 }

@@ -97,7 +97,10 @@ def _route_budget(payload: Mapping[str, object], *, event_id: int) -> RoutedAler
         )
     pct = payload.get("pct")
     if pct is not None:
-        parts.append(f"{pct}% utilized")
+        try:
+            parts.append(f"{float(pct):.0f}% utilized")
+        except (TypeError, ValueError):
+            parts.append(f"{pct}% utilized")
     if ym:
         parts.append(f"for {ym}")
     message = ". ".join(parts) if parts else f"Budget threshold reached for {category}."

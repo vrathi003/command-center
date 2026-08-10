@@ -4,10 +4,20 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 import aiosqlite
 
-from finance_common.alerts.models import DomainEventRow
+
+@dataclass(frozen=True, slots=True)
+class DomainEventRow:
+    """Persisted domain event awaiting or after outbox processing."""
+
+    id: int
+    event_type: str
+    payload_json: str
+    created_at: str
+    processed_at: str | None
 
 _EVENT_COLUMNS = "id, event_type, payload_json, created_at, processed_at"
 

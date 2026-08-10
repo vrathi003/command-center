@@ -131,6 +131,41 @@ def test_dashboard_alerts_unread(alert_client: tuple[TestClient, int]) -> None:
     assert r2.json()["alerts"] == []
 
 
+def test_dashboard_alerts_caps_at_five(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = tmp_path_factory.mktemp("dashboard_cap") / "test.db"
+    monkeypatch.setenv("DB_PATH", str(db))
+
+    async def _seed_six_alerts() -> None:
+        await ensure_database(db)
+        async with open_db(db) as conn:
+            for i in range(6):
+                await domain_events.append_event(
+                    conn,
+                    event_type="budget.threshold",
+                    payload={
+                        "ym": "2026-08",
+                        "category": f"Cat{i}",
+                        "status": "warn",
+                        "pct": 80 + i,
+                    },
+                )
+            await poll_once(conn)
+
+    asyncio.run(_seed_six_alerts())
+
+    with TestClient(create_app()) as client:
+        r = client.get("/api/dashboard/alerts")
+        assert r.status_code == 200
+        assert len(r.json()["alerts"]) == 5
+
+        r_all = client.get("/api/alerts")
+        assert r_all.status_code == 200
+        assert len(r_all.json()) == 6
+
+
 def test_lifespan_poll_once_drains_outbox(
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,

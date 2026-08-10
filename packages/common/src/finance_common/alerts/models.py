@@ -1,4 +1,4 @@
-"""Value objects for domain event outbox rows and alert notifications."""
+"""Value objects for in-app alert notifications."""
 
 from __future__ import annotations
 
@@ -7,17 +7,6 @@ from typing import Literal
 
 AlertSeverity = Literal["info", "warn", "error"]
 AlertStatus = Literal["unread", "acked"]
-
-
-@dataclass(frozen=True, slots=True)
-class DomainEventRow:
-    """Persisted domain event awaiting or after outbox processing."""
-
-    id: int
-    event_type: str
-    payload_json: str
-    created_at: str
-    processed_at: str | None
 
 
 @dataclass(frozen=True, slots=True)

@@ -37,6 +37,17 @@ P5 delivers the standalone AlertService: `alert_notifications` schema + outbox `
 - No unread badge on Alerts nav item.
 - CC due payload omits outstanding balance (was Discord-only decoration).
 
-## Fix: separate P4/P5 report paths (2026-08-11)
+## Fix: whole-branch review (2026-08-11)
 
-P4 and P5 both wrote to `.superpowers/sdd/task-7-report.md`; P5 overwrote P4. Restored P4 content from `1992c15` to `p4-task-7-report.md`, moved P5 content to `p5-task-7-report.md`, deleted ambiguous `task-7-report.md`, and updated roadmap acceptance links.
+Addressed Important findings before merge:
+
+| Fix | Change |
+|-----|--------|
+| Severity UI | `AlertsBanner` + `AlertsPage` treat backend `warn` as amber (alongside `warning`) |
+| Budget pct | `route.py` formats pct as integer percent (`80% utilized`) with fallback |
+| Import cycle | `DomainEventRow` moved to `repositories/domain_events.py`; `AlertNotification` stays in `alerts.models` |
+| Dashboard cap | `GET /dashboard/alerts` passes `limit=5`; banner shows "View all alerts" link when capped |
+
+**Verification:** 29 passed (`test_alerts_service`, `test_alerts_api`, `test_alerts_repository`); dashboard build OK.
+
+**Commit:** `fix(alerts): warn severity, pct format, DomainEventRow cycle, dashboard cap`

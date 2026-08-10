@@ -26,7 +26,7 @@ async def dashboard_summary(
 async def dashboard_alerts(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
 ) -> DashboardAlerts:
-    rows = await alerts.list_notifications(conn, status="unread")
+    rows = await alerts.list_notifications(conn, status="unread", limit=5)
     return DashboardAlerts(
         alerts=[
             AlertItem(
