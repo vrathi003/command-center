@@ -1,0 +1,16 @@
+# Double-Entry Money Engine — Phase Roadmap
+
+**Spec:** `docs/superpowers/specs/2026-08-10-double-entry-money-engine-design.md`
+
+Implement **one phase plan at a time**. Each plan must leave the repo green and usable.
+
+| Phase | Plan | Deliverable | Depends on |
+|-------|------|-------------|------------|
+| **P1** | [`2026-08-10-double-entry-money-engine-p1.md`](./2026-08-10-double-entry-money-engine-p1.md) | Ledger schema, LedgerService, builders, balances, budget/cash lenses, project_config, Discord off, ledger API | — |
+| **P2** | write after P1 ships | IntakeService, candidates, quarantine, dedupe, email+file→LedgerService | P1 |
+| **P3** | write after P2 | In-place migration, quarantine desk UI, cutover, legacy archive | P1+P2 |
+| **P4** | write after P3 | ReconciliationService, statement match UX | P3 |
+| **P5** | write after P1 (can parallel P2) | Standalone AlertService + in-app channel; later Discord channel | P1 (events/outbox) |
+| **P6** | write after P3 | EMI split polish, NW completeness, investment posting alignment | P3 |
+
+**Execution rule:** Do not start P3 until P1 golden lens tests pass on real migrated samples in a dry-run.
