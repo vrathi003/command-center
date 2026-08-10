@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     type TEXT NOT NULL,
     institution TEXT,
     currency TEXT NOT NULL DEFAULT 'INR',
+    account_class TEXT NOT NULL DEFAULT 'asset_cash',
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -600,3 +601,35 @@ CREATE TABLE IF NOT EXISTS statement_import_fetched_messages (
 
 CREATE INDEX IF NOT EXISTS idx_statement_import_fetched_rule
     ON statement_import_fetched_messages(rule_id);
+
+CREATE TABLE IF NOT EXISTS ledger_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    payee TEXT,
+    notes TEXT,
+    tags TEXT,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'posted'
+        CHECK (status IN ('posted', 'void')),
+    external_key TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_tx_external_key
+    ON ledger_transactions(external_key)
+    WHERE external_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ledger_tx_date ON ledger_transactions(date);
+CREATE INDEX IF NOT EXISTS idx_ledger_tx_status ON ledger_transactions(status);
+
+CREATE TABLE IF NOT EXISTS ledger_postings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    transaction_id INTEGER NOT NULL REFERENCES ledger_transactions(id),
+    account_id INTEGER NOT NULL REFERENCES accounts(id),
+    amount_paise INTEGER NOT NULL CHECK (amount_paise != 0),
+    category TEXT,
+    reconciled_statement_line_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ledger_postings_tx ON ledger_postings(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_ledger_postings_account ON ledger_postings(account_id);
+CREATE INDEX IF NOT EXISTS idx_ledger_postings_category ON ledger_postings(category);

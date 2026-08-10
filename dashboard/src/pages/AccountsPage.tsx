@@ -228,6 +228,7 @@ export function AccountsPage() {
           type: form.type,
           institution: form.institution.trim() || null,
           currency: form.currency.trim() || 'INR',
+          account_class: existing.account_class,
           is_active: form.is_active,
         },
       })

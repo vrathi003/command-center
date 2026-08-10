@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from finance_api.deps import get_conn
 from finance_common.repositories import accounts as accounts_repo
+from finance_common.types import AccountClass
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -27,6 +28,7 @@ ACCOUNT_TYPES = [
 class AccountCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     type: str = Field(min_length=1, max_length=50)
+    account_class: AccountClass | None = None
     institution: str | None = None
     currency: str = "INR"
 
@@ -34,16 +36,18 @@ class AccountCreate(BaseModel):
 class AccountUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     type: str = Field(min_length=1, max_length=50)
+    account_class: AccountClass | None = None
     institution: str | None = None
     currency: str = "INR"
     is_active: bool = True
 
 
-def _account_dict(a: accounts_repo.AccountRow) -> dict:
+def _account_dict(a: accounts_repo.AccountRow) -> dict[str, object]:
     return {
         "id": a.id,
         "name": a.name,
         "type": a.type,
+        "account_class": a.account_class,
         "institution": a.institution,
         "currency": a.currency,
         "is_active": a.is_active,
@@ -54,7 +58,7 @@ def _account_dict(a: accounts_repo.AccountRow) -> dict:
 async def list_accounts(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
     active_only: bool = False,
-) -> list[dict]:
+) -> list[dict[str, object]]:
     accounts = await accounts_repo.list_accounts(conn, active_only=active_only)
     return [_account_dict(a) for a in accounts]
 
@@ -68,13 +72,14 @@ async def get_account_types() -> list[str]:
 async def create_account(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
     body: AccountCreate,
-) -> dict:
+) -> dict[str, object]:
     account_id = await accounts_repo.create_account(
         conn,
         name=body.name.strip(),
         type=body.type.strip(),
         institution=body.institution.strip() if body.institution else None,
         currency=body.currency,
+        account_class=body.account_class.value if body.account_class else None,
     )
     account = await accounts_repo.get_account(conn, account_id)
     if account is None:
@@ -87,7 +92,7 @@ async def update_account(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
     account_id: int,
     body: AccountUpdate,
-) -> dict:
+) -> dict[str, object]:
     ok = await accounts_repo.update_account(
         conn,
         account_id,
@@ -96,6 +101,7 @@ async def update_account(
         institution=body.institution.strip() if body.institution else None,
         currency=body.currency,
         is_active=body.is_active,
+        account_class=body.account_class.value if body.account_class else None,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Account not found")
