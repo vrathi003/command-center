@@ -14,6 +14,8 @@ class ProjectConfigOut(BaseModel):
     ledger_engine: Literal["legacy", "double_entry"]
     intake_auto_post_min_confidence: float
     intake_duplicate_date_window_days: int
+    legacy_cutover_at: str | None
+    legacy_archive: bool
 
 
 class ProjectConfigPatch(BaseModel):

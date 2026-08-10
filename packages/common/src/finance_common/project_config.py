@@ -17,6 +17,8 @@ KEY_ALERTS_IN_APP_ENABLED = "project_config.alerts.in_app.enabled"
 KEY_LEDGER_ENGINE = "project_config.ledger.engine"
 KEY_INTAKE_AUTO_POST_MIN_CONFIDENCE = "project_config.intake.auto_post.min_confidence"
 KEY_INTAKE_DUPLICATE_DATE_WINDOW_DAYS = "project_config.intake.duplicate.date_window_days"
+KEY_MIGRATION_LEGACY_CUTOVER_AT = "project_config.migration.legacy_cutover_at"
+KEY_MIGRATION_LEGACY_ARCHIVE = "project_config.migration.legacy_archive"
 
 
 @dataclass
@@ -27,6 +29,8 @@ class ProjectConfig:
     ledger_engine: LedgerEngine = "double_entry"
     intake_auto_post_min_confidence: float = 0.85
     intake_duplicate_date_window_days: int = 1
+    legacy_cutover_at: str | None = None
+    legacy_archive: bool = False
 
 
 def _parse_bool(raw: str | None, default: bool) -> bool:
@@ -55,6 +59,10 @@ def _parse_ledger_engine(raw: str | None, default: LedgerEngine) -> LedgerEngine
     return default
 
 
+def _parse_optional_str(raw: str | None) -> str | None:
+    return raw if raw else None
+
+
 async def load_project_config(conn: aiosqlite.Connection) -> ProjectConfig:
     defaults = ProjectConfig()
     return ProjectConfig(
@@ -80,6 +88,13 @@ async def load_project_config(conn: aiosqlite.Connection) -> ProjectConfig:
             await get_value(conn, KEY_INTAKE_DUPLICATE_DATE_WINDOW_DAYS),
             defaults.intake_duplicate_date_window_days,
         ),
+        legacy_cutover_at=_parse_optional_str(
+            await get_value(conn, KEY_MIGRATION_LEGACY_CUTOVER_AT)
+        ),
+        legacy_archive=_parse_bool(
+            await get_value(conn, KEY_MIGRATION_LEGACY_ARCHIVE),
+            defaults.legacy_archive,
+        ),
     )
 
 
@@ -102,3 +117,14 @@ async def save_project_config(conn: aiosqlite.Connection, cfg: ProjectConfig) ->
         KEY_INTAKE_DUPLICATE_DATE_WINDOW_DAYS,
         str(cfg.intake_duplicate_date_window_days),
     )
+    await set_value(conn, KEY_MIGRATION_LEGACY_CUTOVER_AT, cfg.legacy_cutover_at or "")
+    await set_value(conn, KEY_MIGRATION_LEGACY_ARCHIVE, _bool_str(cfg.legacy_archive))
+
+
+async def is_legacy_cutover(conn: aiosqlite.Connection) -> bool:
+    return bool(await get_value(conn, KEY_MIGRATION_LEGACY_CUTOVER_AT))
+
+
+async def mark_legacy_cutover(conn: aiosqlite.Connection, at_iso: str) -> None:
+    await set_value(conn, KEY_MIGRATION_LEGACY_CUTOVER_AT, at_iso)
+    await set_value(conn, KEY_MIGRATION_LEGACY_ARCHIVE, "true")
