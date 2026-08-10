@@ -126,3 +126,48 @@ async def test_soft_close_rejects_a_cleared_statement_when_balances_differ(
 
         with pytest.raises(ReconciliationError, match="balance"):
             await service.soft_close(statement_id)
+
+
+@pytest.mark.asyncio
+async def test_confirm_match_rejects_posting_with_opposite_statement_direction(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "recon-service.db"
+    await ensure_database(db)
+
+    async with aiosqlite.connect(db) as conn:
+        ids = await _account_ids(conn)
+        service = ReconciliationService(conn)
+        statement_id = await service.import_rows(
+            NewStatement(
+                account_id=ids["Bank"],
+                period_start=date(2026, 8, 1),
+                period_end=date(2026, 8, 31),
+                opening_balance_paise=0,
+                closing_balance_paise=10_000,
+                source="upload",
+            ),
+            (
+                NewStatementLine(
+                    tx_date=date(2026, 8, 10),
+                    amount_paise=10_000,
+                    direction="out",
+                    payee="Coffee",
+                ),
+            ),
+        )
+        tx_id = await ledger_service.post(
+            conn,
+            PostTransactionInput(
+                tx_date=date(2026, 8, 10),
+                postings=builders.build_bank_income(
+                    bank_id=ids["Bank"],
+                    income_account_id=ids["Expense"],
+                    amount_paise=10_000,
+                    category="Other",
+                ),
+            ),
+        )
+
+        with pytest.raises(ReconciliationError, match="signed amount"):
+            await service.confirm_match(statement_id, 1, tx_id)

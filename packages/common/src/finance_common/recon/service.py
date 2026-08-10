@@ -105,10 +105,16 @@ class ReconciliationService:
             raise ReconciliationError("Statement line is not unmatched")
         if method not in {"manual", "suggested"}:
             raise ReconciliationError("Match method must be manual or suggested")
-        if not await self._transaction_posts_to_account(
+        posting_amount = await self._posting_amount_for_account(
             ledger_transaction_id, workspace.statement.account_id
-        ):
+        )
+        if posting_amount is None:
             raise ReconciliationError("Ledger transaction does not post to this statement account")
+        expected_amount = line.amount_paise if line.direction == "in" else -line.amount_paise
+        if posting_amount != expected_amount:
+            raise ReconciliationError(
+                "Ledger transaction posting signed amount does not match statement direction"
+            )
         if ledger_transaction_id in await self._matched_ledger_transaction_ids():
             raise ReconciliationError("Ledger transaction is already matched")
 
@@ -290,17 +296,20 @@ class ReconciliationService:
         cursor = await self._conn.execute("SELECT ledger_transaction_id FROM recon_matches")
         return frozenset(int(row[0]) for row in await cursor.fetchall())
 
-    async def _transaction_posts_to_account(self, transaction_id: int, account_id: int) -> bool:
+    async def _posting_amount_for_account(
+        self, transaction_id: int, account_id: int
+    ) -> int | None:
         cursor = await self._conn.execute(
             """
-            SELECT 1
+            SELECT posting.amount_paise
             FROM ledger_transactions AS tx
             JOIN ledger_postings AS posting ON posting.transaction_id = tx.id
             WHERE tx.id = ? AND tx.status = 'posted' AND posting.account_id = ?
             """,
             (transaction_id, account_id),
         )
-        return await cursor.fetchone() is not None
+        row = await cursor.fetchone()
+        return None if row is None else int(row[0])
 
     async def _unmatched_ledger_count(self, *, account_id: int, start: date, end: date) -> int:
         cursor = await self._conn.execute(

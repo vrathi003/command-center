@@ -74,9 +74,38 @@ def test_suggest_matches_excludes_matched_and_ineligible_candidates() -> None:
     assert proposals == ()
 
 
+def test_suggest_matches_rejects_candidate_with_opposite_posting_direction() -> None:
+    proposals = suggest_matches(
+        lines=(_line(),),
+        candidates=(
+            LedgerMatchCandidate(11, 7, date(2026, 8, 10), 25_000, "Swiggy"),
+            LedgerMatchCandidate(12, 7, date(2026, 8, 10), -25_000, "Swiggy"),
+        ),
+        account_id=7,
+    )
+
+    assert len(proposals) == 1
+    assert proposals[0].ledger_transaction_id == 12
+
+
 def test_suggest_matches_scores_date_distance_and_missing_payee() -> None:
     proposals = suggest_matches(
-        lines=(_line(payee=None),),
+        lines=(
+            ReconStatementLine(
+                id=1,
+                statement_id=1,
+                tx_date=date(2026, 8, 10),
+                amount_paise=25_000,
+                direction="in",
+                payee=None,
+                narration=None,
+                external_key=None,
+                status="unmatched",
+                ignore_reason=None,
+                created_at="2026-08-10T00:00:00",
+                updated_at="2026-08-10T00:00:00",
+            ),
+        ),
         candidates=(
             LedgerMatchCandidate(11, 7, date(2026, 8, 12), 25_000, None),
         ),

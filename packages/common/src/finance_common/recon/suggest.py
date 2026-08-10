@@ -49,7 +49,8 @@ def _has_payee_prefix(line_payee: str | None, candidate_payee: str | None) -> bo
 def _score_candidate(
     line: ReconStatementLine, candidate: LedgerMatchCandidate, date_window_days: int
 ) -> tuple[float, tuple[str, ...]] | None:
-    if abs(candidate.amount_paise) != abs(line.amount_paise):
+    expected_amount = line.amount_paise if line.direction == "in" else -line.amount_paise
+    if candidate.amount_paise != expected_amount:
         return None
 
     days_apart = abs((candidate.tx_date - line.tx_date).days)
