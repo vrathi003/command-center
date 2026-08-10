@@ -638,11 +638,20 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
                 suggested_account_id INTEGER REFERENCES accounts(id),
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_transaction_id INTEGER REFERENCES transactions(id),
+                ledger_transaction_id INTEGER REFERENCES ledger_transactions(id),
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
             CREATE INDEX IF NOT EXISTS idx_email_staging_status ON email_transaction_staging(status);
             CREATE INDEX IF NOT EXISTS idx_email_staging_gmail_id ON email_transaction_staging(gmail_message_id);
             """
+        )
+        await conn.commit()
+
+    email_staging_cols = await _column_names(conn, "email_transaction_staging")
+    if "ledger_transaction_id" not in email_staging_cols:
+        await conn.execute(
+            "ALTER TABLE email_transaction_staging "
+            "ADD COLUMN ledger_transaction_id INTEGER REFERENCES ledger_transactions(id)"
         )
         await conn.commit()
 

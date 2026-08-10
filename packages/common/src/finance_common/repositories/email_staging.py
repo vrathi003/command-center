@@ -25,6 +25,7 @@ class StagedEmailRow:
     suggested_account_id: int | None
     status: str
     created_transaction_id: int | None
+    ledger_transaction_id: int | None
     created_at: str
 
 
@@ -32,7 +33,8 @@ _SELECT = """
     SELECT id, gmail_message_id, email_date, email_subject, email_from,
            raw_snippet, parsed_date, parsed_amount_paise, parsed_merchant,
            parsed_category, parsed_payment_mode, parsed_transaction_type,
-           suggested_account_id, status, created_transaction_id, created_at
+           suggested_account_id, status, created_transaction_id, ledger_transaction_id,
+           created_at
     FROM email_transaction_staging
 """
 
@@ -54,7 +56,8 @@ def _row(r: tuple[Any, ...]) -> StagedEmailRow:
         suggested_account_id=int(r[12]) if r[12] is not None else None,
         status=str(r[13]),
         created_transaction_id=int(r[14]) if r[14] is not None else None,
-        created_at=str(r[15]),
+        ledger_transaction_id=int(r[15]) if r[15] is not None else None,
+        created_at=str(r[16]),
     )
 
 
@@ -86,9 +89,7 @@ async def get_staged(conn: aiosqlite.Connection, item_id: int) -> StagedEmailRow
 async def get_by_gmail_id(
     conn: aiosqlite.Connection, gmail_message_id: str
 ) -> StagedEmailRow | None:
-    cur = await conn.execute(
-        _SELECT + " WHERE gmail_message_id = ?", (gmail_message_id,)
-    )
+    cur = await conn.execute(_SELECT + " WHERE gmail_message_id = ?", (gmail_message_id,))
     r = await cur.fetchone()
     return _row(r) if r else None
 
@@ -120,9 +121,18 @@ async def insert_staged(
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
-                gmail_message_id, email_date, email_subject, email_from, raw_snippet,
-                parsed_date, parsed_amount_paise, parsed_merchant, parsed_category,
-                parsed_payment_mode, parsed_transaction_type, suggested_account_id,
+                gmail_message_id,
+                email_date,
+                email_subject,
+                email_from,
+                raw_snippet,
+                parsed_date,
+                parsed_amount_paise,
+                parsed_merchant,
+                parsed_category,
+                parsed_payment_mode,
+                parsed_transaction_type,
+                suggested_account_id,
             ),
         )
         await conn.commit()
@@ -152,8 +162,13 @@ async def update_staged(
         WHERE id = ?
         """,
         (
-            parsed_date, parsed_amount_paise, parsed_merchant, parsed_category,
-            parsed_payment_mode, parsed_transaction_type, suggested_account_id,
+            parsed_date,
+            parsed_amount_paise,
+            parsed_merchant,
+            parsed_category,
+            parsed_payment_mode,
+            parsed_transaction_type,
+            suggested_account_id,
             item_id,
         ),
     )
@@ -166,18 +181,21 @@ async def set_status(
     status: str,
     *,
     created_transaction_id: int | None = None,
+    ledger_transaction_id: int | None = None,
 ) -> None:
     await conn.execute(
-        "UPDATE email_transaction_staging SET status = ?, created_transaction_id = ? WHERE id = ?",
-        (status, created_transaction_id, item_id),
+        """
+        UPDATE email_transaction_staging
+        SET status = ?, created_transaction_id = ?, ledger_transaction_id = ?
+        WHERE id = ?
+        """,
+        (status, created_transaction_id, ledger_transaction_id, item_id),
     )
     await conn.commit()
 
 
 async def delete_by_status(conn: aiosqlite.Connection, status: str) -> int:
-    cur = await conn.execute(
-        "DELETE FROM email_transaction_staging WHERE status = ?", (status,)
-    )
+    cur = await conn.execute("DELETE FROM email_transaction_staging WHERE status = ?", (status,))
     await conn.commit()
     return cur.rowcount or 0
 

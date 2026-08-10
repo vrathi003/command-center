@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 
 import aiosqlite
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from finance_api.deps import get_conn, get_settings
+from finance_api.deps_ledger import require_ledger_writes
 from finance_api.settings import ApiSettings
+from finance_common.intake.dedupe import find_soft_duplicate, make_external_key
+from finance_common.intake.models import Candidate
+from finance_common.intake.posting_plan import IntakePlanError, plan_postings, plan_transfer
+from finance_common.ledger import service as ledger_service
+from finance_common.ledger.errors import LedgerError
+from finance_common.project_config import load_project_config
 from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import email_staging as staging_repo
 from finance_common.repositories import transactions as tx_repo
@@ -21,6 +28,7 @@ router = APIRouter(prefix="/email-inbox", tags=["email-inbox"])
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
+
 
 class StagedEmailOut(BaseModel):
     id: int
@@ -38,6 +46,7 @@ class StagedEmailOut(BaseModel):
     suggested_account_id: int | None
     status: str
     created_transaction_id: int | None
+    ledger_transaction_id: int | None
     created_at: str
 
 
@@ -66,6 +75,7 @@ class ApproveBody(BaseModel):
     parsed_transaction_type: str | None = None
     account_id: int | None = None
     notes: str | None = None
+    force: bool = False
 
 
 class SyncResult(BaseModel):
@@ -73,8 +83,8 @@ class SyncResult(BaseModel):
 
 
 class HistoricalSyncBody(BaseModel):
-    from_date: str   # YYYY-MM-DD
-    to_date: str     # YYYY-MM-DD
+    from_date: str  # YYYY-MM-DD
+    to_date: str  # YYYY-MM-DD
 
 
 class HistoricalSyncResult(BaseModel):
@@ -85,12 +95,12 @@ class HistoricalSyncResult(BaseModel):
 
 
 class ApproveAsTransferBody(BaseModel):
-    debit_id: int             # staging item that is the debit side (money out = from_account)
-    credit_id: int            # staging item that is the credit side (money in = to_account)
+    debit_id: int  # staging item that is the debit side (money out = from_account)
+    credit_id: int  # staging item that is the credit side (money in = to_account)
     from_account_id: int | None = None
     to_account_id: int | None = None
-    tx_date: str | None = None        # overrides debit item's parsed_date if provided
-    amount_paise: int | None = None   # overrides parsed amount if provided
+    tx_date: str | None = None  # overrides debit item's parsed_date if provided
+    amount_paise: int | None = None  # overrides parsed amount if provided
     notes: str | None = None
 
 
@@ -98,6 +108,7 @@ class ApproveAsTransferResult(BaseModel):
     transfer_pair_id: str
     debit_transaction_id: int
     credit_transaction_id: int
+    ledger_transaction_id: int | None = None
     debit_item: StagedEmailOut
     credit_item: StagedEmailOut
 
@@ -119,11 +130,13 @@ def _to_out(row: StagedEmailRow) -> StagedEmailOut:
         suggested_account_id=row.suggested_account_id,
         status=row.status,
         created_transaction_id=row.created_transaction_id,
+        ledger_transaction_id=row.ledger_transaction_id,
         created_at=row.created_at,
     )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @router.get("/stats", response_model=EmailInboxStats)
 async def get_stats(
@@ -156,9 +169,13 @@ async def manual_sync(
     if not api.gmail_credentials_path or not api.gmail_credentials_path.exists():
         raise HTTPException(
             status_code=503,
-            detail="Gmail not configured. Set GMAIL_CREDENTIALS_PATH and run scripts/setup_gmail.py.",
+            detail=(
+                "Gmail not configured. Set GMAIL_CREDENTIALS_PATH and run "
+                "scripts/setup_gmail.py."
+            ),
         )
     from finance_api.services.gmail_sync import sync_gmail_transactions  # noqa: PLC0415
+
     n = await sync_gmail_transactions(
         conn,
         api.gmail_credentials_path,
@@ -177,11 +194,14 @@ async def historical_sync(
     api: Annotated[ApiSettings, Depends(get_settings)],
     body: HistoricalSyncBody,
 ) -> HistoricalSyncResult:
-    """Import emails from a specific date range (max 90 days). Does not affect the rolling sync checkpoint."""
+    """Import a max 90-day email range without affecting the rolling sync checkpoint."""
     if not api.gmail_credentials_path or not api.gmail_credentials_path.exists():
         raise HTTPException(
             status_code=503,
-            detail="Gmail not configured. Set GMAIL_CREDENTIALS_PATH and run scripts/setup_gmail.py.",
+            detail=(
+                "Gmail not configured. Set GMAIL_CREDENTIALS_PATH and run "
+                "scripts/setup_gmail.py."
+            ),
         )
 
     try:
@@ -223,6 +243,7 @@ async def historical_sync(
 @router.post("/approve-as-transfer", response_model=ApproveAsTransferResult)
 async def approve_as_transfer(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
     body: ApproveAsTransferBody,
 ) -> ApproveAsTransferResult:
     """Approve two staged email items as a linked transfer pair."""
@@ -237,13 +258,20 @@ async def approve_as_transfer(
         raise HTTPException(status_code=422, detail="debit_id and credit_id must be different")
 
     # Determine amount and date — body overrides take precedence, then fall back to parsed values
-    amount_paise = body.amount_paise or debit_row.parsed_amount_paise or credit_row.parsed_amount_paise
+    amount_paise = (
+        body.amount_paise or debit_row.parsed_amount_paise or credit_row.parsed_amount_paise
+    )
     if not amount_paise or amount_paise <= 0:
-        raise HTTPException(status_code=422, detail="amount_paise is required (set it on the item or pass in body)")
+        raise HTTPException(
+            status_code=422, detail="amount_paise is required (set it on the item or pass in body)"
+        )
 
     date_str = body.tx_date or debit_row.parsed_date or credit_row.parsed_date
     if not date_str:
-        raise HTTPException(status_code=422, detail="tx_date is required (set parsed_date on the item or pass in body)")
+        raise HTTPException(
+            status_code=422,
+            detail="tx_date is required (set parsed_date on the item or pass in body)",
+        )
     try:
         tx_date = date.fromisoformat(date_str)
     except ValueError as e:
@@ -256,15 +284,73 @@ async def approve_as_transfer(
     if not from_account_id or not to_account_id:
         raise HTTPException(
             status_code=422,
-            detail="from_account_id and to_account_id are required (pass them in the body or set suggested_account_id on each item)",
+            detail=(
+                "from_account_id and to_account_id are required "
+                "(pass them in the body or set suggested_account_id on each item)"
+            ),
         )
     if from_account_id == to_account_id:
-        raise HTTPException(status_code=422, detail="from_account_id and to_account_id must be different accounts")
+        raise HTTPException(
+            status_code=422, detail="from_account_id and to_account_id must be different accounts"
+        )
 
     from_acc = await accounts_repo.get_account(conn, from_account_id)
     to_acc = await accounts_repo.get_account(conn, to_account_id)
     if from_acc is None or to_acc is None:
         raise HTTPException(status_code=404, detail="Account not found")
+
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "double_entry":
+        require_ledger_writes(request)
+        try:
+            ledger_transaction_id = await ledger_service.post(
+                conn,
+                await plan_transfer(
+                    conn,
+                    from_account_id=from_account_id,
+                    to_account_id=to_account_id,
+                    amount_paise=amount_paise,
+                    tx_date=tx_date,
+                    source="gmail",
+                    payee=debit_row.parsed_merchant or credit_row.parsed_merchant,
+                    notes=body.notes,
+                    external_key=make_external_key(
+                        source="gmail",
+                        provider_id=f"{debit_row.gmail_message_id}:{credit_row.gmail_message_id}",
+                        date=tx_date.isoformat(),
+                        amount_paise=amount_paise,
+                        narration=debit_row.parsed_merchant or credit_row.parsed_merchant or "",
+                        account_id=from_account_id,
+                    ),
+                ),
+            )
+        except (IntakePlanError, LedgerError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        await staging_repo.set_status(
+            conn,
+            body.debit_id,
+            "approved",
+            ledger_transaction_id=ledger_transaction_id,
+        )
+        await staging_repo.set_status(
+            conn,
+            body.credit_id,
+            "approved",
+            ledger_transaction_id=ledger_transaction_id,
+        )
+        updated_debit = await staging_repo.get_staged(conn, body.debit_id)
+        updated_credit = await staging_repo.get_staged(conn, body.credit_id)
+        assert updated_debit and updated_credit
+        # Existing clients require these legacy-shaped ids; both refer to one ledger tx.
+        return ApproveAsTransferResult(
+            transfer_pair_id=f"ledger:{ledger_transaction_id}",
+            debit_transaction_id=ledger_transaction_id,
+            credit_transaction_id=ledger_transaction_id,
+            ledger_transaction_id=ledger_transaction_id,
+            debit_item=_to_out(updated_debit),
+            credit_item=_to_out(updated_credit),
+        )
 
     out_id, in_id, pair_id = await tx_repo.insert_transfer_pair(
         conn,
@@ -317,6 +403,7 @@ async def update_staged(
 @router.post("/{item_id}/approve", response_model=StagedEmailOut)
 async def approve_staged(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
     item_id: int,
     body: ApproveBody,
 ) -> StagedEmailOut:
@@ -328,11 +415,25 @@ async def approve_staged(
         raise HTTPException(status_code=409, detail="Item already approved or rejected")
 
     tx_date_str = body.parsed_date or row.parsed_date
-    amount_paise = body.parsed_amount_paise if body.parsed_amount_paise is not None else row.parsed_amount_paise
+    amount_paise = (
+        body.parsed_amount_paise
+        if body.parsed_amount_paise is not None
+        else row.parsed_amount_paise
+    )
     merchant = body.parsed_merchant if body.parsed_merchant is not None else row.parsed_merchant
-    category = body.parsed_category if body.parsed_category is not None else row.parsed_category or "Other"
-    payment_mode = body.parsed_payment_mode if body.parsed_payment_mode is not None else row.parsed_payment_mode or "Other"
-    tx_type = body.parsed_transaction_type if body.parsed_transaction_type is not None else row.parsed_transaction_type or "debit"
+    category = (
+        body.parsed_category if body.parsed_category is not None else row.parsed_category or "Other"
+    )
+    payment_mode = (
+        body.parsed_payment_mode
+        if body.parsed_payment_mode is not None
+        else row.parsed_payment_mode or "Other"
+    )
+    tx_type = (
+        body.parsed_transaction_type
+        if body.parsed_transaction_type is not None
+        else row.parsed_transaction_type or "debit"
+    )
     account_id = body.account_id if body.account_id is not None else row.suggested_account_id
 
     if not tx_date_str or not amount_paise or amount_paise <= 0:
@@ -342,6 +443,65 @@ async def approve_staged(
         tx_date = date.fromisoformat(tx_date_str)
     except ValueError as e:
         raise HTTPException(status_code=422, detail="invalid parsed_date") from e
+
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "double_entry":
+        if account_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="account_id is required (pass it in the body or set suggested_account_id)",
+            )
+        require_ledger_writes(request)
+        duplicate_id = await find_soft_duplicate(
+            conn,
+            account_id=account_id,
+            amount_paise=amount_paise,
+            tx_date=tx_date,
+            payee=merchant,
+            window_days=project_config.intake_duplicate_date_window_days,
+        )
+        if duplicate_id is not None and not body.force:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Possible duplicate ledger or intake transaction: {duplicate_id}",
+            )
+        direction: Literal["out", "in"] = "in" if tx_type == "credit" else "out"
+        narration = row.raw_snippet or merchant
+        candidate = Candidate(
+            source="gmail",
+            tx_date=tx_date,
+            amount_paise=amount_paise,
+            direction=direction,
+            suggested_account_id=account_id,
+            payee=merchant,
+            narration=narration,
+            suggested_category=category,
+            external_key=make_external_key(
+                source="gmail",
+                provider_id=row.gmail_message_id,
+                date=tx_date.isoformat(),
+                amount_paise=amount_paise,
+                narration=narration or "",
+                account_id=account_id,
+            ),
+            confidence=1.0,
+            email_staging_id=item_id,
+        )
+        try:
+            ledger_transaction_id = await ledger_service.post(
+                conn, await plan_postings(conn, candidate)
+            )
+        except (IntakePlanError, LedgerError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        await staging_repo.set_status(
+            conn,
+            item_id,
+            "approved",
+            ledger_transaction_id=ledger_transaction_id,
+        )
+        updated = await staging_repo.get_staged(conn, item_id)
+        assert updated is not None
+        return _to_out(updated)
 
     account_name: str | None = None
     if account_id is not None:
@@ -387,6 +547,7 @@ async def reject_staged(
 @router.delete("/{item_id}", response_model=StagedEmailOut)
 async def undo_approved(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
     item_id: int,
 ) -> StagedEmailOut:
     """Undo an approved item: soft-deletes the linked transaction and resets to pending."""
@@ -395,9 +556,21 @@ async def undo_approved(
         raise HTTPException(status_code=404, detail="Item not found")
     if row.status != "approved":
         raise HTTPException(status_code=409, detail="Only approved items can be undone this way")
-    if row.created_transaction_id is not None:
+    if row.ledger_transaction_id is not None:
+        require_ledger_writes(request)
+        try:
+            await ledger_service.void(conn, row.ledger_transaction_id)
+        except LedgerError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    elif row.created_transaction_id is not None:
         await tx_repo.soft_delete_by_id(conn, row.created_transaction_id)
-    await staging_repo.set_status(conn, item_id, "pending", created_transaction_id=None)
+    await staging_repo.set_status(
+        conn,
+        item_id,
+        "pending",
+        created_transaction_id=None,
+        ledger_transaction_id=None,
+    )
     updated = await staging_repo.get_staged(conn, item_id)
     assert updated is not None
     return _to_out(updated)

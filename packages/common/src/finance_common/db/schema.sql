@@ -548,6 +548,7 @@ CREATE TABLE IF NOT EXISTS email_transaction_staging (
     suggested_account_id INTEGER REFERENCES accounts(id),
     status TEXT NOT NULL DEFAULT 'pending',
     created_transaction_id INTEGER REFERENCES transactions(id),
+    ledger_transaction_id INTEGER REFERENCES ledger_transactions(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
