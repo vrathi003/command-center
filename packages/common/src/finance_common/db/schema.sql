@@ -633,3 +633,37 @@ CREATE TABLE IF NOT EXISTS ledger_postings (
 CREATE INDEX IF NOT EXISTS idx_ledger_postings_tx ON ledger_postings(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_postings_account ON ledger_postings(account_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_postings_category ON ledger_postings(category);
+
+CREATE TABLE IF NOT EXISTS intake_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'posted', 'rejected')),
+    source TEXT NOT NULL
+        CHECK (source IN ('email', 'import', 'cc_statement', 'manual')),
+    external_key TEXT,
+    tx_date TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+    direction TEXT NOT NULL CHECK (direction IN ('out', 'in')),
+    payee TEXT,
+    narration TEXT,
+    suggested_account_id INTEGER REFERENCES accounts(id),
+    suggested_counter_account_id INTEGER REFERENCES accounts(id),
+    suggested_category TEXT,
+    confidence REAL NOT NULL DEFAULT 0,
+    quarantine_reason TEXT,
+    ledger_transaction_id INTEGER REFERENCES ledger_transactions(id),
+    raw_payload_json TEXT,
+    email_staging_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_intake_candidates_external_key
+    ON intake_candidates(external_key)
+    WHERE external_key IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS domain_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
