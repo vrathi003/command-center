@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import signal
 import subprocess
@@ -9,6 +10,17 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from finance_common.config import AppSettings
+from finance_common.db import ensure_database, open_db
+from finance_common.project_config import load_project_config
+
+
+async def _discord_is_enabled() -> bool:
+    settings = AppSettings()
+    await ensure_database(settings.db_path)
+    async with open_db(settings.db_path) as conn:
+        return (await load_project_config(conn)).discord_enabled
 
 
 def main() -> None:
@@ -53,7 +65,8 @@ def main() -> None:
     )
 
     token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
-    if token and token != "your_bot_token_here":
+    discord_enabled = asyncio.run(_discord_is_enabled())
+    if token and token != "your_bot_token_here" and discord_enabled:
         procs.append(
             subprocess.Popen(
                 [sys.executable, "-m", "finance_bot.main"],
@@ -61,8 +74,13 @@ def main() -> None:
             ),
         )
     else:
+        reason = (
+            "Discord is disabled in project settings."
+            if not discord_enabled
+            else "Set DISCORD_BOT_TOKEN in .env."
+        )
         print(
-            "Skipping Discord bot (set DISCORD_BOT_TOKEN in .env). "
+            f"Skipping Discord bot ({reason}) "
             f"API is running at http://{api_host}:{api_port}",
             file=sys.stderr,
         )

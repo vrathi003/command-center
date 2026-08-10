@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, replace
 from typing import Annotated
 
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException
 
 from finance_api.deps import get_conn
-from finance_api.schemas.app_settings import SettingsOut, SettingsPatch
+from finance_api.schemas.app_settings import ProjectConfigOut, SettingsOut, SettingsPatch
 from finance_common.fy import fy_start
+from finance_common.project_config import load_project_config, save_project_config
 from finance_common.repositories import settings_repo
 from finance_common.types import FYYear
 
@@ -22,6 +24,7 @@ _KEY_80D = "tax_80d_annual_paise"
 
 async def _load_out(conn: aiosqlite.Connection) -> SettingsOut:
     fy = await settings_repo.get_current_fy(conn)
+    project_config = await load_project_config(conn)
     regime = await settings_repo.get_value(conn, _KEY_TAX_REGIME)
     raw_80c = await settings_repo.get_value(conn, _KEY_80C)
     raw_80d = await settings_repo.get_value(conn, _KEY_80D)
@@ -45,6 +48,7 @@ async def _load_out(conn: aiosqlite.Connection) -> SettingsOut:
         tax_regime=reg_out,
         tax_80c_annual_paise=v80,
         tax_80d_annual_paise=v80d,
+        project_config=ProjectConfigOut(**asdict(project_config)),
     )
 
 
@@ -88,6 +92,14 @@ async def put_settings(
             conn,
             _KEY_80D,
             str(int(patch["tax_80d_annual_paise"])),
+        )
+
+    if body.project_config is not None:
+        current_project_config = await load_project_config(conn)
+        project_config_patch = body.project_config.model_dump(exclude_unset=True)
+        await save_project_config(
+            conn,
+            replace(current_project_config, **project_config_patch),
         )
 
     return await _load_out(conn)
