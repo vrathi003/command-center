@@ -7,16 +7,19 @@ from datetime import date
 import aiosqlite
 
 
-async def account_balance_paise(conn: aiosqlite.Connection, account_id: int) -> int:
-    """Return an account's signed balance from posted ledger transactions."""
+async def account_balance_paise(
+    conn: aiosqlite.Connection, account_id: int, *, as_of: date | None = None
+) -> int:
+    """Return an account's signed posted balance, optionally through a date."""
+    as_of_clause = "" if as_of is None else " AND tx.date <= ?"
     cursor = await conn.execute(
-        """
+        f"""
         SELECT COALESCE(SUM(posting.amount_paise), 0)
         FROM ledger_postings AS posting
         JOIN ledger_transactions AS tx ON tx.id = posting.transaction_id
-        WHERE posting.account_id = ? AND tx.status = 'posted'
+        WHERE posting.account_id = ? AND tx.status = 'posted'{as_of_clause}
         """,
-        (account_id,),
+        (account_id,) if as_of is None else (account_id, as_of.isoformat()),
     )
     row = await cursor.fetchone()
     if row is None:
