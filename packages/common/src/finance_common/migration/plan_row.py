@@ -56,6 +56,11 @@ def _date(payload: Mapping[str, object]) -> date:
     return value if isinstance(value, date) else date.fromisoformat(str(value))
 
 
+def _is_deleted(payload: Mapping[str, object]) -> bool:
+    value = payload.get("is_deleted")
+    return value is True or (type(value) is int and value == 1) or value == "1"
+
+
 def _planned(
     *,
     kind: Literal["post", "quarantine", "skip_deleted", "noop"],
@@ -97,7 +102,7 @@ async def plan_legacy_row(
         raise ValueError("Legacy transaction row has no id")
     legacy_ids = (legacy_id,)
 
-    if bool(payload.get("is_deleted", False)):
+    if _is_deleted(payload):
         return _planned(kind="skip_deleted", external_key=None, legacy_ids=legacy_ids)
 
     transaction_type = _text(payload, "transaction_type") or "debit"
@@ -126,6 +131,18 @@ async def plan_legacy_row(
         from_account_id = await _resolve(payload, conn)
         to_account_id = await _resolve(sibling_payload, conn)
         transfer_ids = (legacy_id, sibling_id)
+        if (
+            _text(sibling_payload, "transaction_type") != "transfer"
+            or _text(sibling_payload, "transfer_pair_id") != pair_id
+            or _is_deleted(sibling_payload)
+        ):
+            return _planned(
+                kind="quarantine",
+                external_key=external_key,
+                legacy_ids=transfer_ids,
+                quarantine_reason="legacy_migration:invalid_transfer",
+                raw_payload=payload,
+            )
         if from_account_id is None or to_account_id is None:
             return _planned(
                 kind="quarantine",

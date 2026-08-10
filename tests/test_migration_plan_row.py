@@ -179,6 +179,53 @@ async def test_plan_legacy_row_quarantines_missing_account_and_orphan_transfer(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("sibling_transaction_type", "sibling_pair_id", "sibling_deleted"),
+    [
+        ("debit", "pair-1", 0),
+        ("transfer", "different-pair", 0),
+        ("transfer", "pair-1", 1),
+    ],
+)
+async def test_plan_legacy_transfer_quarantines_invalid_sibling(
+    tmp_path: Path,
+    sibling_transaction_type: str,
+    sibling_pair_id: str,
+    sibling_deleted: int,
+) -> None:
+    db = tmp_path / "migration.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        ids = await _account_ids(conn)
+        planned = await plan_legacy_row(
+            conn,
+            _row(
+                tx_id=10,
+                account_id=ids["SBI Personal"],
+                transaction_type="transfer",
+                transfer_pair_id="pair-1",
+            ),
+            paired_sibling={
+                **asdict(
+                    _row(
+                        tx_id=11,
+                        account_id=ids["Wallet"],
+                        account="Wallet",
+                        transaction_type=sibling_transaction_type,
+                        transfer_pair_id=sibling_pair_id,
+                    )
+                ),
+                "is_deleted": sibling_deleted,
+            },
+            already_posted=set(),
+        )
+
+    assert planned.kind == "quarantine"
+    assert planned.quarantine_reason == "legacy_migration:invalid_transfer"
+    assert planned.legacy_ids == (10, 11)
+
+
+@pytest.mark.asyncio
 async def test_plan_legacy_row_skips_deleted_and_noops_posted_key(tmp_path: Path) -> None:
     db = tmp_path / "migration.db"
     await ensure_database(db)
@@ -197,3 +244,37 @@ async def test_plan_legacy_row_skips_deleted_and_noops_posted_key(tmp_path: Path
 
     assert deleted.kind == "skip_deleted"
     assert noop.kind == "noop"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_deleted", [0, "0", False, None])
+async def test_plan_legacy_row_treats_falsey_deleted_values_as_active(
+    tmp_path: Path, is_deleted: object
+) -> None:
+    db = tmp_path / "migration.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        ids = await _account_ids(conn)
+        planned = await plan_legacy_row(
+            conn,
+            {**asdict(_row(account_id=ids["SBI Personal"])), "is_deleted": is_deleted},
+            already_posted=set(),
+        )
+
+    assert planned.kind == "post"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_deleted", [1, "1", True])
+async def test_plan_legacy_row_skips_true_deleted_values(tmp_path: Path, is_deleted: object) -> None:
+    db = tmp_path / "migration.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        ids = await _account_ids(conn)
+        planned = await plan_legacy_row(
+            conn,
+            {**asdict(_row(account_id=ids["SBI Personal"])), "is_deleted": is_deleted},
+            already_posted=set(),
+        )
+
+    assert planned.kind == "skip_deleted"
