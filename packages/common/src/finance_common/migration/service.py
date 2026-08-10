@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import shutil
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -89,7 +88,7 @@ async def _opening_balance_pass(conn: aiosqlite.Connection) -> None:
     """Quarantine account opening balances that require an operator-supplied amount."""
     cursor = await conn.execute(
         """
-        SELECT DISTINCT account.id, account.name, posting.amount_paise
+        SELECT DISTINCT account.id, account.name
         FROM accounts AS account
         JOIN ledger_postings AS posting ON posting.account_id = account.id
         WHERE account.account_class IN ('asset_cash', 'liability_cc')
@@ -105,14 +104,9 @@ async def _opening_balance_pass(conn: aiosqlite.Connection) -> None:
         ORDER BY account.id, posting.id
         """
     )
-    activity_by_account: dict[int, tuple[str, int]] = {}
-    for account_id, account_name, amount_paise in await cursor.fetchall():
-        activity_by_account.setdefault(
-            int(account_id),
-            (str(account_name), abs(int(amount_paise))),
-        )
-
-    for account_id, (account_name, activity_amount) in activity_by_account.items():
+    for account_id_value, account_name_value in await cursor.fetchall():
+        account_id = int(account_id_value)
+        account_name = str(account_name_value)
         external_key = f"legacy:opening-balance:{account_id}"
         existing = await conn.execute(
             "SELECT 1 FROM intake_candidates WHERE external_key = ?",
@@ -123,15 +117,17 @@ async def _opening_balance_pass(conn: aiosqlite.Connection) -> None:
         candidate = Candidate(
             source="import",
             tx_date=date.today(),
-            # The schema requires a positive candidate amount. This records a real migrated
-            # activity amount only; the opening-balance amount remains user-supplied.
-            amount_paise=activity_amount,
+            amount_paise=0,
             direction="in",
             suggested_account_id=account_id,
             payee=account_name,
             narration="Opening balance required; amount must be supplied during approval.",
             external_key=external_key,
-            raw_payload={"account_id": account_id, "amount_required": True},
+            raw_payload={
+                "account_id": account_id,
+                "amount_required": True,
+                "approval_requires_user_supplied_amount": True,
+            },
         )
         candidate_id = await save_candidate(
             conn,
@@ -184,14 +180,18 @@ async def _run(conn: aiosqlite.Connection, *, write: bool) -> MigrationReport:
         if row_id in processed_ids:
             continue
         pair_id = row.get("transfer_pair_id")
-        sibling = next(
-            (
-                candidate
-                for candidate in rows
-                if candidate.get("transfer_pair_id") == pair_id
-                and int(str(candidate["id"])) != row_id
-            ),
-            None,
+        sibling = (
+            next(
+                (
+                    candidate
+                    for candidate in rows
+                    if candidate.get("transfer_pair_id") == pair_id
+                    and int(str(candidate["id"])) != row_id
+                ),
+                None,
+            )
+            if pair_id is not None
+            else None
         )
         plan = await plan_legacy_row(
             conn,
@@ -247,11 +247,13 @@ async def dry_run(conn: aiosqlite.Connection) -> MigrationReport:
 async def apply(conn: aiosqlite.Connection, *, db_path: Path) -> MigrationReport:
     """Back up, migrate, archive legacy history, and mark ledger cutover."""
     backup_path = _backup_path(db_path)
-    shutil.copy2(db_path, backup_path)
+    await conn.commit()
+    await conn.execute("VACUUM INTO ?", (str(backup_path),))
+    backup_sha256 = _sha256(backup_path)
     logger.info(
         "Created pre-ledger migration backup %s sha256=%s",
         backup_path,
-        _sha256(backup_path),
+        backup_sha256,
     )
 
     report = await _run(conn, write=True)
@@ -266,4 +268,5 @@ async def apply(conn: aiosqlite.Connection, *, db_path: Path) -> MigrationReport
         noop=report.noop,
         backup_path=str(backup_path),
         cutover_at=cutover_at,
+        backup_sha256=backup_sha256,
     )

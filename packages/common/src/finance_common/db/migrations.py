@@ -860,7 +860,7 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
                     CHECK (source IN ('email', 'import', 'cc_statement', 'manual')),
                 external_key TEXT,
                 tx_date TEXT NOT NULL,
-                amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+                amount_paise INTEGER NOT NULL CHECK (amount_paise >= 0),
                 direction TEXT NOT NULL CHECK (direction IN ('out', 'in')),
                 payee TEXT,
                 narration TEXT,
@@ -888,4 +888,46 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
             """
         )
         await conn.commit()
+    else:
+        table_sql_cursor = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'intake_candidates'"
+        )
+        table_sql_row = await table_sql_cursor.fetchone()
+        table_sql = "" if table_sql_row is None else str(table_sql_row[0])
+        if "amount_paise > 0" in table_sql:
+            await conn.executescript(
+                """
+                CREATE TABLE intake_candidates_rebuilt (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    status TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'posted', 'rejected')),
+                    source TEXT NOT NULL
+                        CHECK (source IN ('email', 'import', 'cc_statement', 'manual')),
+                    external_key TEXT,
+                    tx_date TEXT NOT NULL,
+                    amount_paise INTEGER NOT NULL CHECK (amount_paise >= 0),
+                    direction TEXT NOT NULL CHECK (direction IN ('out', 'in')),
+                    payee TEXT,
+                    narration TEXT,
+                    suggested_account_id INTEGER REFERENCES accounts(id),
+                    suggested_counter_account_id INTEGER REFERENCES accounts(id),
+                    suggested_category TEXT,
+                    confidence REAL NOT NULL DEFAULT 0,
+                    quarantine_reason TEXT,
+                    ledger_transaction_id INTEGER REFERENCES ledger_transactions(id),
+                    raw_payload_json TEXT,
+                    email_staging_id INTEGER,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                INSERT INTO intake_candidates_rebuilt
+                SELECT * FROM intake_candidates;
+                DROP TABLE intake_candidates;
+                ALTER TABLE intake_candidates_rebuilt RENAME TO intake_candidates;
+                CREATE UNIQUE INDEX idx_intake_candidates_external_key
+                    ON intake_candidates(external_key)
+                    WHERE external_key IS NOT NULL;
+                """
+            )
+            await conn.commit()
 

@@ -13,3 +13,4 @@ class MigrationReport:
     noop: int
     backup_path: str | None
     cutover_at: str | None
+    backup_sha256: str | None = None

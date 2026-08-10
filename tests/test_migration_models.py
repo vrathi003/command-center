@@ -11,6 +11,7 @@ def test_migration_report_exposes_required_fields() -> None:
         noop=3,
         backup_path="/tmp/pre-ledger.db",
         cutover_at="2026-08-10T12:00:00+00:00",
+        backup_sha256="e3b0c44298fc1c149afbf4c8996fb924",
     )
 
     assert asdict(report) == {
@@ -20,4 +21,5 @@ def test_migration_report_exposes_required_fields() -> None:
         "noop": 3,
         "backup_path": "/tmp/pre-ledger.db",
         "cutover_at": "2026-08-10T12:00:00+00:00",
+        "backup_sha256": "e3b0c44298fc1c149afbf4c8996fb924",
     }

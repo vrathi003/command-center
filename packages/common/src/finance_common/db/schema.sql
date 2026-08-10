@@ -643,7 +643,7 @@ CREATE TABLE IF NOT EXISTS intake_candidates (
         CHECK (source IN ('email', 'import', 'cc_statement', 'manual')),
     external_key TEXT,
     tx_date TEXT NOT NULL,
-    amount_paise INTEGER NOT NULL CHECK (amount_paise > 0),
+    amount_paise INTEGER NOT NULL CHECK (amount_paise >= 0),
     direction TEXT NOT NULL CHECK (direction IN ('out', 'in')),
     payee TEXT,
     narration TEXT,

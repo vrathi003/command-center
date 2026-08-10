@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import sqlite3
 from datetime import date
 from pathlib import Path
 
@@ -131,6 +134,14 @@ async def test_apply_posts_history_archives_backup_and_is_idempotent(tmp_path: P
         )
         assert report.backup_path is not None
         assert Path(report.backup_path).is_file()
+        assert report.backup_sha256 == hashlib.sha256(
+            Path(report.backup_path).read_bytes()
+        ).hexdigest()
+        with sqlite3.connect(report.backup_path) as backup_conn:
+            backup_transaction_count = backup_conn.execute(
+                "SELECT COUNT(*) FROM transactions"
+            ).fetchone()
+        assert backup_transaction_count == (6,)
         assert report.cutover_at is not None
         assert await _table_count(conn, "ledger_transactions") == 3
         assert await _table_count(conn, "legacy_transactions") == 6
@@ -139,7 +150,7 @@ async def test_apply_posts_history_archives_backup_and_is_idempotent(tmp_path: P
         opening_balance_candidates = await (
             await conn.execute(
                 """
-                SELECT suggested_account_id
+                SELECT suggested_account_id, amount_paise, raw_payload_json
                 FROM intake_candidates
                 WHERE quarantine_reason = 'needs_opening_balance'
                 ORDER BY suggested_account_id
@@ -147,6 +158,15 @@ async def test_apply_posts_history_archives_backup_and_is_idempotent(tmp_path: P
             )
         ).fetchall()
         assert [int(row[0]) for row in opening_balance_candidates] == sorted(account_ids.values())
+        assert [int(row[1]) for row in opening_balance_candidates] == [0, 0]
+        assert all(
+            json.loads(str(row[2])) == {
+                "account_id": int(row[0]),
+                "amount_required": True,
+                "approval_requires_user_supplied_amount": True,
+            }
+            for row in opening_balance_candidates
+        )
 
         second_report = await apply(conn, db_path=db)
 
