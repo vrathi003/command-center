@@ -45,4 +45,20 @@ async def ensure_defaults(conn: aiosqlite.Connection) -> None:
         """,
         (str(fy),),
     )
+    project_config_defaults: list[tuple[str, str]] = [
+        ("project_config.discord.enabled", "false"),
+        ("project_config.discord.alerts.enabled", "false"),
+        ("project_config.alerts.in_app.enabled", "true"),
+        ("project_config.ledger.engine", "double_entry"),
+        ("project_config.intake.auto_post.min_confidence", "0.85"),
+        ("project_config.intake.duplicate.date_window_days", "1"),
+    ]
+    for key, value in project_config_defaults:
+        await conn.execute(
+            """
+            INSERT OR IGNORE INTO settings (key, value, updated_at)
+            VALUES (?, ?, datetime('now'))
+            """,
+            (key, value),
+        )
     await conn.commit()
