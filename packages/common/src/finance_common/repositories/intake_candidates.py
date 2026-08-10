@@ -8,6 +8,62 @@ import aiosqlite
 
 from finance_common.intake.models import Candidate
 
+_CANDIDATE_COLUMNS = """
+    id, status, source, external_key, tx_date, amount_paise, direction, payee,
+    narration, suggested_account_id, suggested_counter_account_id, suggested_category,
+    confidence, quarantine_reason, ledger_transaction_id
+"""
+
+
+def _row_to_dict(cursor: aiosqlite.Cursor, row: aiosqlite.Row) -> dict[str, object]:
+    return {column[0]: row[index] for index, column in enumerate(cursor.description or ())}
+
+
+async def list_candidates(
+    conn: aiosqlite.Connection, *, status: str = "pending"
+) -> list[dict[str, object]]:
+    """Return intake candidates with the requested review status."""
+    cursor = await conn.execute(
+        f"SELECT {_CANDIDATE_COLUMNS} FROM intake_candidates WHERE status = ? ORDER BY id",
+        (status,),
+    )
+    rows = await cursor.fetchall()
+    return [_row_to_dict(cursor, row) for row in rows]
+
+
+async def get_candidate(
+    conn: aiosqlite.Connection, candidate_id: int
+) -> dict[str, object] | None:
+    """Return one intake candidate, if it exists."""
+    cursor = await conn.execute(
+        f"SELECT {_CANDIDATE_COLUMNS} FROM intake_candidates WHERE id = ?",
+        (candidate_id,),
+    )
+    row = await cursor.fetchone()
+    return None if row is None else _row_to_dict(cursor, row)
+
+
+async def update_candidate_status(
+    conn: aiosqlite.Connection,
+    candidate_id: int,
+    *,
+    status: str,
+    ledger_transaction_id: int | None = None,
+    clear_quarantine_reason: bool = False,
+) -> None:
+    """Update a candidate's final review status and linked ledger transaction."""
+    await conn.execute(
+        """
+        UPDATE intake_candidates
+        SET status = ?, ledger_transaction_id = ?,
+            quarantine_reason = CASE WHEN ? THEN NULL ELSE quarantine_reason END,
+            updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (status, ledger_transaction_id, clear_quarantine_reason, candidate_id),
+    )
+    await conn.commit()
+
 
 async def find_posted_ledger_transaction_id(
     conn: aiosqlite.Connection, external_key: str

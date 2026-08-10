@@ -27,6 +27,7 @@ from finance_api.routers import (
     home_items,
     income,
     insurance,
+    intake,
     investment,
     journal,
     ledger,
@@ -120,6 +121,7 @@ def create_app() -> FastAPI:
     app.include_router(debt.router, prefix="/api")
     app.include_router(investment.router, prefix="/api")
     app.include_router(ledger.router, prefix="/api")
+    app.include_router(intake.router, prefix="/api")
     app.include_router(journal.router, prefix="/api")
     app.include_router(fixed_income.router, prefix="/api")
     app.include_router(net_worth.router, prefix="/api")
