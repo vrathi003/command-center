@@ -16,6 +16,7 @@ import {
   reopenReconStatement,
   softCloseReconStatement,
   suggestReconMatches,
+  unmatchReconLine,
 } from '@/lib/api'
 import { formatPaise } from '@/lib/format'
 import type { ReconStatementLine } from '@/types/api'
@@ -98,6 +99,7 @@ export function ReconciliationPage() {
   function invalidateWorkspace() {
     void queryClient.invalidateQueries({ queryKey: ['recon-workspace', statementId] })
     void queryClient.invalidateQueries({ queryKey: ['recon-statements', accountId] })
+    void queryClient.invalidateQueries({ queryKey: ['ledger-transactions'] })
   }
 
   const suggestMut = useMutation({
@@ -120,6 +122,10 @@ export function ReconciliationPage() {
     mutationFn: (lineId: number) => ignoreReconLine(statementId!, lineId),
     onSuccess: invalidateWorkspace,
   })
+  const unmatchMut = useMutation({
+    mutationFn: (lineId: number) => unmatchReconLine(statementId!, lineId),
+    onSuccess: invalidateWorkspace,
+  })
   const adjustMut = useMutation({
     mutationFn: () =>
       createReconAdjustment(statementId!, {
@@ -137,7 +143,7 @@ export function ReconciliationPage() {
   const closeMut = useMutation({ mutationFn: () => softCloseReconStatement(statementId!), onSuccess: invalidateWorkspace })
   const reopenMut = useMutation({ mutationFn: () => reopenReconStatement(statementId!), onSuccess: invalidateWorkspace })
 
-  const error = [suggestMut, confirmMut, ignoreMut, adjustMut, closeMut, reopenMut].find((mutation) => mutation.isError)?.error
+  const error = [suggestMut, confirmMut, ignoreMut, unmatchMut, adjustMut, closeMut, reopenMut].find((mutation) => mutation.isError)?.error
 
   if (accountsQ.isPending) return <PageLoading lines={3} showFooterBlock />
   if (accountsQ.isError) return <PageError title="Failed to load accounts" message={String(accountsQ.error)} />
@@ -188,7 +194,12 @@ export function ReconciliationPage() {
                 className={`min-w-56 rounded-xl border p-3 text-left ${statement.id === statementId ? 'border-emerald-500 bg-emerald-50' : 'border-zinc-200 bg-white hover:bg-zinc-50'}`}
               >
                 <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold text-zinc-800">{statement.period_start} – {statement.period_end}</p><StatusBadge status={statement.status} /></div>
-                <p className="mt-1 text-xs text-zinc-500">Closing {formatPaise(statement.closing_balance_paise)}</p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Closing {formatPaise(statement.closing_balance_paise)} · {statement.status}
+                  {statement.id === statementId && workspace?.statement.id === statement.id
+                    ? ` · Delta ${formatPaise(workspace.period_status.balance_difference_paise)}`
+                    : ''}
+                </p>
               </button>
             ))}
           </div>
@@ -198,21 +209,40 @@ export function ReconciliationPage() {
           ) : (
             <>
               <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
-                <Panel className="p-0">
-                  <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
-                    <p className="text-sm font-semibold text-zinc-800">Statement lines</p>
-                    <button type="button" onClick={() => suggestMut.mutate()} disabled={suggestMut.isPending || workspace.statement.status !== 'open'} className="flex items-center gap-1 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-zinc-700 disabled:opacity-50">
-                      <Sparkles className="size-3.5" /> {suggestMut.isPending ? 'Finding…' : 'Suggest matches'}
-                    </button>
-                  </div>
-                  <div className="max-h-[32rem] divide-y divide-zinc-100 overflow-y-auto">
-                    {workspace.lines.map((line) => (
-                      <button key={line.id} type="button" onClick={() => { setSelectedLineId(line.id); setAdjusting(false); setManualLedgerId('') }} className={`w-full px-4 py-3 text-left hover:bg-zinc-50 ${selectedLineId === line.id ? 'bg-emerald-50/70' : ''}`}>
-                        <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-zinc-800">{line.payee ?? line.narration ?? 'Unlabelled line'}</p><p className="mt-0.5 text-xs text-zinc-500">{line.tx_date} · {line.direction === 'in' ? 'Inflow' : 'Outflow'}</p></div><div className="text-right"><p className="text-sm font-semibold text-zinc-800">{formatPaise(line.amount_paise)}</p><StatusBadge status={line.status} /></div></div>
+                <div className="space-y-5">
+                  <Panel className="p-0">
+                    <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
+                      <p className="text-sm font-semibold text-zinc-800">Statement lines</p>
+                      <button type="button" onClick={() => suggestMut.mutate()} disabled={suggestMut.isPending || workspace.statement.status !== 'open'} className="flex items-center gap-1 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-zinc-700 disabled:opacity-50">
+                        <Sparkles className="size-3.5" /> {suggestMut.isPending ? 'Finding…' : 'Suggest matches'}
                       </button>
-                    ))}
-                  </div>
-                </Panel>
+                    </div>
+                    <div className="max-h-[32rem] divide-y divide-zinc-100 overflow-y-auto">
+                      {workspace.lines.map((line) => (
+                        <button key={line.id} type="button" onClick={() => { setSelectedLineId(line.id); setAdjusting(false); setManualLedgerId('') }} className={`w-full px-4 py-3 text-left hover:bg-zinc-50 ${selectedLineId === line.id ? 'bg-emerald-50/70' : ''}`}>
+                          <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-zinc-800">{line.payee ?? line.narration ?? 'Unlabelled line'}</p><p className="mt-0.5 text-xs text-zinc-500">{line.tx_date} · {line.direction === 'in' ? 'Inflow' : 'Outflow'}</p></div><div className="text-right"><p className="text-sm font-semibold text-zinc-800">{formatPaise(line.amount_paise)}</p><StatusBadge status={line.status} /></div></div>
+                        </button>
+                      ))}
+                    </div>
+                  </Panel>
+
+                  <Panel className="p-0">
+                    <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
+                      <p className="text-sm font-semibold text-zinc-800">Unmatched ledger entries</p>
+                      <span className="text-xs text-zinc-500">{availableLedger.length} in period</span>
+                    </div>
+                    <div className="max-h-64 divide-y divide-zinc-100 overflow-y-auto">
+                      {ledgerQ.isPending ? <p className="px-4 py-3 text-sm text-zinc-500">Loading ledger entries…</p> : availableLedger.length === 0 ? (
+                        <p className="px-4 py-3 text-sm text-zinc-500">No unmatched ledger entries in this period.</p>
+                      ) : availableLedger.map((transaction) => (
+                        <div key={transaction.id} className="flex items-start justify-between gap-3 px-4 py-3">
+                          <div><p className="text-sm font-medium text-zinc-800">{transaction.payee ?? 'No payee'}</p><p className="mt-0.5 text-xs text-zinc-500">{transaction.date} · Ledger #{transaction.id}</p></div>
+                          <p className="text-sm font-semibold text-zinc-800">{formatPaise(transaction.amount_paise)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </Panel>
+                </div>
 
                 <Panel>
                   {!selectedLine ? <p className="py-20 text-center text-sm text-zinc-500">Select a statement line to review it.</p> : <LineWorkspace
@@ -223,10 +253,11 @@ export function ReconciliationPage() {
                     manualLedgerId={manualLedgerId}
                     setManualLedgerId={setManualLedgerId}
                     onConfirmSuggested={(ledgerId) => confirmMut.mutate({ lineId: selectedLine.id, ledgerId, method: 'suggested' })}
+                    onUnmatch={() => unmatchMut.mutate(selectedLine.id)}
                     onIgnore={() => ignoreMut.mutate(selectedLine.id)}
                     onShowAdjust={() => setAdjusting(true)}
                     onManualMatch={() => confirmMut.mutate({ lineId: selectedLine.id, ledgerId: Number(manualLedgerId), method: 'manual' })}
-                    busy={confirmMut.isPending || ignoreMut.isPending || adjustMut.isPending}
+                    busy={confirmMut.isPending || unmatchMut.isPending || ignoreMut.isPending || adjustMut.isPending}
                   />}
                   {adjusting && selectedLine ? (
                     <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
@@ -256,7 +287,7 @@ export function ReconciliationPage() {
 }
 
 function LineWorkspace({
-  line, statementOpen, suggestions, ledger, manualLedgerId, setManualLedgerId, onConfirmSuggested, onIgnore, onShowAdjust, onManualMatch, busy,
+  line, statementOpen, suggestions, ledger, manualLedgerId, setManualLedgerId, onConfirmSuggested, onUnmatch, onIgnore, onShowAdjust, onManualMatch, busy,
 }: {
   line: ReconStatementLine
   statementOpen: boolean
@@ -265,6 +296,7 @@ function LineWorkspace({
   manualLedgerId: string
   setManualLedgerId: (value: string) => void
   onConfirmSuggested: (ledgerId: number) => void
+  onUnmatch: () => void
   onIgnore: () => void
   onShowAdjust: () => void
   onManualMatch: () => void
@@ -274,7 +306,7 @@ function LineWorkspace({
   return <div>
     <div className="flex items-start justify-between gap-4 border-b border-zinc-100 pb-4"><div><p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Selected statement line</p><p className="mt-1 text-lg font-semibold text-zinc-900">{line.payee ?? line.narration ?? 'Unlabelled line'}</p><p className="text-sm text-zinc-500">{line.tx_date} · {line.direction === 'in' ? 'Inflow' : 'Outflow'} · {formatPaise(line.amount_paise)}</p></div><StatusBadge status={line.status} /></div>
     {line.status === 'ignored' ? <p className="mt-4 text-sm text-zinc-500">Ignored{line.ignore_reason ? `: ${line.ignore_reason}` : '.'}</p> : null}
-    {line.status === 'matched' ? <p className="mt-4 text-sm text-emerald-700">This line is confirmed against the ledger.</p> : null}
+    {line.status === 'matched' ? <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-emerald-700">This line is confirmed against the ledger.</p>{statementOpen ? <button type="button" onClick={onUnmatch} disabled={busy} className="rounded-lg border border-amber-200 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50">Unmatch</button> : null}</div> : null}
     {canAct ? <div className="mt-5 space-y-5">
       <div><p className="text-sm font-semibold text-zinc-800">Suggested matches</p>{suggestions.length === 0 ? <p className="mt-1 text-sm text-zinc-500">Run “Suggest matches” to search the ledger by amount, date, and payee.</p> : <div className="mt-2 space-y-2">{suggestions.map((proposal) => <div key={proposal.ledger_transaction_id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 p-3"><div><p className="text-sm font-medium text-zinc-800">Ledger transaction #{proposal.ledger_transaction_id}</p><p className="text-xs text-zinc-500">{proposal.reasons.join(' · ')} · {Math.round(proposal.score * 100)}% confidence</p></div><button type="button" onClick={() => onConfirmSuggested(proposal.ledger_transaction_id)} disabled={busy} className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">Confirm</button></div>)}</div>}</div>
       <div className="border-t border-zinc-100 pt-5"><p className="text-sm font-semibold text-zinc-800">Manual match</p><div className="mt-2 flex gap-2"><select value={manualLedgerId} onChange={(event) => setManualLedgerId(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"><option value="">Choose unmatched ledger entry…</option>{ledger.map((transaction) => <option key={transaction.id} value={transaction.id}>{transaction.date} · {transaction.payee ?? 'No payee'} · {formatPaise(transaction.amount_paise)}</option>)}</select><button type="button" onClick={onManualMatch} disabled={!manualLedgerId || busy} className="rounded-lg border border-emerald-200 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">Match</button></div></div>

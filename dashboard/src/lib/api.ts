@@ -1976,6 +1976,13 @@ export async function confirmReconMatch(
   await parseJson(res)
 }
 
+export async function unmatchReconLine(statementId: number, lineId: number): Promise<void> {
+  const res = await apiFetch(`${apiBase()}/api/recon/statements/${statementId}/lines/${lineId}/unmatch`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`)
+}
+
 export async function ignoreReconLine(statementId: number, lineId: number, reason?: string): Promise<void> {
   const res = await apiFetch(`${apiBase()}/api/recon/statements/${statementId}/lines/${lineId}/ignore`, {
     method: 'POST',
