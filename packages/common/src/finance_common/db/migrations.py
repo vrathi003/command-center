@@ -57,6 +57,16 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
         await conn.execute(
             "ALTER TABLE investments ADD COLUMN equity_tax_class TEXT DEFAULT 'unspecified'"
         )
+    if "account_id" not in inv_cols:
+        await conn.execute(
+            "ALTER TABLE investments ADD COLUMN account_id INTEGER REFERENCES accounts(id)"
+        )
+
+    fi_cols = await _column_names(conn, "fixed_income")
+    if "account_id" not in fi_cols:
+        await conn.execute(
+            "ALTER TABLE fixed_income ADD COLUMN account_id INTEGER REFERENCES accounts(id)"
+        )
     await conn.commit()
 
     cur = await conn.execute(

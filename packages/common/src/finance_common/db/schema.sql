@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS investments (
     last_synced TEXT,
     sector TEXT,
     equity_tax_class TEXT DEFAULT 'unspecified',
+    account_id INTEGER REFERENCES accounts(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -97,6 +98,7 @@ CREATE TABLE IF NOT EXISTS fixed_income (
     rate_percent REAL,
     start_date TEXT,
     maturity_date TEXT,
+    account_id INTEGER REFERENCES accounts(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
