@@ -1,19 +1,16 @@
-# Task 3 Report — record-charge ledger post
+# W2 Net Worth — Acceptance Report
+**Branch:** `feature/wealth-net-worth-w2` · **Date:** 2026-08-11
 
-**Status:** Done  
-**Commit:** (see parent return)  
-**Tests:** 4 passed in `tests/test_subscription_charge_ledger.py`
+## Verification
+- W2 suite: **5 passed** (`tests/test_net_worth_composed.py`)
+- Ledger write guard: **passed** (`make check-ledger-writes`)
+- Full suite: **453 passed** (`uv run pytest tests/test_net_worth_composed.py tests/ -q --tb=line`)
 
-## Delivered
-- `subscription_charge.py`: `post_subscription_charge`, `advance_billing_date`, `uncategorized_expense_id`
-- Schemas: `RecordChargeBody`, `RecordChargeOut`
-- Route: `POST /subscriptions/{id}/record-charge` (201, double_entry only)
-- Ledger: `build_bank_expense` / `build_cc_swipe`, source `subscription`, advances `next_billing_date`
+## Scope
+Composed net worth lens when `ledger_engine=double_entry`: `net_worth_totals` minus linked inv/FI ledger cost plus MV/principal overlay and real assets; unbound debt/CC add-ons for liabilities. `compute_totals_from_holdings` dispatches composed vs legacy holdings-only. Snapshot API and month-end job unchanged (already call dispatcher).
 
-## Coverage
-- Bank charge reduces asset / increases expense; monthly advance
-- CC swipe credits liability; default category `Subscriptions`
-- Missing account → 422; legacy engine → 422; no legacy `transactions` rows
+## Spec §6 checklist
+Composed compute ✅ · snapshots/job via dispatcher ✅ · legacy path preserved ✅ · W3 Income next ✅
 
-## Out of scope
-- Task 4 dashboard UI; Task 5 acceptance; `uv.lock`
+## Known Issues
+None. Cash completeness note: unlinked bank accounts remain off NW until opening-seeded (documented in spec §6.3).

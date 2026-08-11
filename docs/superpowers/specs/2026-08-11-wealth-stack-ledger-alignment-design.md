@@ -37,11 +37,11 @@ Align **Investments**, **Fixed income**, **Net Worth**, **Income & Tax**, and (l
 | Phase | Name | Deliverable |
 |-------|------|-------------|
 | **W1** ✅ Done | Investments + Fixed income | `account_id`; seed opening; Record buy/SIP/sell; Record FI deposit/maturity; builders · [acceptance report](../../../.superpowers/sdd/task-7-report.md) |
-| **W2** | Net Worth | Composed lens + snapshot job / API / dashboard KPI |
+| **W2** ✅ Done | Net Worth | Composed lens + snapshot job / API / dashboard KPI · [acceptance report](../../../.superpowers/sdd/task-3-report.md) |
 | **W3** | Income | Record income from streams; savings rate from ledger credits |
 | **W4** (later) | Goals → instruments | Link goal → holding/account; progress from ledger/MV |
 
-This document is the umbrella spec. **W2 Net Worth is next.**
+This document is the umbrella spec. **W3 Income is next.**
 
 ---
 
