@@ -7,6 +7,8 @@ from datetime import date
 
 import aiosqlite
 
+from finance_common.project_config import uses_ledger_books
+
 
 @dataclass(frozen=True, slots=True)
 class EffectiveBudgetRow:
@@ -113,7 +115,9 @@ async def rename_category_for_fy(
     new_category: str,
     fy_year: str,
 ) -> None:
-    """Rename a category for budgets (current FY), transactions, merchant map, and goals.
+    """Rename a category for budgets (current FY), books, merchant map/rules, and goals.
+
+    When ``ledger_engine`` is double_entry, also renames ``ledger_postings.category``.
 
     Raises:
         ValueError: ``invalid_rename`` if names are empty or equal.
@@ -151,18 +155,32 @@ async def rename_category_for_fy(
                 """,
                 (new, fy_year, old),
             )
+        if await uses_ledger_books(conn):
+            await conn.execute(
+                "UPDATE ledger_postings SET category = ? WHERE category = ?",
+                (new, old),
+            )
+        else:
+            await conn.execute(
+                """
+                UPDATE transactions
+                SET category = ?, updated_at = datetime('now')
+                WHERE category = ? AND is_deleted = 0
+                """,
+                (new, old),
+            )
         await conn.execute(
             """
-            UPDATE transactions
-            SET category = ?, updated_at = datetime('now')
-            WHERE category = ? AND is_deleted = 0
+            UPDATE merchant_category_map
+            SET category = ?, last_used = datetime('now')
+            WHERE category = ?
             """,
             (new, old),
         )
         await conn.execute(
             """
-            UPDATE merchant_category_map
-            SET category = ?, last_used = datetime('now')
+            UPDATE merchant_rules
+            SET category = ?, updated_at = datetime('now')
             WHERE category = ?
             """,
             (new, old),

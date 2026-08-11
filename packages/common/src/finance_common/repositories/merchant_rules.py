@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import aiosqlite
 
+from finance_common.project_config import uses_ledger_books
 from finance_common.repositories import statement_import as si_repo
 
 
@@ -287,10 +288,67 @@ async def bulk_apply_rule_to_statement_import(conn: aiosqlite.Connection, rule_i
 
 
 async def bulk_apply_rule(conn: aiosqlite.Connection, rule_id: int) -> tuple[int, int]:
-    """Retroactively apply a rule to ledger transactions and statement-import preview."""
-    ledger = await bulk_apply_rule_to_transactions(conn, rule_id)
+    """Retroactively apply a rule to books + statement-import preview.
+
+    Under ``ledger_engine=double_entry`` updates posted ledger payee/category;
+    otherwise updates legacy ``transactions`` rows.
+    """
+    if await uses_ledger_books(conn):
+        ledger = await bulk_apply_rule_to_ledger(conn, rule_id)
+    else:
+        ledger = await bulk_apply_rule_to_transactions(conn, rule_id)
     statement = await bulk_apply_rule_to_statement_import(conn, rule_id)
     return ledger, statement
+
+
+async def bulk_apply_rule_to_ledger(conn: aiosqlite.Connection, rule_id: int) -> int:
+    """Apply category + canonical payee to matching posted ledger transactions."""
+    rule = await get_rule(conn, rule_id)
+    if rule is None:
+        return 0
+    if rule.match_type == "exact":
+        cur = await conn.execute(
+            """
+            SELECT id FROM ledger_transactions
+            WHERE status = 'posted' AND payee IS NOT NULL AND LOWER(payee) = ?
+            """,
+            (rule.match_value,),
+        )
+    else:
+        cur = await conn.execute(
+            """
+            SELECT id FROM ledger_transactions
+            WHERE status = 'posted'
+              AND payee IS NOT NULL
+              AND LOWER(payee) LIKE '%' || ? || '%'
+            """,
+            (rule.match_value,),
+        )
+    tx_ids = [int(row[0]) for row in await cur.fetchall()]
+    if not tx_ids:
+        return 0
+    placeholders = ", ".join("?" for _ in tx_ids)
+    await conn.execute(
+        f"""
+        UPDATE ledger_postings
+        SET category = ?
+        WHERE transaction_id IN ({placeholders})
+          AND account_id IN (
+              SELECT id FROM accounts WHERE account_class IN ('expense', 'income')
+          )
+        """,  # noqa: S608
+        (rule.category, *tx_ids),
+    )
+    await conn.execute(
+        f"""
+        UPDATE ledger_transactions
+        SET payee = ?, updated_at = datetime('now')
+        WHERE id IN ({placeholders})
+        """,  # noqa: S608
+        (rule.canonical_merchant, *tx_ids),
+    )
+    await conn.commit()
+    return len(tx_ids)
 
 
 async def bulk_apply_rule_to_transactions(conn: aiosqlite.Connection, rule_id: int) -> int:
