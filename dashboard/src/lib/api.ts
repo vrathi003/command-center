@@ -1740,6 +1740,7 @@ export async function approveEmailTransaction(
     parsed_transaction_type?: string | null
     account_id?: number | null
     notes?: string | null
+    force?: boolean
   },
 ): Promise<StagedEmailTransaction> {
   const res = await apiFetch(`${apiBase()}/api/email-inbox/${id}/approve`, {
@@ -1773,6 +1774,7 @@ export async function approveAsTransfer(body: {
   tx_date?: string | null
   amount_paise?: number | null
   notes?: string | null
+  force?: boolean
 }): Promise<ApproveAsTransferResult> {
   const res = await apiFetch(`${apiBase()}/api/email-inbox/approve-as-transfer`, {
     method: 'POST',

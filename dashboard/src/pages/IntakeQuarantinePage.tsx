@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Inbox, RefreshCw, XCircle } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { PageHero } from '@/components/ui/PageHero'
 import { Panel } from '@/components/ui/Panel'
@@ -205,11 +206,23 @@ function CandidateReviewModal({
 
 export function IntakeQuarantinePage() {
   const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
+  const highlightCandidateId = useMemo(() => {
+    const raw = searchParams.get('candidate')
+    if (!raw) return null
+    const parsed = Number.parseInt(raw, 10)
+    return Number.isFinite(parsed) ? parsed : null
+  }, [searchParams])
   const [reviewing, setReviewing] = useState<IntakeCandidate | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [reasonFilter, setReasonFilter] = useState<
     'all' | 'legacy_migration' | 'needs_opening_balance' | 'other'
   >('all')
+
+  useEffect(() => {
+    if (highlightCandidateId == null) return
+    setReasonFilter('all')
+  }, [highlightCandidateId])
 
   const candidatesQ = useQuery({
     queryKey: ['intake-candidates', 'pending'],
@@ -246,6 +259,9 @@ export function IntakeQuarantinePage() {
   const candidates = candidatesQ.data ?? []
   const accounts = accountsQ.data ?? []
   const filteredCandidates = candidates.filter((candidate) => {
+    if (highlightCandidateId != null && candidate.id !== highlightCandidateId) {
+      return false
+    }
     if (reasonFilter === 'all') return true
     if (reasonFilter === 'other') {
       return (
@@ -291,6 +307,11 @@ export function IntakeQuarantinePage() {
         </Panel>
       ) : (
         <Panel className="overflow-hidden p-0">
+          {highlightCandidateId != null ? (
+            <div className="border-b border-amber-100 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+              Showing candidate #{highlightCandidateId} from email inbox link.
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2 border-b border-zinc-100 px-4 py-3">
             {(
               [
@@ -334,7 +355,13 @@ export function IntakeQuarantinePage() {
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {filteredCandidates.map((candidate) => (
-                  <tr key={candidate.id} className="align-top">
+                  <tr
+                    key={candidate.id}
+                    className={[
+                      'align-top',
+                      highlightCandidateId === candidate.id ? 'bg-amber-50 ring-1 ring-inset ring-amber-200' : '',
+                    ].join(' ')}
+                  >
                     <td className="px-4 py-4">
                       <p className="font-medium text-zinc-800">{candidate.payee ?? 'Unknown payee'}</p>
                       <p className="mt-0.5 text-xs text-zinc-500">

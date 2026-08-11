@@ -14,3 +14,5 @@ Implement **one phase plan at a time**. Each plan must leave the repo green and 
 | **P6** | write after P3 | EMI split polish, NW completeness, investment posting alignment | P3 |
 
 **Execution rule:** Do not start P3 until P1 golden lens tests pass on real migrated samples in a dry-run.
+
+**Related (P2 extension):** Gmail inbox approve path aligned with Intake bridge — [`2026-08-11-gmail-intake-alignment`](./2026-08-11-gmail-intake-alignment.md) · [acceptance report](../../../.superpowers/sdd/p-gmail-intake-acceptance-report.md)
