@@ -68,21 +68,53 @@ Pull latest `main`, restart the three services once so schema migrations apply, 
 
 ---
 
-## 8. Budget (`/budget`)
+## 8. Investments + Fixed income (`/investments`)
+
+1. After API restart, existing holdings/FI **auto-seed** ledger accounts (cost/principal vs Opening Balance Equity — not a fake bank hit).
+2. **Record buy / SIP / sell** on a holding → posts transfer bank ↔ investment; updates units/avg. Does **not** count as budget spend.
+3. FI: **Record deposit / maturity** → bank ↔ instrument; updates principal.
+4. Price sync still updates market price only (P&L / MV on the page). Ledger stays at **cost**.
+
+---
+
+## 9. Net Worth (`/net-worth`)
+
+1. Snapshots / month-end job use the **composed lens**: ledger BS − inv/FI cost + holdings MV / FI principal (+ real assets).
+2. Take a snapshot from the page (compute from holdings) to refresh the chart after big buys/sells.
+3. Old history rows are left as-is.
+
+---
+
+## 10. Income & Tax (`/income`)
+
+1. Streams stay **planning** (expected salary etc.).
+2. When money arrives → **Record income** on the stream (prefilled amount/bank/category) → ledger bank income.
+3. Dashboard **savings rate** uses real ledger income credits (not the plan figure).
+4. Tax regime / 80C / 80D remain settings only.
+
+---
+
+## 11. Goals (`/goals`)
+
+Still manual progress trackers this package. Later: link each goal to an instrument.
+
+---
+
+## 12. Budget (`/budget`)
 
 1. Caps vs actual still work; spend lenses read ledger-backed activity after cutover.
 2. Watch **Alerts** at ~75% / over budget instead of relying on Discord DMs.
 
 ---
 
-## 9. Reconciliation (`/reconciliation`)
+## 13. Reconciliation (`/reconciliation`)
 
 1. Upload / match statement periods against ledger postings (dual-books control).
 2. Resolve unmatched items; don’t invent unpaired transfers in the old sense.
 
 ---
 
-## 10. Settings (`/settings`)
+## 14. Settings (`/settings`)
 
 1. Confirm FY and that **ledger engine** stays `double_entry`.
 2. Leave Discord off unless you explicitly want it as a channel later.
@@ -99,6 +131,10 @@ Pull latest `main`, restart the three services once so schema migrations apply, 
 | Paid CC bill from bank | Credit card detail | Pay bill |
 | EMI left the bank | Debt | Record EMI (or let auto-post if linked) |
 | Netflix / SaaS billed | Recurring | Record charge |
+| Bought SIP / shares | Investments | Record buy / SIP |
+| FD topped up / matured | Investments (FI) | Record deposit / maturity |
+| Salary credited | Income | Record income |
+| Refresh NW after trades | Net Worth | Snapshot from holdings |
 | Got a warning | Alerts | Ack |
 | Statement vs books | Reconciliation | Match / fix |
 
