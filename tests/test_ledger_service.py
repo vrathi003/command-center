@@ -278,6 +278,19 @@ def test_build_investment_buy() -> None:
     _assert_balanced(postings)
 
 
+def test_build_investment_sell() -> None:
+    postings = builders.build_investment_sell(
+        bank_id=1,
+        investment_account_id=6,
+        amount_paise=100_000,
+    )
+    assert postings == (
+        NewPosting(1, 100_000),
+        NewPosting(6, -100_000),
+    )
+    _assert_balanced(postings)
+
+
 def test_build_emi_payment() -> None:
     postings = builders.build_emi_payment(
         bank_id=1,
