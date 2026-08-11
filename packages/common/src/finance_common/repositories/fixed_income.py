@@ -17,6 +17,14 @@ class FixedIncomeRow:
     rate_percent: float | None
     start_date: str | None
     maturity_date: str | None
+    account_id: int | None = None
+
+
+_FIXED_INCOME_SELECT = """
+    SELECT id, institution, type, principal_paise, rate_percent, start_date, maturity_date,
+           account_id
+    FROM fixed_income
+"""
 
 
 def _fi_tuple(r: tuple[Any, ...]) -> FixedIncomeRow:
@@ -28,16 +36,13 @@ def _fi_tuple(r: tuple[Any, ...]) -> FixedIncomeRow:
         rate_percent=float(r[4]) if r[4] is not None else None,
         start_date=str(r[5]) if r[5] is not None else None,
         maturity_date=str(r[6]) if r[6] is not None else None,
+        account_id=int(r[7]) if r[7] is not None else None,
     )
 
 
 async def list_fixed_income(conn: aiosqlite.Connection) -> list[FixedIncomeRow]:
     cur = await conn.execute(
-        """
-        SELECT id, institution, type, principal_paise, rate_percent, start_date, maturity_date
-        FROM fixed_income
-        ORDER BY maturity_date IS NULL, maturity_date, institution
-        """,
+        _FIXED_INCOME_SELECT + " ORDER BY maturity_date IS NULL, maturity_date, institution",
     )
     rows = await cur.fetchall()
     return [_fi_tuple(tuple(r)) for r in rows]
@@ -58,10 +63,7 @@ async def total_principal(conn: aiosqlite.Connection) -> tuple[int, int]:
 
 async def get_fixed_income(conn: aiosqlite.Connection, fi_id: int) -> FixedIncomeRow | None:
     cur = await conn.execute(
-        """
-        SELECT id, institution, type, principal_paise, rate_percent, start_date, maturity_date
-        FROM fixed_income WHERE id = ?
-        """,
+        _FIXED_INCOME_SELECT + " WHERE id = ?",
         (fi_id,),
     )
     r = await cur.fetchone()
@@ -99,7 +101,8 @@ async def update_fixed_income_row(conn: aiosqlite.Connection, row: FixedIncomeRo
         """
         UPDATE fixed_income SET
             institution = ?, type = ?, principal_paise = ?, rate_percent = ?,
-            start_date = ?, maturity_date = ?, updated_at = datetime('now')
+            start_date = ?, maturity_date = ?, account_id = ?,
+            updated_at = datetime('now')
         WHERE id = ?
         """,
         (
@@ -109,8 +112,22 @@ async def update_fixed_income_row(conn: aiosqlite.Connection, row: FixedIncomeRo
             row.rate_percent,
             row.start_date,
             row.maturity_date,
+            row.account_id,
             row.id,
         ),
+    )
+    await conn.commit()
+
+
+async def set_fixed_income_account_id(
+    conn: aiosqlite.Connection, fi_id: int, account_id: int
+) -> None:
+    await conn.execute(
+        """
+        UPDATE fixed_income SET account_id = ?, updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (account_id, fi_id),
     )
     await conn.commit()
 

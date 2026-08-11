@@ -20,6 +20,15 @@ class InvestmentRow:
     last_synced: str | None
     sector: str | None
     equity_tax_class: str
+    account_id: int | None = None
+
+
+_INVESTMENT_SELECT = """
+    SELECT id, instrument, type, isin_code, units,
+           avg_price_paise, current_price_paise, last_synced,
+           sector, equity_tax_class, account_id
+    FROM investments
+"""
 
 
 def _inv_tuple(r: tuple[Any, ...]) -> InvestmentRow:
@@ -34,18 +43,13 @@ def _inv_tuple(r: tuple[Any, ...]) -> InvestmentRow:
         last_synced=str(r[7]) if r[7] is not None else None,
         sector=str(r[8]) if r[8] is not None else None,
         equity_tax_class=str(r[9]) if r[9] is not None else "unspecified",
+        account_id=int(r[10]) if r[10] is not None else None,
     )
 
 
 async def list_investments(conn: aiosqlite.Connection) -> list[InvestmentRow]:
     cur = await conn.execute(
-        """
-        SELECT id, instrument, type, isin_code, units,
-               avg_price_paise, current_price_paise, last_synced,
-               sector, equity_tax_class
-        FROM investments
-        ORDER BY type, instrument
-        """,
+        _INVESTMENT_SELECT + " ORDER BY type, instrument",
     )
     rows = await cur.fetchall()
     return [_inv_tuple(tuple(r)) for r in rows]
@@ -53,12 +57,7 @@ async def list_investments(conn: aiosqlite.Connection) -> list[InvestmentRow]:
 
 async def get_investment(conn: aiosqlite.Connection, inv_id: int) -> InvestmentRow | None:
     cur = await conn.execute(
-        """
-        SELECT id, instrument, type, isin_code, units,
-               avg_price_paise, current_price_paise, last_synced,
-               sector, equity_tax_class
-        FROM investments WHERE id = ?
-        """,
+        _INVESTMENT_SELECT + " WHERE id = ?",
         (inv_id,),
     )
     r = await cur.fetchone()
@@ -91,7 +90,7 @@ async def update_investment_row(conn: aiosqlite.Connection, row: InvestmentRow) 
         UPDATE investments SET
             instrument = ?, type = ?, isin_code = ?, units = ?,
             avg_price_paise = ?, current_price_paise = ?, last_synced = ?,
-            sector = ?, equity_tax_class = ?,
+            sector = ?, equity_tax_class = ?, account_id = ?,
             updated_at = datetime('now')
         WHERE id = ?
         """,
@@ -105,8 +104,22 @@ async def update_investment_row(conn: aiosqlite.Connection, row: InvestmentRow) 
             row.last_synced,
             row.sector,
             row.equity_tax_class,
+            row.account_id,
             row.id,
         ),
+    )
+    await conn.commit()
+
+
+async def set_investment_account_id(
+    conn: aiosqlite.Connection, inv_id: int, account_id: int
+) -> None:
+    await conn.execute(
+        """
+        UPDATE investments SET account_id = ?, updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (account_id, inv_id),
     )
     await conn.commit()
 

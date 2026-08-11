@@ -16,6 +16,7 @@ class InvestmentOut(BaseModel):
     last_synced: str | None
     sector: str | None = None
     equity_tax_class: str = "unspecified"
+    account_id: int | None = None
     cost_basis_paise: int | None = Field(
         default=None,
         description="units × avg_price when both set.",
@@ -65,6 +66,7 @@ class FixedIncomeOut(BaseModel):
     rate_percent: float | None
     start_date: str | None
     maturity_date: str | None
+    account_id: int | None = None
 
 
 class FixedIncomeSummaryOut(BaseModel):
@@ -88,3 +90,7 @@ class FixedIncomePutBody(BaseModel):
     rate_percent: float | None = None
     start_date: str | None = None
     maturity_date: str | None = None
+
+
+class WealthEnsureLedgerOut(BaseModel):
+    ok: bool

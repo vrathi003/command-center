@@ -14,7 +14,13 @@ from finance_api.schemas.investment import (
     InvestmentOut,
     InvestmentPutBody,
     PortfolioSummaryOut,
+    WealthEnsureLedgerOut,
 )
+from finance_api.services.investment_ledger import (
+    ensure_all_wealth_seeds,
+    ensure_investment_account_and_seed,
+)
+from finance_common.project_config import load_project_config
 from finance_common.repositories import investments as inv_repo
 from finance_common.repositories.investments import InvestmentRow
 
@@ -49,6 +55,7 @@ def _to_out(row: InvestmentRow) -> InvestmentOut:
         last_synced=row.last_synced,
         sector=row.sector,
         equity_tax_class=row.equity_tax_class,
+        account_id=row.account_id,
         cost_basis_paise=cost,
         market_value_paise=mkt,
         unrealized_paise=un,
@@ -58,6 +65,17 @@ def _to_out(row: InvestmentRow) -> InvestmentOut:
 def _merge_row(existing: InvestmentRow, body: InvestmentPutBody) -> InvestmentRow:
     patch = body.model_dump(exclude_unset=True)
     return replace(existing, **patch)
+
+
+async def _ensure_investment_row_if_ledger(
+    conn: aiosqlite.Connection, row: InvestmentRow
+) -> InvestmentRow:
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine != "double_entry":
+        return row
+    await ensure_investment_account_and_seed(conn, row)
+    refreshed = await inv_repo.get_investment(conn, row.id)
+    return refreshed if refreshed is not None else row
 
 
 @router.get("/portfolio-summary", response_model=PortfolioSummaryOut)
@@ -73,11 +91,31 @@ async def portfolio_summary(
     )
 
 
+@router.post("/ensure-ledger", response_model=WealthEnsureLedgerOut)
+async def ensure_wealth_ledger(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+) -> WealthEnsureLedgerOut:
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine != "double_entry":
+        raise HTTPException(
+            status_code=400,
+            detail="ensure-ledger requires double_entry ledger engine",
+        )
+    await ensure_all_wealth_seeds(conn)
+    return WealthEnsureLedgerOut(ok=True)
+
+
 @router.get("/", response_model=list[InvestmentOut])
 async def list_investments(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
 ) -> list[InvestmentOut]:
     rows = await inv_repo.list_investments(conn)
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "double_entry":
+        ensured: list[InvestmentRow] = []
+        for row in rows:
+            ensured.append(await _ensure_investment_row_if_ledger(conn, row))
+        rows = ensured
     return [_to_out(r) for r in rows]
 
 
@@ -101,6 +139,7 @@ async def create_investment(
     row = await inv_repo.get_investment(conn, new_id)
     if row is None:
         raise HTTPException(status_code=500, detail="Failed to load new investment")
+    row = await _ensure_investment_row_if_ledger(conn, row)
     return _to_out(row)
 
 
@@ -112,6 +151,7 @@ async def get_investment(
     row = await inv_repo.get_investment(conn, inv_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Investment not found")
+    row = await _ensure_investment_row_if_ledger(conn, row)
     return _to_out(row)
 
 

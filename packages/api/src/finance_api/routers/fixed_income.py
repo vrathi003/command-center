@@ -15,6 +15,8 @@ from finance_api.schemas.investment import (
     FixedIncomePutBody,
     FixedIncomeSummaryOut,
 )
+from finance_api.services.investment_ledger import ensure_fixed_income_account_and_seed
+from finance_common.project_config import load_project_config
 from finance_common.repositories import fixed_income as fi_repo
 from finance_common.repositories.fixed_income import FixedIncomeRow
 
@@ -30,12 +32,24 @@ def _to_out(row: FixedIncomeRow) -> FixedIncomeOut:
         rate_percent=row.rate_percent,
         start_date=row.start_date,
         maturity_date=row.maturity_date,
+        account_id=row.account_id,
     )
 
 
 def _merge_fi(existing: FixedIncomeRow, body: FixedIncomePutBody) -> FixedIncomeRow:
     patch = body.model_dump(exclude_unset=True)
     return replace(existing, **patch)
+
+
+async def _ensure_fixed_income_row_if_ledger(
+    conn: aiosqlite.Connection, row: FixedIncomeRow
+) -> FixedIncomeRow:
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine != "double_entry":
+        return row
+    await ensure_fixed_income_account_and_seed(conn, row)
+    refreshed = await fi_repo.get_fixed_income(conn, row.id)
+    return refreshed if refreshed is not None else row
 
 
 @router.get("/summary", response_model=FixedIncomeSummaryOut)
@@ -63,6 +77,7 @@ async def create_fixed_income(
     row = await fi_repo.get_fixed_income(conn, fid)
     if row is None:
         raise HTTPException(status_code=500, detail="fixed income not found after insert")
+    row = await _ensure_fixed_income_row_if_ledger(conn, row)
     return _to_out(row)
 
 
@@ -71,6 +86,12 @@ async def list_fixed_income(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
 ) -> list[FixedIncomeOut]:
     rows = await fi_repo.list_fixed_income(conn)
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "double_entry":
+        ensured: list[FixedIncomeRow] = []
+        for row in rows:
+            ensured.append(await _ensure_fixed_income_row_if_ledger(conn, row))
+        rows = ensured
     return [_to_out(r) for r in rows]
 
 
@@ -82,6 +103,7 @@ async def get_fixed_income(
     row = await fi_repo.get_fixed_income(conn, fi_id)
     if row is None:
         raise HTTPException(status_code=404, detail="fixed income not found")
+    row = await _ensure_fixed_income_row_if_ledger(conn, row)
     return _to_out(row)
 
 
