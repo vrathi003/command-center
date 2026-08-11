@@ -86,7 +86,7 @@ import type {
   ReconWorkspace,
 } from '@/types/api'
 
-function apiBase(): string {
+export function apiBase(): string {
   return import.meta.env.VITE_API_URL?.replace(/\/$/, '') ?? ''
 }
 
