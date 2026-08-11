@@ -35,6 +35,10 @@ from finance_api.settings import ApiSettings
 from finance_common.fy import current_fy_from_date, fy_start
 from finance_common.intake import Candidate, make_external_key
 from finance_common.intake.service import ingest
+from finance_common.ledger import builders
+from finance_common.ledger import service as ledger_service
+from finance_common.ledger.errors import LedgerError
+from finance_common.ledger.models import PostTransactionInput
 from finance_common.parsing.credit_card_statement import (
     _classify_cc_description,
     infer_cc_payment_mode,
@@ -394,6 +398,7 @@ async def get_live_balance(
 @router.post("/{card_id}/pay-bill", response_model=dict, status_code=201)
 async def pay_bill(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
     card_id: int,
     body: PayBillBody,
 ) -> dict:
@@ -421,6 +426,30 @@ async def pay_bill(
     cc_acc = await accounts_repo.get_account(conn, card.account_id)
     if cc_acc is None:
         raise HTTPException(status_code=404, detail="CC linked account not found")
+
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "double_entry":
+        require_ledger_writes(request)
+        try:
+            ledger_transaction_id = await ledger_service.post(
+                conn,
+                PostTransactionInput(
+                    tx_date=tx_date,
+                    postings=builders.build_cc_bill_pay(
+                        bank_id=body.from_account_id,
+                        cc_id=card.account_id,
+                        amount_paise=body.amount_paise,
+                    ),
+                    payee=card.name,
+                    notes=body.notes or f"CC bill payment · {card.name}",
+                    source="dashboard",
+                    external_key=f"cc_bill:{card_id}:{body.date}:{body.amount_paise}",
+                ),
+            )
+        except LedgerError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"ledger_transaction_id": ledger_transaction_id}
+
     out_id, in_id, pair_id = await tx_repo.insert_transfer_pair(
         conn,
         amount_paise=Paise(body.amount_paise),
@@ -430,6 +459,7 @@ async def pay_bill(
         from_account_name=from_acc.name,
         to_account_name=cc_acc.name,
         notes=body.notes or f"CC bill payment · {card.name}",
+        tags=None,
         source="dashboard",
     )
     return {
