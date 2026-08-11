@@ -24,6 +24,9 @@ async def ensure_database(db_path: Path) -> None:
     """Create parent directory if needed and apply schema."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(db_path) as conn:
+        # schema.sql uses CREATE TABLE IF NOT EXISTS (won't add columns on existing
+        # tables). Indexes that depend on migrated columns must live in
+        # apply_migrations only — not here — or boot fails on upgraded DBs.
         await conn.executescript(schema_sql())
         await ensure_defaults(conn)
         await apply_migrations(conn)

@@ -899,7 +899,8 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_type TEXT NOT NULL,
                 payload_json TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                processed_at TEXT
             );
             """
         )

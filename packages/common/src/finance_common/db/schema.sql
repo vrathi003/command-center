@@ -674,8 +674,9 @@ CREATE TABLE IF NOT EXISTS domain_events (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     processed_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_domain_events_unprocessed
-    ON domain_events(id) WHERE processed_at IS NULL;
+-- idx_domain_events_unprocessed is created in migrations.py after processed_at
+-- is guaranteed to exist (CREATE TABLE IF NOT EXISTS won't add the column on
+-- older DBs that already have domain_events).
 
 CREATE TABLE IF NOT EXISTS alert_notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
