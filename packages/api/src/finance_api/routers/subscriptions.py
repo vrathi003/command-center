@@ -44,6 +44,7 @@ def _to_out(row: SubscriptionRow) -> SubscriptionOut:
         next_billing_date=row.next_billing_date,
         notes=row.notes,
         is_active=row.is_active,
+        account_id=row.account_id,
     )
 
 
@@ -79,6 +80,7 @@ async def create_subscription(
         next_billing_date=body.next_billing_date,
         notes=body.notes.strip() if body.notes else None,
         is_active=body.is_active,
+        account_id=body.account_id,
     )
     row = await sub_repo.get_subscription(conn, sid)
     if row is None:

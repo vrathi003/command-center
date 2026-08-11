@@ -6,6 +6,7 @@ from pathlib import Path
 
 import aiosqlite
 import pytest
+from starlette.testclient import TestClient
 
 from finance_common.db import ensure_database
 from finance_common.db.migrations import apply_migrations
@@ -63,3 +64,30 @@ async def test_migrations_add_subscription_account_id(tmp_path: Path) -> None:
         await apply_migrations(conn)
         after = await _subscription_columns(conn)
         assert "account_id" in after
+
+
+def test_create_subscription_with_account_id_round_trip(api_client: TestClient) -> None:
+    bank = api_client.post(
+        "/api/accounts/",
+        json={"name": "HDFC Savings", "type": "savings", "account_class": "asset_cash"},
+    )
+    assert bank.status_code == 201, bank.text
+    account_id = int(bank.json()["id"])
+
+    created = api_client.post(
+        "/api/subscriptions/",
+        json={
+            "name": "Netflix",
+            "amount_paise": 649_00,
+            "billing_cycle": "monthly",
+            "account_id": account_id,
+        },
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["account_id"] == account_id
+    sub_id = int(body["id"])
+
+    fetched = api_client.get(f"/api/subscriptions/{sub_id}")
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["account_id"] == account_id

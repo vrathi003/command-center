@@ -19,6 +19,7 @@ class SubscriptionRow:
     next_billing_date: str | None
     notes: str | None
     is_active: bool
+    account_id: int | None
 
 
 def monthly_equivalent_paise(amount_paise: int, billing_cycle: str) -> int:
@@ -46,6 +47,7 @@ def _row_from_tuple(r: tuple[Any, ...]) -> SubscriptionRow:
         next_billing_date=str(r[6]) if r[6] is not None else None,
         notes=str(r[7]) if r[7] is not None else None,
         is_active=bool(int(r[8])),
+        account_id=int(r[9]) if r[9] is not None else None,
     )
 
 
@@ -58,7 +60,7 @@ async def list_subscriptions(
         cur = await conn.execute(
             """
             SELECT id, name, provider, category, amount_paise, billing_cycle,
-                   next_billing_date, notes, is_active
+                   next_billing_date, notes, is_active, account_id
             FROM subscriptions
             WHERE is_active = 1
             ORDER BY name
@@ -68,7 +70,7 @@ async def list_subscriptions(
         cur = await conn.execute(
             """
             SELECT id, name, provider, category, amount_paise, billing_cycle,
-                   next_billing_date, notes, is_active
+                   next_billing_date, notes, is_active, account_id
             FROM subscriptions
             ORDER BY is_active DESC, name
             """,
@@ -81,7 +83,7 @@ async def get_subscription(conn: aiosqlite.Connection, sub_id: int) -> Subscript
     cur = await conn.execute(
         """
         SELECT id, name, provider, category, amount_paise, billing_cycle,
-               next_billing_date, notes, is_active
+               next_billing_date, notes, is_active, account_id
         FROM subscriptions WHERE id = ?
         """,
         (sub_id,),
@@ -101,13 +103,14 @@ async def insert_subscription(
     next_billing_date: str | None,
     notes: str | None,
     is_active: bool = True,
+    account_id: int | None = None,
 ) -> int:
     cur = await conn.execute(
         """
         INSERT INTO subscriptions (
             name, provider, category, amount_paise, billing_cycle,
-            next_billing_date, notes, is_active, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            next_billing_date, notes, is_active, account_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         """,
         (
             name,
@@ -118,6 +121,7 @@ async def insert_subscription(
             next_billing_date,
             notes,
             1 if is_active else 0,
+            account_id,
         ),
     )
     await conn.commit()
@@ -133,7 +137,7 @@ async def update_subscription_row(conn: aiosqlite.Connection, row: SubscriptionR
         """
         UPDATE subscriptions SET
             name = ?, provider = ?, category = ?, amount_paise = ?, billing_cycle = ?,
-            next_billing_date = ?, notes = ?, is_active = ?,
+            next_billing_date = ?, notes = ?, is_active = ?, account_id = ?,
             updated_at = datetime('now')
         WHERE id = ?
         """,
@@ -146,6 +150,7 @@ async def update_subscription_row(conn: aiosqlite.Connection, row: SubscriptionR
             row.next_billing_date,
             row.notes,
             1 if row.is_active else 0,
+            row.account_id,
             row.id,
         ),
     )
