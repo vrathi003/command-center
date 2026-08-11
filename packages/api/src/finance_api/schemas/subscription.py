@@ -41,3 +41,15 @@ class SubscriptionPutBody(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
     is_active: bool | None = None
     account_id: int | None = Field(default=None, gt=0)
+
+
+class RecordChargeBody(BaseModel):
+    date: str
+    amount_paise: int | None = Field(default=None, gt=0)
+    account_id: int | None = Field(default=None, gt=0)
+
+
+class RecordChargeOut(BaseModel):
+    ledger_transaction_id: int
+    next_billing_date: str | None
+    subscription: SubscriptionOut

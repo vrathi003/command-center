@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date as date_cls
 from typing import Annotated
 
 import aiosqlite
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from finance_api.deps import get_conn
+from finance_api.deps_ledger import require_ledger_writes
 from finance_api.schemas.subscription import (
+    RecordChargeBody,
+    RecordChargeOut,
     SubscriptionCreateBody,
     SubscriptionOut,
     SubscriptionPutBody,
 )
+from finance_api.services.subscription_charge import post_subscription_charge
+from finance_common.ledger.errors import LedgerError
+from finance_common.project_config import load_project_config
+from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import subscriptions as sub_repo
 from finance_common.repositories.subscriptions import SubscriptionRow
 
@@ -121,3 +129,62 @@ async def delete_subscription(
     ok = await sub_repo.delete_subscription(conn, subscription_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Subscription not found")
+
+
+@router.post(
+    "/{subscription_id}/record-charge",
+    response_model=RecordChargeOut,
+    status_code=201,
+)
+async def record_charge(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
+    subscription_id: int,
+    body: RecordChargeBody,
+) -> RecordChargeOut:
+    """Post one subscription charge through the ledger and advance billing date."""
+    row = await sub_repo.get_subscription(conn, subscription_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine != "double_entry":
+        raise HTTPException(
+            status_code=422,
+            detail="record-charge requires double_entry ledger engine",
+        )
+
+    payment_account_id = body.account_id or row.account_id
+    if payment_account_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="account_id required (on subscription or in request body)",
+        )
+    if await accounts_repo.get_account(conn, payment_account_id) is None:
+        raise HTTPException(status_code=404, detail="account_id not found")
+
+    try:
+        date_cls.fromisoformat(body.date)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail="invalid date") from e
+
+    require_ledger_writes(request)
+    try:
+        ledger_transaction_id, updated = await post_subscription_charge(
+            conn,
+            sub=row,
+            payment_date=body.date,
+            amount_paise=body.amount_paise,
+            account_id=body.account_id,
+        )
+    except LedgerError as exc:
+        detail = str(exc)
+        if "does not exist" in detail:
+            raise HTTPException(status_code=409, detail=detail) from exc
+        raise HTTPException(status_code=422, detail=detail) from exc
+
+    return RecordChargeOut(
+        ledger_transaction_id=ledger_transaction_id,
+        next_billing_date=updated.next_billing_date,
+        subscription=_to_out(updated),
+    )
