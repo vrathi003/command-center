@@ -9,15 +9,17 @@ import { SectionTitle } from '@/components/ui/SectionTitle'
 import { DEBT_STATUS, DEBT_TYPES } from '@/constants/debt'
 import {
   deleteDebt,
+  fetchAccounts,
   fetchDebtAmortization,
   fetchDebts,
   fetchDebtSummary,
   postDebt,
   putDebt,
+  recordDebtEmi,
   syncAllDebtBalances,
   syncDebtBalance,
 } from '@/lib/api'
-import type { AmortizationRow, DebtOut } from '@/types/api'
+import type { AccountOut, AmortizationRow, DebtOut, RecordEmiOut } from '@/types/api'
 import { formatPaise, formatPaiseCompact } from '@/lib/format'
 
 
@@ -232,6 +234,7 @@ function yearlyRowsBeforeAfterPrepay(
 export function DebtPage() {
   const qc = useQueryClient()
   const [openId, setOpenId] = useState<number | null>(null)
+  const [recordEmiDebtId, setRecordEmiDebtId] = useState<number | null>(null)
 
   const summary = useQuery({
     queryKey: ['debt-summary'],
@@ -547,6 +550,7 @@ export function DebtPage() {
                       setOpenId={setOpenId}
                       onSave={(body) => update.mutate({ id: d.id, body })}
                       onDelete={() => remove.mutate(d.id)}
+                      onRecordEmi={() => setRecordEmiDebtId(d.id)}
                     />
                     {/* Expanded analytics panel */}
                     {openId === d.id && (
@@ -578,6 +582,276 @@ export function DebtPage() {
       </section>
       {update.isError ? <p className="text-sm text-red-600">{String(update.error)}</p> : null}
       {remove.isError ? <p className="text-sm text-red-600">{String(remove.error)}</p> : null}
+      {recordEmiDebtId != null && (
+        <RecordEmiModal
+          debt={debts.data.find((d) => d.id === recordEmiDebtId)!}
+          onClose={() => setRecordEmiDebtId(null)}
+          onSuccess={() => {
+            invalidate()
+            void qc.invalidateQueries({ queryKey: ['debt-amort', recordEmiDebtId] })
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Record EMI modal ──────────────────────────────────────────────────────────
+
+function computeNextEmiSplit(
+  debt: DebtOut,
+  rows: AmortizationRow[],
+  isPhased: boolean,
+  totalPreEmiMonths: number,
+): { principal_paise: number; interest_paise: number; emi_paise: number } {
+  const emi = debt.emi_paise ?? 0
+  const rate = debt.rate_percent ?? 0
+  const monthlyRate = rate / 100 / 12
+
+  if (rows.length === 0) {
+    const interest = Math.round(debt.current_balance_paise * monthlyRate)
+    const principal = Math.max(0, emi - interest)
+    return { principal_paise: principal, interest_paise: interest, emi_paise: emi }
+  }
+
+  const fullEmiRows = rows.filter((r) => r.phase === 'full_emi')
+  const emisPaid = isPhased
+    ? totalPreEmiMonths + Math.min(computeEmisPaid(debt.first_emi_date, fullEmiRows.length), fullEmiRows.length)
+    : computeEmisPaid(debt.first_emi_date, debt.tenure_months)
+
+  const nextRow = rows[emisPaid]
+  if (nextRow) {
+    return {
+      principal_paise: nextRow.principal_paise,
+      interest_paise: nextRow.interest_paise,
+      emi_paise: nextRow.payment_paise,
+    }
+  }
+
+  const interest = Math.round(debt.current_balance_paise * monthlyRate)
+  const principal = Math.max(0, emi - interest)
+  return { principal_paise: principal, interest_paise: interest, emi_paise: emi }
+}
+
+const PAYMENT_ACCOUNT_TYPES = new Set(['savings', 'current', 'wallet', 'credit_card'])
+
+function filterPaymentAccounts(accounts: AccountOut[]): AccountOut[] {
+  return accounts.filter((a) => PAYMENT_ACCOUNT_TYPES.has(a.type))
+}
+
+function RecordEmiModal({
+  debt,
+  onClose,
+  onSuccess,
+}: {
+  debt: DebtOut
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [date, setDate] = useState(debt.next_emi_date ?? today)
+  const [paymentAccountId, setPaymentAccountId] = useState(
+    debt.payment_account_id != null ? String(debt.payment_account_id) : '',
+  )
+  const [overrideSplit, setOverrideSplit] = useState(false)
+  const [principalInput, setPrincipalInput] = useState('')
+  const [interestInput, setInterestInput] = useState('')
+
+  const accounts = useQuery({
+    queryKey: ['accounts', 'active'],
+    queryFn: () => fetchAccounts(true),
+  })
+
+  const amort = useQuery({
+    queryKey: ['debt-amort', debt.id],
+    queryFn: () => fetchDebtAmortization(debt.id),
+  })
+
+  const defaults = useMemo(
+    () =>
+      computeNextEmiSplit(
+        debt,
+        amort.data?.rows ?? [],
+        amort.data?.is_phased ?? false,
+        amort.data?.total_pre_emi_months ?? 0,
+      ),
+    [debt, amort.data],
+  )
+
+  const paymentAccounts = useMemo(
+    () => filterPaymentAccounts(accounts.data ?? []),
+    [accounts.data],
+  )
+
+  const record = useMutation({
+    mutationFn: (): Promise<RecordEmiOut> => {
+      const body: {
+        date: string
+        payment_account_id?: number
+        principal_paise?: number
+        interest_paise?: number
+      } = { date: date.trim() }
+      const acctId = Number.parseInt(paymentAccountId, 10)
+      if (!Number.isNaN(acctId) && acctId > 0) body.payment_account_id = acctId
+      if (overrideSplit) {
+        const p = principalInput.trim() === '' ? null : rupeesToPaise(principalInput)
+        const i = interestInput.trim() === '' ? null : rupeesToPaise(interestInput)
+        if (principalInput.trim() !== '' && p == null) throw new Error('Invalid principal amount')
+        if (interestInput.trim() !== '' && i == null) throw new Error('Invalid interest amount')
+        if (p != null) body.principal_paise = p
+        if (i != null) body.interest_paise = i
+      }
+      return recordDebtEmi(debt.id, body)
+    },
+    onSuccess: () => onSuccess(),
+  })
+
+  const inputCls = 'mt-1 block w-full rounded border border-zinc-200 px-2 py-1.5 text-sm text-zinc-900'
+  const inputNumCls = `${inputCls} text-right tabular-nums`
+
+  const canSubmit =
+    date.trim() !== '' &&
+    (paymentAccountId !== '' || debt.payment_account_id != null) &&
+    !record.isPending
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal
+      onClick={(e) => { if (e.target === e.currentTarget && !record.isPending) onClose() }}
+    >
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-semibold text-zinc-900">Record EMI</h2>
+        <p className="mt-1 text-sm text-zinc-600">{debt.name}</p>
+
+        {debt.account_id == null ? (
+          <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            This loan has no linked ledger account. Record EMI requires double-entry mode with a loan account.
+          </p>
+        ) : null}
+
+        <form
+          className="mt-4 space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!canSubmit) return
+            record.mutate(undefined, { onSuccess: () => onClose() })
+          }}
+        >
+          <label className="block text-xs font-medium text-zinc-600">
+            Payment date
+            <input
+              type="date"
+              className={inputCls}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-600">
+            Pay from (bank account)
+            <select
+              className={inputCls}
+              value={paymentAccountId}
+              onChange={(e) => setPaymentAccountId(e.target.value)}
+              required={debt.payment_account_id == null}
+            >
+              <option value="">— select account —</option>
+              {paymentAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.institution ? ` · ${a.institution}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">EMI split</p>
+            {amort.isPending ? (
+              <p className="mt-2 text-sm text-zinc-500">Loading schedule…</p>
+            ) : (
+              <>
+                <div className="mt-2 flex flex-wrap items-baseline gap-2 text-sm">
+                  <span className="font-bold tabular-nums text-zinc-900">{formatPaise(defaults.emi_paise)}</span>
+                  <span className="text-zinc-400">=</span>
+                  <span className="font-medium tabular-nums text-emerald-700">
+                    {formatPaise(defaults.principal_paise)} principal
+                  </span>
+                  <span className="text-zinc-400">+</span>
+                  <span className="font-medium tabular-nums text-red-600">
+                    {formatPaise(defaults.interest_paise)} interest
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-zinc-400">
+                  Defaults from amortization schedule; server recomputes if omitted.
+                </p>
+              </>
+            )}
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-zinc-700">
+            <input
+              type="checkbox"
+              checked={overrideSplit}
+              onChange={(e) => {
+                setOverrideSplit(e.target.checked)
+                if (e.target.checked && principalInput === '' && interestInput === '') {
+                  setPrincipalInput(String(defaults.principal_paise / 100))
+                  setInterestInput(String(defaults.interest_paise / 100))
+                }
+              }}
+            />
+            Override principal / interest
+          </label>
+
+          {overrideSplit ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-medium text-zinc-600">
+                Principal (₹)
+                <input
+                  className={inputNumCls}
+                  inputMode="decimal"
+                  value={principalInput}
+                  onChange={(e) => setPrincipalInput(e.target.value)}
+                />
+              </label>
+              <label className="text-xs font-medium text-zinc-600">
+                Interest (₹)
+                <input
+                  className={inputNumCls}
+                  inputMode="decimal"
+                  value={interestInput}
+                  onChange={(e) => setInterestInput(e.target.value)}
+                />
+              </label>
+            </div>
+          ) : null}
+
+          {record.isError ? (
+            <p className="text-sm text-red-600">{String(record.error)}</p>
+          ) : null}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              onClick={onClose}
+              disabled={record.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit || debt.account_id == null}
+              className="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-50"
+            >
+              {record.isPending ? 'Recording…' : 'Record EMI'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
@@ -591,6 +865,7 @@ function DebtEditRow({
   setOpenId,
   onSave,
   onDelete,
+  onRecordEmi,
 }: {
   d: DebtOut
   busy: boolean
@@ -598,6 +873,7 @@ function DebtEditRow({
   setOpenId: (n: number | null) => void
   onSave: (body: Partial<DebtOut>) => void
   onDelete: () => void
+  onRecordEmi: () => void
 }) {
   const [name, setName] = useState(d.name)
   const [lender, setLender] = useState(d.lender ?? '')
@@ -679,6 +955,16 @@ function DebtEditRow({
           >
             {openId === d.id ? 'Hide analytics ▲' : 'Analytics ▼'}
           </button>
+          {d.status === 'active' && d.emi_paise != null && d.emi_paise > 0 ? (
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-800 shadow-sm hover:bg-violet-100 disabled:opacity-50"
+              onClick={onRecordEmi}
+            >
+              Record EMI
+            </button>
+          ) : null}
           <button
             type="button" disabled={busy}
             className="rounded-md border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-700 shadow-sm hover:bg-red-50 disabled:opacity-50"

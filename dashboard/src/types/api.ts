@@ -162,6 +162,12 @@ export type DebtOut = {
   tenure_months: number | null
   first_emi_date: string | null
   full_emi_start_date: string | null
+  account_id?: number | null
+  payment_account_id?: number | null
+}
+
+export type RecordEmiOut = {
+  ledger_transaction_id: number
 }
 
 export type LoanDisbursalOut = {
