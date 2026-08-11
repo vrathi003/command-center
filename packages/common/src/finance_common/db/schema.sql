@@ -162,6 +162,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     next_billing_date TEXT,
     notes TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
+    account_id INTEGER REFERENCES accounts(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

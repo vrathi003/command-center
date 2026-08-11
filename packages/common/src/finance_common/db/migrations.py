@@ -76,11 +76,19 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
                 next_billing_date TEXT,
                 notes TEXT,
                 is_active INTEGER NOT NULL DEFAULT 1,
+                account_id INTEGER REFERENCES accounts(id),
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
             CREATE INDEX idx_subscriptions_active ON subscriptions(is_active);
             """
+        )
+        await conn.commit()
+
+    sub_cols = await _column_names(conn, "subscriptions")
+    if sub_cols and "account_id" not in sub_cols:
+        await conn.execute(
+            "ALTER TABLE subscriptions ADD COLUMN account_id INTEGER REFERENCES accounts(id)"
         )
         await conn.commit()
 
