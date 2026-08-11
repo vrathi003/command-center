@@ -1,9 +1,10 @@
-# Task 4 Reconciliation Review Fix
+# Task 4 Email Inbox Uses Intake Bridge
 
-- Confirmed matches now require the statement account posting to use the exact
-  signed amount implied by the statement line: `out` is negative and `in` is
-  positive.
-- Match suggestions apply the same signed amount requirement before scoring.
-- The existing ledger builder tests verify credit-card swipes post `-amount`
-  to the liability account and bill payments post `+amount`.
-- Added regressions for opposite-direction candidates and manual confirmation.
+- `email_inbox.py` double_entry approve/transfer now delegate to `email_bridge`; errors mapped 404/409/422.
+- Soft-dupe without force returns **200** + `status=quarantined` + `intake_candidate_id` (no 409).
+- `StagedEmailOut` + stats include `intake_candidate_id` / `quarantined` count.
+- Reject staging rejects linked pending candidate + event; undo uses `reset_by_ledger_transaction_ids`.
+- `intake.py` approve/reject syncs linked staging rows via `email_staging_id` + `get_by_intake_candidate_id`.
+- Force approve updates existing quarantine candidate via `update_candidate_status(..., posted)`.
+- 9 new/updated API tests + 1 bridge test — 27 related tests pass.
+- Commit: `feat(api): email inbox uses intake bridge`

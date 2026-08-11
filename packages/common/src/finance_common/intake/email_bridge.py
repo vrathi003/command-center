@@ -18,7 +18,7 @@ from finance_common.project_config import load_project_config
 from finance_common.repositories import email_staging as staging_repo
 from finance_common.repositories.domain_events import append_event
 from finance_common.repositories.email_staging import StagedEmailRow
-from finance_common.repositories.intake_candidates import save_candidate
+from finance_common.repositories.intake_candidates import save_candidate, update_candidate_status
 
 
 class EmailStagingNotFoundError(LookupError):
@@ -227,12 +227,21 @@ async def approve_staged_item(
         except (IntakePlanError, LedgerError) as exc:
             raise ValueError(str(exc)) from exc
 
-        await save_candidate(
-            conn,
-            candidate,
-            status="posted",
-            ledger_transaction_id=ledger_transaction_id,
-        )
+        if row.intake_candidate_id is not None:
+            await update_candidate_status(
+                conn,
+                row.intake_candidate_id,
+                status="posted",
+                ledger_transaction_id=ledger_transaction_id,
+                clear_quarantine_reason=True,
+            )
+        else:
+            await save_candidate(
+                conn,
+                candidate,
+                status="posted",
+                ledger_transaction_id=ledger_transaction_id,
+            )
         await staging_repo.set_status(
             conn,
             staging_id,

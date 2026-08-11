@@ -22,6 +22,7 @@ from finance_common.intake.posting_plan import IntakePlanError, plan_postings, p
 from finance_common.ledger import service as ledger_service
 from finance_common.ledger.errors import LedgerError
 from finance_common.ledger.models import NewPosting, PostTransactionInput
+from finance_common.repositories import email_staging as staging_repo
 from finance_common.repositories.domain_events import append_event
 from finance_common.repositories.intake_candidates import (
     get_candidate,
@@ -70,6 +71,52 @@ async def _pending_candidate(
     if candidate["status"] != "pending":
         raise HTTPException(status_code=409, detail="Intake candidate is no longer pending")
     return candidate
+
+
+async def _linked_staging_rows(
+    conn: aiosqlite.Connection,
+    candidate_id: int,
+    email_staging_id: int | None,
+) -> list[int]:
+    """Collect staging row ids linked directly or via intake_candidate_id."""
+    row_ids: list[int] = []
+    seen: set[int] = set()
+    if email_staging_id is not None:
+        row = await staging_repo.get_staged(conn, email_staging_id)
+        if row is not None:
+            row_ids.append(row.id)
+            seen.add(row.id)
+    for row in await staging_repo.get_by_intake_candidate_id(conn, candidate_id):
+        if row.id not in seen:
+            row_ids.append(row.id)
+            seen.add(row.id)
+    return row_ids
+
+
+async def _sync_staging_on_candidate_approve(
+    conn: aiosqlite.Connection,
+    candidate_id: int,
+    *,
+    email_staging_id: int | None,
+    ledger_transaction_id: int,
+) -> None:
+    for staging_id in await _linked_staging_rows(conn, candidate_id, email_staging_id):
+        await staging_repo.set_status(
+            conn,
+            staging_id,
+            "approved",
+            ledger_transaction_id=ledger_transaction_id,
+        )
+
+
+async def _sync_staging_on_candidate_reject(
+    conn: aiosqlite.Connection,
+    candidate_id: int,
+    *,
+    email_staging_id: int | None,
+) -> None:
+    for staging_id in await _linked_staging_rows(conn, candidate_id, email_staging_id):
+        await staging_repo.set_status(conn, staging_id, "rejected")
 
 
 async def _opening_balance_plan(
@@ -178,6 +225,16 @@ async def approve_candidate(
         event_type="intake.candidate_approved",
         payload={"candidate_id": candidate_id, "ledger_transaction_id": ledger_transaction_id},
     )
+    email_staging_id = cast(int | None, row.get("email_staging_id"))
+    if email_staging_id is not None or await staging_repo.get_by_intake_candidate_id(
+        conn, candidate_id
+    ):
+        await _sync_staging_on_candidate_approve(
+            conn,
+            candidate_id,
+            email_staging_id=email_staging_id,
+            ledger_transaction_id=ledger_transaction_id,
+        )
     return CandidateApprovedResponse(
         candidate_id=candidate_id,
         ledger_transaction_id=ledger_transaction_id,
@@ -194,11 +251,20 @@ async def reject_candidate(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
 ) -> CandidateRejectedResponse:
     """Reject a quarantined candidate without posting it."""
-    await _pending_candidate(conn, candidate_id)
+    row = await _pending_candidate(conn, candidate_id)
     await update_candidate_status(conn, candidate_id, status="rejected")
     await append_event(
         conn,
         event_type="intake.candidate_rejected",
         payload={"candidate_id": candidate_id},
     )
+    email_staging_id = cast(int | None, row.get("email_staging_id"))
+    if email_staging_id is not None or await staging_repo.get_by_intake_candidate_id(
+        conn, candidate_id
+    ):
+        await _sync_staging_on_candidate_reject(
+            conn,
+            candidate_id,
+            email_staging_id=email_staging_id,
+        )
     return CandidateRejectedResponse(candidate_id=candidate_id, status="rejected")

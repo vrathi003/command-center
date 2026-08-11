@@ -11,7 +11,7 @@ from finance_common.intake.models import Candidate
 _CANDIDATE_COLUMNS = """
     id, status, source, external_key, tx_date, amount_paise, direction, payee,
     narration, suggested_account_id, suggested_counter_account_id, suggested_category,
-    confidence, quarantine_reason, ledger_transaction_id
+    confidence, quarantine_reason, ledger_transaction_id, email_staging_id
 """
 
 

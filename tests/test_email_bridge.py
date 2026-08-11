@@ -359,6 +359,49 @@ async def test_approve_as_transfer_force_posts_despite_duplicate(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+async def test_force_approve_updates_existing_quarantine_candidate(tmp_path: Path) -> None:
+    db = tmp_path / "bridge-force-update.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        ids = await _seed_accounts(conn)
+        first_id = await _insert_staged(
+            conn, gmail_message_id="force-update-1", account_id=ids["Bank"]
+        )
+        await approve_staged_item(
+            conn, staging_id=first_id, overrides=ApproveOverrides(), force=False
+        )
+        second_id = await _insert_staged(
+            conn,
+            gmail_message_id="force-update-2",
+            account_id=ids["Bank"],
+            merchant="Coffee Shop",
+        )
+        quarantined = await approve_staged_item(
+            conn, staging_id=second_id, overrides=ApproveOverrides(), force=False
+        )
+        candidate_id = quarantined.intake_candidate_id
+        assert candidate_id is not None
+
+        await approve_staged_item(
+            conn, staging_id=second_id, overrides=ApproveOverrides(), force=True
+        )
+
+        cursor = await conn.execute(
+            "SELECT status, COUNT(*) FROM intake_candidates WHERE source = 'email' GROUP BY status"
+        )
+        rows = {status: count for status, count in await cursor.fetchall()}
+        candidate = await (
+            await conn.execute(
+                "SELECT status FROM intake_candidates WHERE id = ?", (candidate_id,)
+            )
+        ).fetchone()
+
+    assert rows.get("posted") == 2
+    assert candidate is not None
+    assert candidate[0] == "posted"
+
+
+@pytest.mark.asyncio
 async def test_approve_as_transfer_raises_when_missing_row(tmp_path: Path) -> None:
     db = tmp_path / "bridge.db"
     await ensure_database(db)
