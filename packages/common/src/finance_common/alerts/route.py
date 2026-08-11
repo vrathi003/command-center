@@ -39,6 +39,10 @@ def route_event(
         return _route_intake_rejected(payload, event_id=event_id)
     if event_type == "migration.quarantine_created":
         return _route_migration_quarantine(payload, event_id=event_id)
+    if event_type == "digest.weekly":
+        return _route_digest(payload, event_id=event_id, period="weekly")
+    if event_type == "digest.monthly":
+        return _route_digest(payload, event_id=event_id, period="monthly")
     return None
 
 
@@ -237,4 +241,25 @@ def _route_migration_quarantine(payload: Mapping[str, object], *, event_id: int)
         title="Migration quarantined",
         message=f"Migration item quarantined: {reason}.",
         severity="warn",
+    )
+
+
+def _route_digest(
+    payload: Mapping[str, object], *, event_id: int, period: str
+) -> RoutedAlert:
+    label = _payload_str(payload, "label")
+    message = _payload_str(payload, "message")
+    if label:
+        fingerprint = f"digest|{period}|{label}"
+    else:
+        fingerprint = _fallback_fingerprint(f"digest.{period}", event_id)
+    title = "Weekly finance digest" if period == "weekly" else "Monthly finance summary"
+    if not message:
+        message = f"{title} is ready."
+    return RoutedAlert(
+        fingerprint=fingerprint,
+        kind="digest",
+        title=title,
+        message=message,
+        severity="info",
     )

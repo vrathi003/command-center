@@ -31,6 +31,8 @@ from finance_api.services.debt_emi import (
     auto_advance_active_debts,
     auto_advance_debt,
     post_emi_and_advance,
+    resolve_active_debt_totals,
+    resolve_debt_outstanding,
 )
 from finance_common.ledger.errors import LedgerError
 from finance_common.project_config import load_project_config
@@ -41,14 +43,17 @@ from finance_common.repositories.debts import DebtRow
 router = APIRouter(prefix="/debt", tags=["debt"])
 
 
-def _to_out(row: DebtRow) -> DebtOut:
+def _to_out(row: DebtRow, *, outstanding_paise: int | None = None) -> DebtOut:
+    balance = (
+        row.current_balance_paise if outstanding_paise is None else outstanding_paise
+    )
     return DebtOut(
         id=row.id,
         name=row.name,
         lender=row.lender,
         type=row.type,
         original_amount_paise=row.original_amount_paise,
-        current_balance_paise=row.current_balance_paise,
+        current_balance_paise=balance,
         emi_paise=row.emi_paise,
         rate_percent=row.rate_percent,
         start_date=row.start_date,
@@ -60,6 +65,10 @@ def _to_out(row: DebtRow) -> DebtOut:
         account_id=row.account_id,
         payment_account_id=row.payment_account_id,
     )
+
+
+async def _to_out_live(conn: aiosqlite.Connection, row: DebtRow) -> DebtOut:
+    return _to_out(row, outstanding_paise=await resolve_debt_outstanding(conn, row))
 
 
 def _merge_row(existing: DebtRow, body: DebtPutBody) -> DebtRow:
@@ -97,7 +106,7 @@ async def _validate_payment_account(
 async def list_debts(conn: Annotated[aiosqlite.Connection, Depends(get_conn)]) -> list[DebtOut]:
     await auto_advance_active_debts(conn)
     rows = await debt_repo.list_debts(conn)
-    return [_to_out(r) for r in rows]
+    return [await _to_out_live(conn, r) for r in rows]
 
 
 @router.post("/", response_model=DebtOut, status_code=201)
@@ -137,13 +146,13 @@ async def create_debt(
     row = await debt_repo.get_debt(conn, did)
     if row is None:
         raise HTTPException(status_code=500, detail="debt not found after insert")
-    return _to_out(row)
+    return await _to_out_live(conn, row)
 
 
 @router.get("/summary", response_model=DebtSummaryOut)
 async def debt_summary(conn: Annotated[aiosqlite.Connection, Depends(get_conn)]) -> DebtSummaryOut:
     await auto_advance_active_debts(conn)
-    tot, emi, n = await debt_repo.aggregate_active(conn)
+    tot, emi, n = await resolve_active_debt_totals(conn)
     nd, nn = await debt_repo.next_emi_hint(conn)
     return DebtSummaryOut(
         total_outstanding_paise=tot,
@@ -219,7 +228,7 @@ async def get_debt(
         raise HTTPException(status_code=404, detail="Debt not found")
     advanced = await auto_advance_debt(conn, row)
     row = advanced if advanced is not None else row
-    return _to_out(row)
+    return await _to_out_live(conn, row)
 
 
 @router.put("/{debt_id}", response_model=DebtOut)
@@ -245,7 +254,7 @@ async def put_debt(
             ),
         )
     await debt_repo.update_debt_row(conn, merged)
-    return _to_out(merged)
+    return await _to_out_live(conn, merged)
 
 
 @router.delete("/{debt_id}", status_code=204)
@@ -469,7 +478,7 @@ async def sync_balance_from_schedule(
     else:
         updated = replace(row, current_balance_paise=estimated_balance)
     await debt_repo.update_debt_row(conn, updated)
-    return _to_out(updated)
+    return await _to_out_live(conn, updated)
 
 
 @router.post("/sync-all-balances", response_model=list[DebtOut])
@@ -482,4 +491,4 @@ async def sync_all_balances(
     """
     await auto_advance_active_debts(conn)
     debts = await debt_repo.list_debts(conn, status="active")
-    return [_to_out(d) for d in debts]
+    return [await _to_out_live(conn, d) for d in debts]

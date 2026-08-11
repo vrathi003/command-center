@@ -202,8 +202,6 @@ async def job_cc_due_date_alerts(db_path: Path, api: ApiSettings) -> None:
 async def job_weekly_discord(db_path: Path, api: ApiSettings) -> None:
     token = api.discord_bot_token
     uid = api.discord_user_id
-    if not token or not uid:
-        return
     async with open_db(db_path) as conn:
         fy = await settings_repo.get_current_fy(conn)
         fy_s, spend_rows, total = await build_fy_spending(conn, fy)
@@ -224,15 +222,25 @@ async def job_weekly_discord(db_path: Path, api: ApiSettings) -> None:
                 f"Implied savings vs FY spend: {_rupees(implied)}",
             ],
         )
-    await send_discord_dm(bot_token=token, user_id=uid, content="\n".join(parts))
+        content = "\n".join(parts)
+        week_label = date.today().isoformat()
+        await domain_events.append_event(
+            conn,
+            event_type="digest.weekly",
+            payload={
+                "label": week_label,
+                "message": content,
+                "fy_spend_paise": total,
+            },
+        )
+    if token and uid:
+        await send_discord_dm(bot_token=token, user_id=uid, content=content)
 
 
 async def job_monthly_discord(db_path: Path, api: ApiSettings) -> None:
     """Runs on calendar day 1 — previous month summary."""
     token = api.discord_bot_token
     uid = api.discord_user_id
-    if not token or not uid:
-        return
     last_eom = date.today() - timedelta(days=1)
     y, m = last_eom.year, last_eom.month
     async with open_db(db_path) as conn:
@@ -248,7 +256,18 @@ async def job_monthly_discord(db_path: Path, api: ApiSettings) -> None:
         ]
         if over_cats:
             lines.append("Over budget: " + ", ".join(over_cats[:15]))
-    await send_discord_dm(bot_token=token, user_id=uid, content="\n".join(lines))
+        content = "\n".join(lines)
+        await domain_events.append_event(
+            conn,
+            event_type="digest.monthly",
+            payload={
+                "label": label,
+                "message": content,
+                "spent_paise": spent_total,
+            },
+        )
+    if token and uid:
+        await send_discord_dm(bot_token=token, user_id=uid, content=content)
 
 
 async def job_month_end_net_worth(db_path: Path) -> None:

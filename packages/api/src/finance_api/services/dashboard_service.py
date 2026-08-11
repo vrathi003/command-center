@@ -8,6 +8,7 @@ from datetime import date, timedelta
 import aiosqlite
 
 from finance_api.schemas.dashboard import DashboardSummary
+from finance_api.services.debt_emi import resolve_active_debt_totals
 from finance_common.ledger import reports as ledger_reports
 from finance_common.project_config import load_project_config
 from finance_common.repositories import income_sources as income_repo
@@ -16,14 +17,8 @@ from finance_common.types import FYYear
 
 
 async def _sum_debt(conn: aiosqlite.Connection) -> int:
-    cur = await conn.execute(
-        """
-        SELECT COALESCE(SUM(current_balance_paise), 0) FROM debts
-        WHERE status = 'active'
-        """,
-    )
-    row = await cur.fetchone()
-    return int(row[0]) if row else 0
+    outstanding, _, _ = await resolve_active_debt_totals(conn)
+    return outstanding
 
 
 async def _latest_net_worth(conn: aiosqlite.Connection) -> int | None:

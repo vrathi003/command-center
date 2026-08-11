@@ -88,6 +88,22 @@ def test_create_rule_retroactively_applies_to_ledger_payee(
     assert len(posting_cats) == 2
 
 
+def test_uncategorized_queue_reads_ledger_payee(api_client: TestClient) -> None:
+    bank_id = _seed_bank()
+    _post_debit(api_client, bank_id, merchant="FrequentFlyer", category="Other")
+    _post_debit(api_client, bank_id, merchant="FrequentFlyer", category="Other")
+    _post_debit(api_client, bank_id, merchant="FrequentFlyer", category="Food")
+    _post_debit(api_client, bank_id, merchant="RareBird", category="Other")
+
+    response = api_client.get("/api/merchant-rules/uncategorized")
+    assert response.status_code == 200, response.text
+    groups = {g["merchant"]: g for g in response.json()}
+    assert groups["FrequentFlyer"]["frequency"] == 2
+    assert groups["FrequentFlyer"]["total_paise"] == 20_000
+    assert groups["RareBird"]["frequency"] == 1
+    assert "ledger" in groups["FrequentFlyer"]["sources"]
+
+
 def test_rename_budget_category_updates_ledger_postings(api_client: TestClient) -> None:
     bank_id = _seed_bank()
     old = "Rename Ledger Cat"

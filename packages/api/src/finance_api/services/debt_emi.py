@@ -19,7 +19,7 @@ from finance_common.ledger import service as ledger_service
 from finance_common.ledger.balances import account_balance_paise
 from finance_common.ledger.errors import LedgerError
 from finance_common.ledger.models import PostTransactionInput
-from finance_common.project_config import load_project_config
+from finance_common.project_config import load_project_config, uses_ledger_books
 from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import debts as debt_repo
 from finance_common.repositories.debts import DebtRow
@@ -30,6 +30,42 @@ _UNCATEGORIZED_EXPENSE = "Uncategorized Expense"
 async def loan_outstanding_paise(conn: aiosqlite.Connection, account_id: int) -> int:
     balance = await account_balance_paise(conn, account_id)
     return max(0, -balance)
+
+
+async def _loan_account_has_postings(conn: aiosqlite.Connection, account_id: int) -> bool:
+    cursor = await conn.execute(
+        """
+        SELECT 1
+        FROM ledger_postings AS posting
+        JOIN ledger_transactions AS tx ON tx.id = posting.transaction_id
+        WHERE posting.account_id = ? AND tx.status = 'posted'
+        LIMIT 1
+        """,
+        (account_id,),
+    )
+    return await cursor.fetchone() is not None
+
+
+async def resolve_debt_outstanding(conn: aiosqlite.Connection, debt: DebtRow) -> int:
+    """Live ledger outstanding when books are DE and the loan account has activity."""
+    if not await uses_ledger_books(conn) or debt.account_id is None:
+        return debt.current_balance_paise
+    if not await _loan_account_has_postings(conn, debt.account_id):
+        return debt.current_balance_paise
+    return await loan_outstanding_paise(conn, debt.account_id)
+
+
+async def resolve_active_debt_totals(
+    conn: aiosqlite.Connection,
+) -> tuple[int, int, int]:
+    """Return (total_outstanding, total_emi, active_count) with live DE balances."""
+    rows = await debt_repo.list_debts(conn, status="active")
+    outstanding = 0
+    emi = 0
+    for row in rows:
+        outstanding += await resolve_debt_outstanding(conn, row)
+        emi += row.emi_paise
+    return outstanding, emi, len(rows)
 
 
 async def uncategorized_expense_id(conn: aiosqlite.Connection) -> int:

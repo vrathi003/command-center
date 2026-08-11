@@ -178,18 +178,38 @@ async def deactivate_rule(conn: aiosqlite.Connection, rule_id: int) -> bool:
 async def list_uncategorized_grouped(
     conn: aiosqlite.Connection, *, limit: int = 100
 ) -> list[UncategorizedGroup]:
-    """Uncategorized spend merchants from ledger + latest statement-import snapshot."""
-    cur = await conn.execute(
-        """
-        SELECT merchant, COUNT(*) AS freq, SUM(amount_paise) AS total_paise
-        FROM transactions
-        WHERE is_deleted = 0 AND category = 'Other' AND merchant IS NOT NULL AND merchant != ''
-        GROUP BY merchant
-        ORDER BY freq DESC
-        """
-    )
-    rows = await cur.fetchall()
+    """Uncategorized spend merchants from books + latest statement-import snapshot."""
     merged: dict[str, UncategorizedGroup] = {}
+    if await uses_ledger_books(conn):
+        cur = await conn.execute(
+            """
+            SELECT tx.payee AS merchant,
+                   COUNT(DISTINCT tx.id) AS freq,
+                   COALESCE(SUM(p.amount_paise), 0) AS total_paise
+            FROM ledger_transactions AS tx
+            JOIN ledger_postings AS p ON p.transaction_id = tx.id
+            JOIN accounts AS a ON a.id = p.account_id
+            WHERE tx.status = 'posted'
+              AND tx.payee IS NOT NULL AND tx.payee != ''
+              AND a.account_class = 'expense'
+              AND COALESCE(p.category, 'Other') = 'Other'
+              AND p.amount_paise > 0
+            GROUP BY tx.payee
+            ORDER BY freq DESC
+            """
+        )
+    else:
+        cur = await conn.execute(
+            """
+            SELECT merchant, COUNT(*) AS freq, SUM(amount_paise) AS total_paise
+            FROM transactions
+            WHERE is_deleted = 0 AND category = 'Other'
+              AND merchant IS NOT NULL AND merchant != ''
+            GROUP BY merchant
+            ORDER BY freq DESC
+            """
+        )
+    rows = await cur.fetchall()
     for r in rows:
         merchant = str(r[0])
         key = merchant.lower()

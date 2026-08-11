@@ -77,6 +77,18 @@ from finance_common.repositories.settings_repo import set_value
             "info",
         ),
         (
+            "digest.weekly",
+            {"label": "2026-08-11", "message": "FY spend to date: ₹100.00"},
+            "digest|weekly|2026-08-11",
+            "info",
+        ),
+        (
+            "digest.monthly",
+            {"label": "2026-07", "message": "Total spend: ₹50.00"},
+            "digest|monthly|2026-07",
+            "info",
+        ),
+        (
             "migration.quarantine_created",
             {"candidate_id": 99, "reason": "needs_opening_balance"},
             "migration.quarantine|99",

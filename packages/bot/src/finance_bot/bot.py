@@ -26,6 +26,7 @@ from finance_bot.transfer_flow import (
 from finance_common.classification.matcher import match_merchant
 from finance_common.db import ensure_database, open_db
 from finance_common.ledger import product_writes as ledger_writes
+from finance_common.ledger import reports as ledger_reports
 from finance_common.ledger import service as ledger_service
 from finance_common.ledger.errors import LedgerError
 from finance_common.migration import facade as ledger_facade
@@ -1016,15 +1017,20 @@ class ExpenseCog(commands.Cog):
             await interaction.response.send_message("Not authorised.", ephemeral=True)
             return
         d = date.today()
+        w0 = d - timedelta(days=d.weekday())
+        w1 = w0 + timedelta(days=6)
+        last = calendar.monthrange(d.year, d.month)[1]
+        m0 = date(d.year, d.month, 1)
+        m1 = date(d.year, d.month, last)
         async with open_db(self._settings.db_path) as conn:
-            today = await tx_repo.sum_between(conn, start=d, end=d)
-            w0 = d - timedelta(days=d.weekday())
-            w1 = w0 + timedelta(days=6)
-            week = await tx_repo.sum_between(conn, start=w0, end=w1)
-            last = calendar.monthrange(d.year, d.month)[1]
-            m0 = date(d.year, d.month, 1)
-            m1 = date(d.year, d.month, last)
-            month = await tx_repo.sum_between(conn, start=m0, end=m1)
+            if await uses_ledger_books(conn):
+                today = await ledger_reports.budget_spend_total(conn, start=d, end=d)
+                week = await ledger_reports.budget_spend_total(conn, start=w0, end=w1)
+                month = await ledger_reports.budget_spend_total(conn, start=m0, end=m1)
+            else:
+                today = await tx_repo.sum_between(conn, start=d, end=d)
+                week = await tx_repo.sum_between(conn, start=w0, end=w1)
+                month = await tx_repo.sum_between(conn, start=m0, end=m1)
 
         msg = (
             f"Today: {_rupees(today)}\n"
