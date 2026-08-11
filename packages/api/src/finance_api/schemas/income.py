@@ -45,3 +45,15 @@ class IncomePut(BaseModel):
     is_active: bool = True
     default_account_id: int | None = None
     category: str | None = Field(default=None, max_length=80)
+
+
+class RecordIncomeBody(BaseModel):
+    date: str
+    amount_paise: int | None = Field(default=None, gt=0)
+    account_id: int | None = Field(default=None, gt=0)
+    category: str | None = Field(default=None, max_length=80)
+
+
+class RecordIncomeOut(BaseModel):
+    ledger_transaction_id: int
+    income: IncomeOut
