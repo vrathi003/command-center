@@ -26,6 +26,7 @@ class StagedEmailRow:
     status: str
     created_transaction_id: int | None
     ledger_transaction_id: int | None
+    intake_candidate_id: int | None
     created_at: str
 
 
@@ -34,7 +35,7 @@ _SELECT = """
            raw_snippet, parsed_date, parsed_amount_paise, parsed_merchant,
            parsed_category, parsed_payment_mode, parsed_transaction_type,
            suggested_account_id, status, created_transaction_id, ledger_transaction_id,
-           created_at
+           intake_candidate_id, created_at
     FROM email_transaction_staging
 """
 
@@ -57,7 +58,8 @@ def _row(r: tuple[Any, ...]) -> StagedEmailRow:
         status=str(r[13]),
         created_transaction_id=int(r[14]) if r[14] is not None else None,
         ledger_transaction_id=int(r[15]) if r[15] is not None else None,
-        created_at=str(r[16]),
+        intake_candidate_id=int(r[16]) if r[16] is not None else None,
+        created_at=str(r[17]),
     )
 
 
@@ -92,6 +94,16 @@ async def get_by_gmail_id(
     cur = await conn.execute(_SELECT + " WHERE gmail_message_id = ?", (gmail_message_id,))
     r = await cur.fetchone()
     return _row(r) if r else None
+
+
+async def get_by_intake_candidate_id(
+    conn: aiosqlite.Connection, intake_candidate_id: int
+) -> list[StagedEmailRow]:
+    cur = await conn.execute(
+        _SELECT + " WHERE intake_candidate_id = ? ORDER BY id",
+        (intake_candidate_id,),
+    )
+    return [_row(r) for r in await cur.fetchall()]
 
 
 async def insert_staged(
@@ -182,14 +194,22 @@ async def set_status(
     *,
     created_transaction_id: int | None = None,
     ledger_transaction_id: int | None = None,
+    intake_candidate_id: int | None = None,
 ) -> None:
     await conn.execute(
         """
         UPDATE email_transaction_staging
-        SET status = ?, created_transaction_id = ?, ledger_transaction_id = ?
+        SET status = ?, created_transaction_id = ?, ledger_transaction_id = ?,
+            intake_candidate_id = ?
         WHERE id = ?
         """,
-        (status, created_transaction_id, ledger_transaction_id, item_id),
+        (
+            status,
+            created_transaction_id,
+            ledger_transaction_id,
+            intake_candidate_id,
+            item_id,
+        ),
     )
     await conn.commit()
 
@@ -208,9 +228,28 @@ async def reset_by_transaction_ids(conn: aiosqlite.Connection, tx_ids: list[int]
     placeholders = ",".join("?" * len(tx_ids))
     cur = await conn.execute(
         f"UPDATE email_transaction_staging "
-        f"SET status = 'pending', created_transaction_id = NULL "
+        f"SET status = 'pending', created_transaction_id = NULL, "
+        f"ledger_transaction_id = NULL, intake_candidate_id = NULL "
         f"WHERE created_transaction_id IN ({placeholders})",
         tuple(tx_ids),
+    )
+    await conn.commit()
+    return int(cur.rowcount)
+
+
+async def reset_by_ledger_transaction_ids(
+    conn: aiosqlite.Connection, ledger_tx_ids: list[int]
+) -> int:
+    """Reset staging entries whose linked ledger transaction was voided, back to pending."""
+    if not ledger_tx_ids:
+        return 0
+    placeholders = ",".join("?" * len(ledger_tx_ids))
+    cur = await conn.execute(
+        f"UPDATE email_transaction_staging "
+        f"SET status = 'pending', created_transaction_id = NULL, "
+        f"ledger_transaction_id = NULL, intake_candidate_id = NULL "
+        f"WHERE ledger_transaction_id IN ({placeholders})",
+        tuple(ledger_tx_ids),
     )
     await conn.commit()
     return int(cur.rowcount)
