@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -16,6 +18,7 @@ class InvestmentOut(BaseModel):
     last_synced: str | None
     sector: str | None = None
     equity_tax_class: str = "unspecified"
+    account_id: int | None = None
     cost_basis_paise: int | None = Field(
         default=None,
         description="units × avg_price when both set.",
@@ -65,6 +68,7 @@ class FixedIncomeOut(BaseModel):
     rate_percent: float | None
     start_date: str | None
     maturity_date: str | None
+    account_id: int | None = None
 
 
 class FixedIncomeSummaryOut(BaseModel):
@@ -88,3 +92,40 @@ class FixedIncomePutBody(BaseModel):
     rate_percent: float | None = None
     start_date: str | None = None
     maturity_date: str | None = None
+
+
+class WealthEnsureLedgerOut(BaseModel):
+    ok: bool
+
+
+class RecordInvestmentTradeBody(BaseModel):
+    date: str
+    amount_paise: int = Field(gt=0)
+    units: float = Field(gt=0)
+    bank_account_id: int = Field(gt=0)
+
+
+class RecordInvestmentBuyBody(RecordInvestmentTradeBody):
+    kind: Literal["buy", "sip"] = "buy"
+
+
+class RecordInvestmentTradeOut(BaseModel):
+    ledger_transaction_id: int
+    investment: InvestmentOut
+
+
+class RecordFixedIncomeDepositBody(BaseModel):
+    date: str
+    amount_paise: int = Field(gt=0)
+    bank_account_id: int = Field(gt=0)
+
+
+class RecordFixedIncomeMaturityBody(BaseModel):
+    date: str
+    bank_account_id: int = Field(gt=0)
+    amount_paise: int | None = Field(default=None, gt=0)
+
+
+class RecordFixedIncomeTradeOut(BaseModel):
+    ledger_transaction_id: int
+    fixed_income: FixedIncomeOut

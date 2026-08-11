@@ -8,9 +8,19 @@ import { PageHero } from '@/components/ui/PageHero'
 import { Panel } from '@/components/ui/Panel'
 import { SectionTitle } from '@/components/ui/SectionTitle'
 import { INVESTMENT_TYPES } from '@/constants/investments'
-import { fetchInvestments, putInvestment } from '@/lib/api'
+import { fetchAccounts, fetchInvestments, putInvestment } from '@/lib/api'
 import { formatPaiseCompact } from '@/lib/format'
-import type { InvestmentOut } from '@/types/api'
+import {
+  RecordInvestmentTradeModal,
+  type InvestmentTradeMode,
+} from '@/pages/InvestmentsPage'
+import type { AccountOut, InvestmentOut } from '@/types/api'
+
+const PAYMENT_ACCOUNT_TYPES = new Set(['savings', 'current', 'wallet', 'credit_card'])
+
+function filterPaymentAccounts(accounts: AccountOut[]): AccountOut[] {
+  return accounts.filter((a) => PAYMENT_ACCOUNT_TYPES.has(a.type))
+}
 
 const SECTOR_COLORS = ['#047857', '#0d9488', '#0891b2', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#ca8a04']
 
@@ -27,6 +37,17 @@ function isStockOrEtf(row: InvestmentOut): boolean {
 export function StocksPortfolioPage() {
   const qc = useQueryClient()
   const [sectorDraft, setSectorDraft] = useState<Record<number, string>>({})
+  const [recordInv, setRecordInv] = useState<{ id: number; mode: InvestmentTradeMode } | null>(null)
+
+  const accounts = useQuery({
+    queryKey: ['accounts', 'active'],
+    queryFn: () => fetchAccounts(true),
+  })
+
+  const paymentAccounts = useMemo(
+    () => filterPaymentAccounts(accounts.data ?? []),
+    [accounts.data],
+  )
 
   const inv = useQuery({
     queryKey: ['investments'],
@@ -170,6 +191,7 @@ export function StocksPortfolioPage() {
                 <th className="px-3 py-2">Sector</th>
                 <th className="px-3 py-2">CGT tag</th>
                 <th className="px-3 py-2 text-right">Market value</th>
+                <th className="px-3 py-2 w-28">Trade</th>
               </tr>
             </thead>
             <tbody>
@@ -230,6 +252,31 @@ export function StocksPortfolioPage() {
                   <td className="px-3 py-2 text-right tabular-nums text-zinc-800">
                     {row.market_value_paise != null ? formatPaiseCompact(row.market_value_paise) : '—'}
                   </td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-col gap-1">
+                      <button
+                        type="button"
+                        className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
+                        onClick={() => setRecordInv({ id: row.id, mode: 'buy' })}
+                      >
+                        Buy
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded border border-teal-200 bg-teal-50 px-2 py-1 text-xs font-medium text-teal-800 hover:bg-teal-100"
+                        onClick={() => setRecordInv({ id: row.id, mode: 'sip' })}
+                      >
+                        SIP
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-800 hover:bg-violet-100"
+                        onClick={() => setRecordInv({ id: row.id, mode: 'sell' })}
+                      >
+                        Sell
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -237,6 +284,21 @@ export function StocksPortfolioPage() {
         </div>
         </Panel>
       </section>
+
+      {recordInv != null ? (
+        <RecordInvestmentTradeModal
+          holding={stocks.find((h) => h.id === recordInv.id)!}
+          mode={recordInv.mode}
+          paymentAccounts={paymentAccounts}
+          onClose={() => setRecordInv(null)}
+          onSuccess={() => {
+            void qc.invalidateQueries({ queryKey: ['investments'] })
+            void qc.invalidateQueries({ queryKey: ['portfolio-summary'] })
+            void qc.invalidateQueries({ queryKey: ['dashboard-summary'] })
+            void qc.invalidateQueries({ queryKey: ['accounts'] })
+          }}
+        />
+      ) : null}
     </div>
   )
 }

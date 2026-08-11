@@ -14,6 +14,7 @@ from finance_api.main import create_app
 def _env_db(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
     db = tmp_path_factory.mktemp("data") / "test.db"
     monkeypatch.setenv("DB_PATH", str(db))
+    monkeypatch.setenv("APP_SECRET_KEY", "")
 
 
 @pytest.fixture

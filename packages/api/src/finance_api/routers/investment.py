@@ -3,18 +3,32 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date as date_cls
 from typing import Annotated
 
 import aiosqlite
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from finance_api.deps_ledger import require_ledger_writes
 from finance_api.deps import get_conn
 from finance_api.schemas.investment import (
     InvestmentCreateBody,
     InvestmentOut,
     InvestmentPutBody,
     PortfolioSummaryOut,
+    RecordInvestmentBuyBody,
+    RecordInvestmentTradeBody,
+    RecordInvestmentTradeOut,
+    WealthEnsureLedgerOut,
 )
+from finance_api.services.investment_ledger import (
+    ensure_all_wealth_seeds,
+    ensure_investment_account_and_seed,
+    record_investment_buy,
+    record_investment_sell,
+)
+from finance_common.ledger.errors import LedgerError
+from finance_common.project_config import load_project_config
 from finance_common.repositories import investments as inv_repo
 from finance_common.repositories.investments import InvestmentRow
 
@@ -49,6 +63,7 @@ def _to_out(row: InvestmentRow) -> InvestmentOut:
         last_synced=row.last_synced,
         sector=row.sector,
         equity_tax_class=row.equity_tax_class,
+        account_id=row.account_id,
         cost_basis_paise=cost,
         market_value_paise=mkt,
         unrealized_paise=un,
@@ -58,6 +73,17 @@ def _to_out(row: InvestmentRow) -> InvestmentOut:
 def _merge_row(existing: InvestmentRow, body: InvestmentPutBody) -> InvestmentRow:
     patch = body.model_dump(exclude_unset=True)
     return replace(existing, **patch)
+
+
+async def _ensure_investment_row_if_ledger(
+    conn: aiosqlite.Connection, row: InvestmentRow
+) -> InvestmentRow:
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine != "double_entry":
+        return row
+    await ensure_investment_account_and_seed(conn, row)
+    refreshed = await inv_repo.get_investment(conn, row.id)
+    return refreshed if refreshed is not None else row
 
 
 @router.get("/portfolio-summary", response_model=PortfolioSummaryOut)
@@ -73,11 +99,31 @@ async def portfolio_summary(
     )
 
 
+@router.post("/ensure-ledger", response_model=WealthEnsureLedgerOut)
+async def ensure_wealth_ledger(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+) -> WealthEnsureLedgerOut:
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine != "double_entry":
+        raise HTTPException(
+            status_code=400,
+            detail="ensure-ledger requires double_entry ledger engine",
+        )
+    await ensure_all_wealth_seeds(conn)
+    return WealthEnsureLedgerOut(ok=True)
+
+
 @router.get("/", response_model=list[InvestmentOut])
 async def list_investments(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
 ) -> list[InvestmentOut]:
     rows = await inv_repo.list_investments(conn)
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "double_entry":
+        ensured: list[InvestmentRow] = []
+        for row in rows:
+            ensured.append(await _ensure_investment_row_if_ledger(conn, row))
+        rows = ensured
     return [_to_out(r) for r in rows]
 
 
@@ -101,6 +147,7 @@ async def create_investment(
     row = await inv_repo.get_investment(conn, new_id)
     if row is None:
         raise HTTPException(status_code=500, detail="Failed to load new investment")
+    row = await _ensure_investment_row_if_ledger(conn, row)
     return _to_out(row)
 
 
@@ -112,6 +159,7 @@ async def get_investment(
     row = await inv_repo.get_investment(conn, inv_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Investment not found")
+    row = await _ensure_investment_row_if_ledger(conn, row)
     return _to_out(row)
 
 
@@ -137,3 +185,86 @@ async def delete_investment(
     ok = await inv_repo.delete_investment(conn, inv_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Investment not found")
+
+
+async def _require_double_entry(conn: aiosqlite.Connection) -> None:
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine != "double_entry":
+        raise HTTPException(
+            status_code=422,
+            detail="record requires double_entry ledger engine",
+        )
+
+
+def _parse_trade_date(date_str: str) -> date_cls:
+    try:
+        return date_cls.fromisoformat(date_str)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail="invalid date") from e
+
+
+@router.post("/{inv_id}/record-buy", response_model=RecordInvestmentTradeOut, status_code=201)
+async def record_buy(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
+    inv_id: int,
+    body: RecordInvestmentBuyBody,
+) -> RecordInvestmentTradeOut:
+    """Post investment buy or SIP through the ledger."""
+    row = await inv_repo.get_investment(conn, inv_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Investment not found")
+
+    await _require_double_entry(conn)
+    require_ledger_writes(request)
+
+    try:
+        ledger_transaction_id, updated = await record_investment_buy(
+            conn,
+            inv_row=row,
+            tx_date=_parse_trade_date(body.date),
+            amount_paise=body.amount_paise,
+            units=body.units,
+            bank_account_id=body.bank_account_id,
+            kind=body.kind,
+        )
+    except LedgerError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    return RecordInvestmentTradeOut(
+        ledger_transaction_id=ledger_transaction_id,
+        investment=_to_out(updated),
+    )
+
+
+@router.post("/{inv_id}/record-sell", response_model=RecordInvestmentTradeOut, status_code=201)
+async def record_sell(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
+    inv_id: int,
+    body: RecordInvestmentTradeBody,
+) -> RecordInvestmentTradeOut:
+    """Post investment sell through the ledger."""
+    row = await inv_repo.get_investment(conn, inv_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Investment not found")
+
+    await _require_double_entry(conn)
+    require_ledger_writes(request)
+
+    try:
+        ledger_transaction_id, updated = await record_investment_sell(
+            conn,
+            inv_row=row,
+            tx_date=_parse_trade_date(body.date),
+            amount_paise=body.amount_paise,
+            units=body.units,
+            bank_account_id=body.bank_account_id,
+        )
+    except LedgerError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    return RecordInvestmentTradeOut(
+        ledger_transaction_id=ledger_transaction_id,
+        investment=_to_out(updated),
+    )

@@ -18,6 +18,7 @@ applied here.  Examples:
 - Bank income: Bank ``+X``, Income ``-X``
 - Transfer A→B: B ``+X``, A ``-X``
 - Investment buy: Investment ``+X``, Bank ``-X``
+- Investment sell: Bank ``+X``, Investment ``-X``
 """
 
 from __future__ import annotations
@@ -103,6 +104,19 @@ def build_investment_buy(
     return (
         NewPosting(investment_account_id, amount_paise),
         NewPosting(bank_id, -amount_paise),
+    )
+
+
+def build_investment_sell(
+    *,
+    bank_id: int,
+    investment_account_id: int,
+    amount_paise: int,
+) -> tuple[NewPosting, ...]:
+    """Debit bank, credit investment asset (reduce holding cost)."""
+    return (
+        NewPosting(bank_id, amount_paise),
+        NewPosting(investment_account_id, -amount_paise),
     )
 
 

@@ -1,14 +1,13 @@
-# Task 5 — Dashboard Record EMI
+# Task 5 Report — FI deposit / maturity APIs
 
-**Status:** Complete  
-**Commit:** `feat(dashboard): record EMI on debt page`
+**Branch:** `feature/wealth-investments-w1`
 
 ## Delivered
+- `record_fixed_income_deposit` / `record_fixed_income_maturity` in `investment_ledger.py` (reuse `build_investment_buy` / `build_investment_sell`)
+- `POST /fixed-income/{id}/record-deposit` and `record-maturity` in `fixed_income.py` (double_entry + ledger writes required)
+- Schemas: `RecordFixedIncomeDepositBody`, `RecordFixedIncomeMaturityBody`, `RecordFixedIncomeTradeOut`
+- Tests: 4 new cases in `test_investment_ledger_w1.py` (11 total passed)
 
-- Extended `DebtOut` with `account_id` / `payment_account_id`; added `RecordEmiOut` type.
-- Added `recordDebtEmi()` → `POST /api/debt/{id}/record-emi`.
-- DebtPage: **Record EMI** button on active loans; modal with date, bank select, computed principal/interest split, optional override.
-
-## Verification
-
-`npm run build --prefix dashboard` — passed.
+## Behavior
+- Deposit: Dr FI asset · Cr bank; `principal_paise += amount`
+- Maturity: Dr bank · Cr FI asset; `principal_paise = max(0, principal − amount)`; default amount = current principal
