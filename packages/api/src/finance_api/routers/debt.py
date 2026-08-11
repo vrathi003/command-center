@@ -23,26 +23,22 @@ from finance_api.schemas.debt import (
     RecordEmiOut,
 )
 from finance_api.services.amortization import (
-    advance_months,
     build_phased_schedule,
     build_schedule,
     compute_emi_advance,
-    emis_due_count,
 )
-from finance_api.services.debt_emi import auto_advance_active_debts, auto_advance_debt
-from finance_common.ledger import builders
-from finance_common.ledger import service as ledger_service
-from finance_common.ledger.balances import account_balance_paise
+from finance_api.services.debt_emi import (
+    auto_advance_active_debts,
+    auto_advance_debt,
+    post_emi_and_advance,
+)
 from finance_common.ledger.errors import LedgerError
-from finance_common.ledger.models import PostTransactionInput
 from finance_common.project_config import load_project_config
 from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import debts as debt_repo
 from finance_common.repositories.debts import DebtRow
 
 router = APIRouter(prefix="/debt", tags=["debt"])
-
-_UNCATEGORIZED_EXPENSE = "Uncategorized Expense"
 
 
 def _to_out(row: DebtRow) -> DebtOut:
@@ -95,67 +91,6 @@ async def _validate_payment_account(
         return
     if await accounts_repo.get_account(conn, payment_account_id) is None:
         raise HTTPException(status_code=404, detail="payment_account_id not found")
-
-
-async def _uncategorized_expense_id(conn: aiosqlite.Connection) -> int:
-    account = await accounts_repo.get_account_by_name(conn, _UNCATEGORIZED_EXPENSE)
-    if account is None:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Required system account {_UNCATEGORIZED_EXPENSE!r} does not exist",
-        )
-    return account.id
-
-
-async def _loan_outstanding_paise(conn: aiosqlite.Connection, account_id: int) -> int:
-    balance = await account_balance_paise(conn, account_id)
-    return max(0, -balance)
-
-
-def _schedule_rows(debt: DebtRow) -> list:
-    principal = debt.original_amount_paise or debt.current_balance_paise
-    rows, _ = build_schedule(
-        principal,
-        debt.rate_percent,
-        debt.emi_paise,
-        tenure_months=debt.tenure_months,
-    )
-    return rows
-
-
-def _default_emi_split(debt: DebtRow, tx_date: date_cls) -> tuple[int, int]:
-    schedule_ref = debt.first_emi_date or debt.start_date
-    if not schedule_ref:
-        emi = debt.emi_paise or 0
-        return emi, 0
-
-    ref = date_cls.fromisoformat(schedule_ref[:10])
-    if debt.next_emi_date:
-        payment_num = emis_due_count(ref, date_cls.fromisoformat(debt.next_emi_date[:10]))
-    else:
-        payment_num = emis_due_count(ref, tx_date)
-
-    sched = _schedule_rows(debt)
-    if not sched or payment_num < 1 or payment_num > len(sched):
-        emi = debt.emi_paise or 0
-        return emi, 0
-
-    row = sched[payment_num - 1]
-    return row.principal_paise, row.interest_paise
-
-
-def _advance_after_one_emi(debt: DebtRow) -> tuple[str | None, str]:
-    if debt.next_emi_date:
-        due = date_cls.fromisoformat(debt.next_emi_date[:10])
-        new_next = advance_months(due, 1).isoformat()
-    elif debt.first_emi_date or debt.start_date:
-        ref = date_cls.fromisoformat((debt.first_emi_date or debt.start_date)[:10])
-        new_next = advance_months(ref, 1).isoformat()
-    else:
-        new_next = debt.next_emi_date
-
-    new_status = "closed" if debt.current_balance_paise == 0 else "active"
-    return new_next, new_status
 
 
 @router.get("/", response_model=list[DebtOut])
@@ -363,52 +298,23 @@ async def record_emi(
     except ValueError as e:
         raise HTTPException(status_code=422, detail="invalid date") from e
 
-    principal_paise = body.principal_paise
-    interest_paise = body.interest_paise
-    if principal_paise is None or interest_paise is None:
-        default_principal, default_interest = _default_emi_split(row, tx_date)
-        principal_paise = default_principal if principal_paise is None else principal_paise
-        interest_paise = default_interest if interest_paise is None else interest_paise
-
-    total = principal_paise + interest_paise
-    if total <= 0:
-        raise HTTPException(status_code=422, detail="EMI total must be positive")
-
     require_ledger_writes(request)
-    expense_account_id = await _uncategorized_expense_id(conn)
     try:
-        ledger_transaction_id = await ledger_service.post(
+        ledger_transaction_id, _ = await post_emi_and_advance(
             conn,
-            PostTransactionInput(
-                tx_date=tx_date,
-                postings=builders.build_emi_payment(
-                    bank_id=payment_account_id,
-                    loan_id=row.account_id,
-                    expense_account_id=expense_account_id,
-                    principal_paise=principal_paise,
-                    interest_paise=interest_paise,
-                ),
-                payee=row.name,
-                notes=f"EMI payment · {row.name}",
-                source="dashboard",
-                external_key=f"debt_emi:{debt_id}:{body.date}:{total}",
-            ),
+            row,
+            tx_date=tx_date,
+            principal_paise=body.principal_paise,
+            interest_paise=body.interest_paise,
+            payment_account_id=payment_account_id,
+            source="dashboard",
         )
     except LedgerError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        detail = str(exc)
+        if "does not exist" in detail:
+            raise HTTPException(status_code=409, detail=detail) from exc
+        raise HTTPException(status_code=422, detail=detail) from exc
 
-    outstanding = await _loan_outstanding_paise(conn, row.account_id)
-    new_next, new_status = _advance_after_one_emi(
-        replace(row, current_balance_paise=outstanding)
-    )
-    updated = replace(
-        row,
-        current_balance_paise=outstanding,
-        next_emi_date=new_next,
-        status=new_status,
-        payment_account_id=payment_account_id,
-    )
-    await debt_repo.update_debt_row(conn, updated)
     return RecordEmiOut(ledger_transaction_id=ledger_transaction_id)
 
 

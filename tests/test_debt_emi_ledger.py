@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sqlite3
+from datetime import date
+from pathlib import Path
+from unittest.mock import patch
 
 from starlette.testclient import TestClient
+
+from finance_api.services.debt_emi import auto_advance_active_debts
+from finance_common.db import open_db
 
 
 def _create_bank_and_expense(api_client: TestClient) -> tuple[int, int]:
@@ -208,3 +215,151 @@ def test_record_emi_returns_503_when_ledger_writes_disabled(api_client: TestClie
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Ledger writes disabled due to integrity failure"
+
+
+def _debt_row(conn: sqlite3.Connection, debt_id: int) -> tuple[int, str | None]:
+    row = conn.execute(
+        "SELECT current_balance_paise, next_emi_date FROM debts WHERE id = ?",
+        (debt_id,),
+    ).fetchone()
+    assert row is not None
+    return int(row[0]), row[1]
+
+
+def _ledger_tx_count() -> int:
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    count = conn.execute("SELECT COUNT(*) FROM ledger_transactions").fetchone()
+    conn.close()
+    assert count is not None
+    return int(count[0])
+
+
+def test_auto_advance_double_entry_posts_ledger_and_advances(
+    api_client: TestClient,
+) -> None:
+    bank_id, _ = _create_bank_and_expense(api_client)
+    debt = _create_debt(api_client, bank_id=bank_id, next_emi_date="2026-07-03")
+    loan_account_id = int(debt["account_id"])
+    debt_id = int(debt["id"])
+
+    _seed_loan_opening_balance(
+        api_client,
+        bank_id=bank_id,
+        loan_account_id=loan_account_id,
+        amount_paise=900_000_00,
+    )
+    bank_before = _balance(api_client, bank_id)
+    ledger_before = _ledger_tx_count()
+
+    with patch("finance_api.services.debt_emi.date") as mock_date:
+        mock_date.today.return_value = date(2026, 7, 6)
+        mock_date.side_effect = lambda *a, **k: date(*a, **k)
+        mock_date.fromisoformat = date.fromisoformat
+
+        async def _run() -> int:
+            async with open_db(Path(os.environ["DB_PATH"])) as conn:
+                return await auto_advance_active_debts(conn)
+
+        updated = asyncio.run(_run())
+
+    assert updated == 1
+    assert _ledger_tx_count() == ledger_before + 1
+
+    loan_balance = _balance(api_client, loan_account_id)
+    outstanding = max(0, -loan_balance)
+    assert _balance(api_client, bank_id) == bank_before - 20_000_00
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    balance, next_emi = _debt_row(conn, debt_id)
+    source = conn.execute(
+        "SELECT source FROM ledger_transactions ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+
+    assert balance == outstanding
+    assert next_emi == "2026-08-03"
+    assert source == ("job",)
+
+
+def test_auto_advance_double_entry_skips_without_payment_account(
+    api_client: TestClient,
+) -> None:
+    bank_id, _ = _create_bank_and_expense(api_client)
+    debt = _create_debt(api_client, bank_id=bank_id, next_emi_date="2026-07-03")
+    debt_id = int(debt["id"])
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    conn.execute("UPDATE debts SET payment_account_id = NULL WHERE id = ?", (debt_id,))
+    conn.commit()
+    before = _debt_row(conn, debt_id)
+    conn.close()
+
+    ledger_before = _ledger_tx_count()
+
+    with patch("finance_api.services.debt_emi.date") as mock_date:
+        mock_date.today.return_value = date(2026, 7, 6)
+        mock_date.side_effect = lambda *a, **k: date(*a, **k)
+        mock_date.fromisoformat = date.fromisoformat
+
+        async def _run() -> int:
+            async with open_db(Path(os.environ["DB_PATH"])) as conn:
+                return await auto_advance_active_debts(conn)
+
+        updated = asyncio.run(_run())
+
+    assert updated == 0
+    assert _ledger_tx_count() == ledger_before
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    after = _debt_row(conn, debt_id)
+    conn.close()
+    assert after == before
+
+
+def test_auto_advance_legacy_scrubs_balance(
+    api_client: TestClient,
+) -> None:
+    api_client.put(
+        "/api/settings/",
+        json={"project_config": {"ledger_engine": "legacy"}},
+    )
+
+    response = api_client.post(
+        "/api/debt/",
+        json={
+            "name": "Legacy Loan",
+            "lender": "HDFC",
+            "type": "Car Loan",
+            "original_amount_paise": 1_000_000_00,
+            "current_balance_paise": 900_000_00,
+            "emi_paise": 20_000_00,
+            "rate_percent": 9.0,
+            "start_date": "2025-01-03",
+            "first_emi_date": "2025-01-03",
+            "next_emi_date": "2026-07-03",
+            "tenure_months": 60,
+        },
+    )
+    assert response.status_code == 201, response.text
+    debt_id = int(response.json()["id"])
+    ledger_before = _ledger_tx_count()
+
+    with patch("finance_api.services.amortization.date") as mock_date:
+        mock_date.today.return_value = date(2026, 7, 6)
+        mock_date.side_effect = lambda *a, **k: date(*a, **k)
+        mock_date.fromisoformat = date.fromisoformat
+
+        async def _run() -> int:
+            async with open_db(Path(os.environ["DB_PATH"])) as conn:
+                return await auto_advance_active_debts(conn)
+
+        updated = asyncio.run(_run())
+
+    assert updated == 1
+    assert _ledger_tx_count() == ledger_before
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    balance, next_emi = _debt_row(conn, debt_id)
+    conn.close()
+
+    assert next_emi == "2026-08-03"
+    assert balance < 900_000_00
