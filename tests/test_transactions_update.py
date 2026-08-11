@@ -1,4 +1,4 @@
-"""Transaction GET (detail) and PUT (dashboard edit)."""
+"""Transaction GET (detail) and PUT (dashboard edit) — legacy ledger_engine path."""
 
 from __future__ import annotations
 
@@ -9,7 +9,16 @@ import uuid
 from starlette.testclient import TestClient
 
 
+def _use_legacy_engine(api_client: TestClient) -> None:
+    response = api_client.put(
+        "/api/settings/",
+        json={"project_config": {"ledger_engine": "legacy"}},
+    )
+    assert response.status_code == 200, response.text
+
+
 def test_get_and_put_debit_transaction(api_client: TestClient) -> None:
+    _use_legacy_engine(api_client)
     r1 = api_client.post(
         "/api/accounts/",
         json={"name": "Test Savings", "type": "savings", "currency": "INR"},
@@ -69,6 +78,7 @@ def test_get_and_put_debit_transaction(api_client: TestClient) -> None:
 
 
 def test_put_transfer_pair(api_client: TestClient) -> None:
+    _use_legacy_engine(api_client)
     r1 = api_client.post("/api/accounts/", json={"name": "A1", "type": "savings", "currency": "INR"})
     r2 = api_client.post("/api/accounts/", json={"name": "A2", "type": "savings", "currency": "INR"})
     assert r1.status_code == 201 and r2.status_code == 201
@@ -108,6 +118,7 @@ def test_put_transfer_pair(api_client: TestClient) -> None:
 
 def test_put_paired_transfer_noncanonical_merchant(api_client: TestClient) -> None:
     """Pair updates must work when merchants are not Transfer out/in (e.g. import)."""
+    _use_legacy_engine(api_client)
     r1 = api_client.post("/api/accounts/", json={"name": "X1", "type": "savings", "currency": "INR"})
     r2 = api_client.post("/api/accounts/", json={"name": "X2", "type": "savings", "currency": "INR"})
     assert r1.status_code == 201 and r2.status_code == 201
@@ -168,6 +179,7 @@ def test_put_paired_transfer_noncanonical_merchant(api_client: TestClient) -> No
 
 def test_put_converts_imported_debit_to_transfer_pair(api_client: TestClient) -> None:
     """Dashboard edit: debit/credit row → transfer creates the matching leg."""
+    _use_legacy_engine(api_client)
     r1 = api_client.post("/api/accounts/", json={"name": "HDFC Main", "type": "savings", "currency": "INR"})
     r2 = api_client.post("/api/accounts/", json={"name": "HDFC Savings", "type": "savings", "currency": "INR"})
     assert r1.status_code == 201 and r2.status_code == 201
@@ -231,6 +243,7 @@ def test_put_converts_imported_debit_to_transfer_pair(api_client: TestClient) ->
 
 def test_put_orphan_transfer_single_leg(api_client: TestClient) -> None:
     """Single-row transfer (no pair id) updates like a normal line."""
+    _use_legacy_engine(api_client)
     r1 = api_client.post("/api/accounts/", json={"name": "Solo", "type": "savings", "currency": "INR"})
     assert r1.status_code == 201
     aid = r1.json()["id"]

@@ -7,9 +7,10 @@ from datetime import date
 from typing import Annotated
 
 import aiosqlite
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 
 from finance_api.deps import get_conn, get_settings
+from finance_api.deps_ledger import require_ledger_writes
 from finance_api.schemas.transactions import (
     TransactionBulkDeleteBody,
     TransactionBulkDeleteResponse,
@@ -39,7 +40,7 @@ from finance_common.parsing.bank_statement_pdf import (
     BankStatementPdfError,
     pdf_bytes_to_import_rows,
 )
-from finance_common.project_config import is_legacy_cutover, load_project_config
+from finance_common.project_config import is_legacy_cutover, load_project_config, uses_ledger_books
 from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import email_staging as staging_repo
 from finance_common.repositories import transactions as tx_repo
@@ -65,7 +66,10 @@ async def _plan_cutover_manual(
     """Build a validated dashboard debit or credit ledger input."""
     del payment_mode  # Legacy field; payment modes are not ledger posting metadata.
     if account_id is None:
-        raise HTTPException(status_code=422, detail="account_id is required after ledger cutover")
+        raise HTTPException(
+            status_code=422,
+            detail="account_id is required when ledger_engine is double_entry",
+        )
     account = await accounts_repo.get_account(conn, account_id)
     if account is None:
         raise HTTPException(status_code=404, detail="account_id not found")
@@ -204,7 +208,7 @@ async def list_transactions(
     account: str | None = Query(default=None),
     account_id: int | None = Query(default=None),
 ) -> list[dict[str, object]]:
-    if await is_legacy_cutover(conn):
+    if await uses_ledger_books(conn):
         return await ledger_facade.list_transaction_rows(
             conn,
             limit=limit,
@@ -232,7 +236,7 @@ async def get_transaction(
     """Single transaction for editing; includes ``transfer_sibling`` when part of a pair."""
     if transaction_id <= 0:
         raise HTTPException(status_code=422, detail="transaction_id must be positive")
-    if await is_legacy_cutover(conn):
+    if await uses_ledger_books(conn):
         try:
             out = await ledger_facade.get_transaction_row(conn, transaction_id)
         except LedgerError as e:
@@ -254,6 +258,7 @@ async def get_transaction(
 
 @router.post("/", response_model=TransactionCreated, status_code=201)
 async def create_transaction(
+    request: Request,
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
     body: TransactionCreate,
 ) -> TransactionCreated:
@@ -262,7 +267,8 @@ async def create_transaction(
         d = date.fromisoformat(body.date)
     except ValueError as e:
         raise HTTPException(status_code=422, detail="invalid date") from e
-    if await is_legacy_cutover(conn):
+    if await uses_ledger_books(conn):
+        require_ledger_writes(request)
         tid = await _post_cutover_manual(
             conn,
             tx_date=d,
@@ -304,6 +310,7 @@ async def create_transaction(
 @router.put("/{transaction_id}", response_model=TransactionUpdated)
 async def update_transaction(
     transaction_id: int,
+    request: Request,
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
     body: TransactionDashboardUpdate,
 ) -> TransactionUpdated:
@@ -314,7 +321,8 @@ async def update_transaction(
         d = date.fromisoformat(body.date)
     except ValueError as e:
         raise HTTPException(status_code=422, detail="invalid date") from e
-    if await is_legacy_cutover(conn):
+    if await uses_ledger_books(conn):
+        require_ledger_writes(request)
         try:
             old_transaction = await ledger_service.get_transaction(conn, transaction_id)
             if old_transaction.status != "posted":
@@ -523,6 +531,7 @@ async def update_transaction(
 
 @router.post("/transfer", response_model=TransferResponse, status_code=201)
 async def create_transfer(
+    request: Request,
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
     body: TransferCreate,
 ) -> TransferResponse:
@@ -537,7 +546,8 @@ async def create_transfer(
     to_a = await accounts_repo.get_account(conn, body.to_account_id)
     if from_a is None or to_a is None:
         raise HTTPException(status_code=404, detail="account not found")
-    if await is_legacy_cutover(conn):
+    if await uses_ledger_books(conn):
+        require_ledger_writes(request)
         tid = await _post_cutover_transfer(
             conn,
             tx_date=d,
@@ -574,6 +584,7 @@ async def create_transfer(
 
 @router.post("/bulk-delete", response_model=TransactionBulkDeleteResponse)
 async def bulk_delete_transactions(
+    request: Request,
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
     body: TransactionBulkDeleteBody,
 ) -> TransactionBulkDeleteResponse:
@@ -581,7 +592,8 @@ async def bulk_delete_transactions(
     unique = list(dict.fromkeys(body.ids))
     if any(i <= 0 for i in unique):
         raise HTTPException(status_code=422, detail="ids must be positive integers")
-    if await is_legacy_cutover(conn):
+    if await uses_ledger_books(conn):
+        require_ledger_writes(request)
         try:
             for transaction_id in unique:
                 await ledger_service.void(conn, transaction_id)
@@ -597,6 +609,7 @@ async def bulk_delete_transactions(
 
 @router.post("/import", response_model=TransactionImportResponse)
 async def import_transactions(
+    request: Request,
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
     api_settings: Annotated[ApiSettings, Depends(get_settings)],
     file: UploadFile = File(...),
@@ -666,6 +679,7 @@ async def import_transactions(
             ),
         )
     if project_config.ledger_engine == "double_entry":
+        require_ledger_writes(request)
         if account_id is None or account_id <= 0:
             raise HTTPException(
                 status_code=422,

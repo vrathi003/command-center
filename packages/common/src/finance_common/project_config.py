@@ -136,6 +136,15 @@ async def is_legacy_cutover(conn: aiosqlite.Connection) -> bool:
     return bool(await get_value(conn, KEY_MIGRATION_LEGACY_CUTOVER_AT))
 
 
+async def uses_ledger_books(conn: aiosqlite.Connection) -> bool:
+    """True when product money reads/writes use the double-entry ledger.
+
+    Prefer this over ``is_legacy_cutover`` for transaction CRUD: the engine flag
+    is the source of truth; cutover only marks that legacy history was migrated.
+    """
+    return (await load_project_config(conn)).ledger_engine == "double_entry"
+
+
 async def mark_legacy_cutover(conn: aiosqlite.Connection, at_iso: str) -> None:
     await set_value(conn, KEY_MIGRATION_LEGACY_CUTOVER_AT, at_iso)
     await set_value(conn, KEY_MIGRATION_LEGACY_ARCHIVE, "true")
