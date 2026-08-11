@@ -79,6 +79,18 @@ def _create_investment(api_client: TestClient) -> dict[str, object]:
     return response.json()
 
 
+def _create_empty_investment(api_client: TestClient) -> dict[str, object]:
+    response = api_client.post(
+        "/api/investments/",
+        json={
+            "instrument": "Parag Parikh Flexi Cap",
+            "type": "MF",
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def _create_fixed_income(api_client: TestClient) -> dict[str, object]:
     response = api_client.post(
         "/api/fixed-income/",
@@ -201,3 +213,107 @@ def test_fixed_income_second_ensure_is_noop(api_client: TestClient) -> None:
     assert _balance(api_client, bank_id) == bank_balance
     assert _balance(api_client, equity_id) == equity_balance
     assert _ledger_transaction_count() == ledger_count
+
+
+def test_record_buy_reduces_bank_increases_inv_updates_units_avg(
+    api_client: TestClient,
+) -> None:
+    bank_id = _create_bank(api_client)
+    _seed_bank_balance(api_client, bank_id=bank_id, amount_paise=500_000_00)
+
+    inv = _create_empty_investment(api_client)
+    inv_id = int(inv["id"])
+    inv_account_id = int(inv["account_id"])
+
+    bank_before = _balance(api_client, bank_id)
+    inv_before = _balance(api_client, inv_account_id)
+    buy_amount = 50_000_00
+    buy_units = 5.0
+
+    response = api_client.post(
+        f"/api/investments/{inv_id}/record-buy",
+        json={
+            "date": "2026-08-01",
+            "amount_paise": buy_amount,
+            "units": buy_units,
+            "bank_account_id": bank_id,
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert int(body["ledger_transaction_id"]) > 0
+    updated = body["investment"]
+    assert updated["units"] == buy_units
+    assert updated["avg_price_paise"] == 10_000_00  # 50000 / 5
+    assert updated["cost_basis_paise"] == buy_amount
+
+    assert _balance(api_client, bank_id) == bank_before - buy_amount
+    assert _balance(api_client, inv_account_id) == inv_before + buy_amount
+
+
+def test_record_sell_reverses_buy(api_client: TestClient) -> None:
+    bank_id = _create_bank(api_client)
+    _seed_bank_balance(api_client, bank_id=bank_id, amount_paise=500_000_00)
+
+    inv = _create_empty_investment(api_client)
+    inv_id = int(inv["id"])
+    inv_account_id = int(inv["account_id"])
+
+    buy_response = api_client.post(
+        f"/api/investments/{inv_id}/record-buy",
+        json={
+            "date": "2026-08-01",
+            "amount_paise": 50_000_00,
+            "units": 5.0,
+            "bank_account_id": bank_id,
+        },
+    )
+    assert buy_response.status_code == 201, buy_response.text
+
+    bank_before = _balance(api_client, bank_id)
+    inv_before = _balance(api_client, inv_account_id)
+    sell_amount = 20_000_00
+    sell_units = 2.0
+
+    response = api_client.post(
+        f"/api/investments/{inv_id}/record-sell",
+        json={
+            "date": "2026-08-15",
+            "amount_paise": sell_amount,
+            "units": sell_units,
+            "bank_account_id": bank_id,
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert int(body["ledger_transaction_id"]) > 0
+    updated = body["investment"]
+    assert updated["units"] == 3.0
+    assert updated["avg_price_paise"] == 10_000_00
+    assert updated["cost_basis_paise"] == 30_000_00
+
+    assert _balance(api_client, bank_id) == bank_before + sell_amount
+    assert _balance(api_client, inv_account_id) == inv_before - sell_amount
+
+
+def test_record_buy_requires_double_entry(api_client: TestClient) -> None:
+    bank_id = _create_bank(api_client)
+    inv = _create_empty_investment(api_client)
+    inv_id = int(inv["id"])
+
+    api_client.put(
+        "/api/settings/",
+        json={"project_config": {"ledger_engine": "legacy"}},
+    )
+
+    response = api_client.post(
+        f"/api/investments/{inv_id}/record-buy",
+        json={
+            "date": "2026-08-01",
+            "amount_paise": 10_000_00,
+            "units": 1.0,
+            "bank_account_id": bank_id,
+        },
+    )
+    assert response.status_code == 422
+    assert "double_entry" in response.json()["detail"]

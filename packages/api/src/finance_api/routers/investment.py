@@ -3,23 +3,31 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date as date_cls
 from typing import Annotated
 
 import aiosqlite
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from finance_api.deps_ledger import require_ledger_writes
 from finance_api.deps import get_conn
 from finance_api.schemas.investment import (
     InvestmentCreateBody,
     InvestmentOut,
     InvestmentPutBody,
     PortfolioSummaryOut,
+    RecordInvestmentBuyBody,
+    RecordInvestmentTradeBody,
+    RecordInvestmentTradeOut,
     WealthEnsureLedgerOut,
 )
 from finance_api.services.investment_ledger import (
     ensure_all_wealth_seeds,
     ensure_investment_account_and_seed,
+    record_investment_buy,
+    record_investment_sell,
 )
+from finance_common.ledger.errors import LedgerError
 from finance_common.project_config import load_project_config
 from finance_common.repositories import investments as inv_repo
 from finance_common.repositories.investments import InvestmentRow
@@ -177,3 +185,86 @@ async def delete_investment(
     ok = await inv_repo.delete_investment(conn, inv_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Investment not found")
+
+
+async def _require_double_entry(conn: aiosqlite.Connection) -> None:
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine != "double_entry":
+        raise HTTPException(
+            status_code=422,
+            detail="record requires double_entry ledger engine",
+        )
+
+
+def _parse_trade_date(date_str: str) -> date_cls:
+    try:
+        return date_cls.fromisoformat(date_str)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail="invalid date") from e
+
+
+@router.post("/{inv_id}/record-buy", response_model=RecordInvestmentTradeOut, status_code=201)
+async def record_buy(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
+    inv_id: int,
+    body: RecordInvestmentBuyBody,
+) -> RecordInvestmentTradeOut:
+    """Post investment buy or SIP through the ledger."""
+    row = await inv_repo.get_investment(conn, inv_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Investment not found")
+
+    await _require_double_entry(conn)
+    require_ledger_writes(request)
+
+    try:
+        ledger_transaction_id, updated = await record_investment_buy(
+            conn,
+            inv_row=row,
+            tx_date=_parse_trade_date(body.date),
+            amount_paise=body.amount_paise,
+            units=body.units,
+            bank_account_id=body.bank_account_id,
+            kind=body.kind,
+        )
+    except LedgerError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    return RecordInvestmentTradeOut(
+        ledger_transaction_id=ledger_transaction_id,
+        investment=_to_out(updated),
+    )
+
+
+@router.post("/{inv_id}/record-sell", response_model=RecordInvestmentTradeOut, status_code=201)
+async def record_sell(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
+    inv_id: int,
+    body: RecordInvestmentTradeBody,
+) -> RecordInvestmentTradeOut:
+    """Post investment sell through the ledger."""
+    row = await inv_repo.get_investment(conn, inv_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Investment not found")
+
+    await _require_double_entry(conn)
+    require_ledger_writes(request)
+
+    try:
+        ledger_transaction_id, updated = await record_investment_sell(
+            conn,
+            inv_row=row,
+            tx_date=_parse_trade_date(body.date),
+            amount_paise=body.amount_paise,
+            units=body.units,
+            bank_account_id=body.bank_account_id,
+        )
+    except LedgerError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    return RecordInvestmentTradeOut(
+        ledger_transaction_id=ledger_transaction_id,
+        investment=_to_out(updated),
+    )

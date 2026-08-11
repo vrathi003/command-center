@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -94,3 +96,19 @@ class FixedIncomePutBody(BaseModel):
 
 class WealthEnsureLedgerOut(BaseModel):
     ok: bool
+
+
+class RecordInvestmentTradeBody(BaseModel):
+    date: str
+    amount_paise: int = Field(gt=0)
+    units: float = Field(gt=0)
+    bank_account_id: int = Field(gt=0)
+
+
+class RecordInvestmentBuyBody(RecordInvestmentTradeBody):
+    kind: Literal["buy", "sip"] = "buy"
+
+
+class RecordInvestmentTradeOut(BaseModel):
+    ledger_transaction_id: int
+    investment: InvestmentOut

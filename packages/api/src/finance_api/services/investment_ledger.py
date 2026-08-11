@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 
 import aiosqlite
 
+from finance_common.ledger import builders
 from finance_common.ledger import service as ledger_service
 from finance_common.ledger.errors import LedgerError
 from finance_common.ledger.models import NewPosting, PostTransactionInput
@@ -128,3 +130,137 @@ async def ensure_all_wealth_seeds(conn: aiosqlite.Connection) -> None:
         await ensure_investment_account_and_seed(conn, inv_row)
     for fi_row in await fi_repo.list_fixed_income(conn):
         await ensure_fixed_income_account_and_seed(conn, fi_row)
+
+
+def _weighted_avg_price_paise(
+    *,
+    old_units: float,
+    old_avg_paise: int,
+    buy_units: float,
+    buy_amount_paise: int,
+) -> int:
+    new_units = old_units + buy_units
+    if new_units <= 0:
+        return int(round(buy_amount_paise / buy_units))
+    total_cost = old_units * old_avg_paise + buy_amount_paise
+    return int(round(total_cost / new_units))
+
+
+async def record_investment_buy(
+    conn: aiosqlite.Connection,
+    *,
+    inv_row: InvestmentRow,
+    tx_date: date,
+    amount_paise: int,
+    units: float,
+    bank_account_id: int,
+    kind: str = "buy",
+) -> tuple[int, InvestmentRow]:
+    """Post buy/SIP through ledger; update units and weighted average cost."""
+    if amount_paise <= 0:
+        raise LedgerError("amount_paise must be positive")
+    if units <= 0:
+        raise LedgerError("units must be positive")
+
+    bank = await accounts_repo.get_account(conn, bank_account_id)
+    if bank is None:
+        raise LedgerError("bank_account_id not found")
+
+    investment_account_id = await _ensure_investment_account(conn, inv_row)
+    refreshed = await inv_repo.get_investment(conn, inv_row.id)
+    if refreshed is None:
+        raise LedgerError("investment not found after ensure")
+
+    old_units = refreshed.units or 0.0
+    old_avg = refreshed.avg_price_paise or 0
+    new_units = old_units + units
+    new_avg = _weighted_avg_price_paise(
+        old_units=old_units,
+        old_avg_paise=old_avg,
+        buy_units=units,
+        buy_amount_paise=amount_paise,
+    )
+
+    label = "SIP" if kind == "sip" else "Buy"
+    postings = builders.build_investment_buy(
+        bank_id=bank_account_id,
+        investment_account_id=investment_account_id,
+        amount_paise=amount_paise,
+    )
+    ledger_transaction_id = await ledger_service.post(
+        conn,
+        PostTransactionInput(
+            tx_date=tx_date,
+            postings=postings,
+            payee=refreshed.instrument,
+            notes=f"Investment {label} — {refreshed.instrument}",
+            source="investment",
+            external_key=(
+                f"inv_{kind}:{refreshed.id}:{tx_date.isoformat()}:{amount_paise}:{units}"
+            ),
+        ),
+    )
+
+    updated = replace(
+        refreshed,
+        units=new_units,
+        avg_price_paise=new_avg,
+        account_id=investment_account_id,
+    )
+    await inv_repo.update_investment_row(conn, updated)
+    return ledger_transaction_id, updated
+
+
+async def record_investment_sell(
+    conn: aiosqlite.Connection,
+    *,
+    inv_row: InvestmentRow,
+    tx_date: date,
+    amount_paise: int,
+    units: float,
+    bank_account_id: int,
+) -> tuple[int, InvestmentRow]:
+    """Post sell through ledger; reduce units (avg unchanged)."""
+    if amount_paise <= 0:
+        raise LedgerError("amount_paise must be positive")
+    if units <= 0:
+        raise LedgerError("units must be positive")
+
+    bank = await accounts_repo.get_account(conn, bank_account_id)
+    if bank is None:
+        raise LedgerError("bank_account_id not found")
+
+    investment_account_id = await _ensure_investment_account(conn, inv_row)
+    refreshed = await inv_repo.get_investment(conn, inv_row.id)
+    if refreshed is None:
+        raise LedgerError("investment not found after ensure")
+
+    old_units = refreshed.units or 0.0
+    new_units = max(0.0, old_units - units)
+
+    postings = builders.build_investment_sell(
+        bank_id=bank_account_id,
+        investment_account_id=investment_account_id,
+        amount_paise=amount_paise,
+    )
+    ledger_transaction_id = await ledger_service.post(
+        conn,
+        PostTransactionInput(
+            tx_date=tx_date,
+            postings=postings,
+            payee=refreshed.instrument,
+            notes=f"Investment Sell — {refreshed.instrument}",
+            source="investment",
+            external_key=(
+                f"inv_sell:{refreshed.id}:{tx_date.isoformat()}:{amount_paise}:{units}"
+            ),
+        ),
+    )
+
+    updated = replace(
+        refreshed,
+        units=new_units,
+        account_id=investment_account_id,
+    )
+    await inv_repo.update_investment_row(conn, updated)
+    return ledger_transaction_id, updated
