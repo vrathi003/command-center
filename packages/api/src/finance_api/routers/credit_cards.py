@@ -76,6 +76,16 @@ async def _cc_outstanding_batch(
     return {aid: max(0, -bal) for aid, bal in balances.items()}
 
 
+async def _sync_cc_balance_cache(conn: aiosqlite.Connection, card: CreditCardRow) -> int:
+    """Refresh credit_cards.current_balance_paise from ledger outstanding."""
+    if card.account_id is None:
+        return card.current_balance_paise or 0
+    outstanding = await _cc_outstanding_paise(conn, card.account_id)
+    merged = replace(card, current_balance_paise=outstanding)
+    await cc_repo.update_credit_card_row(conn, merged)
+    return outstanding
+
+
 async def _resolve_live_balance(
     conn: aiosqlite.Connection,
     account_id: int,
@@ -495,6 +505,7 @@ async def pay_bill(
             )
         except LedgerError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        await _sync_cc_balance_cache(conn, card)
         return {"ledger_transaction_id": ledger_transaction_id}
 
     out_id, in_id, pair_id = await tx_repo.insert_transfer_pair(
@@ -728,16 +739,18 @@ async def apply_statement(
 
     await cc_repo.update_statement_status(conn, statement_id, status="applied")
 
-    summary = summary_json_loads(stmt.summary_json)
     new_bal: int | None = None
-    if "closing_balance_paise" in summary:
-        new_bal = int(summary["closing_balance_paise"])
-    elif "total_due_paise" in summary:
-        new_bal = int(summary["total_due_paise"])
-
-    if new_bal is not None:
-        merged = replace(card, current_balance_paise=new_bal)
-        await cc_repo.update_credit_card_row(conn, merged)
+    if project_config.ledger_engine == "double_entry":
+        new_bal = await _sync_cc_balance_cache(conn, card)
+    else:
+        summary = summary_json_loads(stmt.summary_json)
+        if "closing_balance_paise" in summary:
+            new_bal = int(summary["closing_balance_paise"])
+        elif "total_due_paise" in summary:
+            new_bal = int(summary["total_due_paise"])
+        if new_bal is not None:
+            merged = replace(card, current_balance_paise=new_bal)
+            await cc_repo.update_credit_card_row(conn, merged)
 
     return CreditCardStatementApplyResponse(imported_count=imported, updated_balance_paise=new_bal)
 
