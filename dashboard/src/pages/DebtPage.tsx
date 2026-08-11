@@ -272,6 +272,7 @@ export function DebtPage() {
   const remove = useMutation({
     mutationFn: deleteDebt,
     onSuccess: () => { setOpenId(null); invalidate() },
+    meta: { successMessage: 'Debt deleted' },
   })
   const syncBal = useMutation({
     mutationFn: syncDebtBalance,
@@ -279,8 +280,13 @@ export function DebtPage() {
       invalidate()
       void qc.invalidateQueries({ queryKey: ['debt-amort', openId] })
     },
+    meta: { successMessage: 'Debt balance synced' },
   })
-  const syncAll = useMutation({ mutationFn: syncAllDebtBalances, onSuccess: invalidate })
+  const syncAll = useMutation({
+    mutationFn: syncAllDebtBalances,
+    onSuccess: invalidate,
+    meta: { successMessage: 'All debt balances synced' },
+  })
 
   // ── add form state ──────────────────────────────────────────────────────
   const [nName, setNName] = useState('New loan')

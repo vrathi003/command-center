@@ -88,6 +88,7 @@ import type {
   ReconStatement,
   ReconWorkspace,
 } from '@/types/api'
+import { parseApiError } from '@/lib/apiError'
 
 export function apiBase(): string {
   return import.meta.env.VITE_API_URL?.replace(/\/$/, '') ?? ''
@@ -131,7 +132,7 @@ async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
 async function parseJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(text || `HTTP ${res.status}`)
+    throw parseApiError(res.status, text)
   }
   return res.json() as Promise<T>
 }

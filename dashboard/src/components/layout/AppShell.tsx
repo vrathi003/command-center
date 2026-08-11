@@ -55,7 +55,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/statement-import', label: 'Statement import', icon: FileDown },
       { to: '/email-inbox', label: 'Gmail inbox', icon: Mail },
       { to: '/transactions/quarantine', label: 'Ledger quarantine', icon: ShieldAlert },
-      { to: '/alerts', label: 'Alerts', icon: Bell },
+      { to: '/alerts', label: 'Notifications', icon: Bell },
     ],
   },
   {

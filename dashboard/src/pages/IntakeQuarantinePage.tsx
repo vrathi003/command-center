@@ -250,10 +250,12 @@ export function IntakeQuarantinePage() {
       invalidate()
     },
     onError: (error: Error) => setActionError(error.message),
+    meta: { successMessage: 'Quarantine item approved' },
   })
   const rejectMutation = useMutation({
     mutationFn: rejectIntakeCandidate,
     onSuccess: invalidate,
+    meta: { successMessage: 'Quarantine item rejected' },
   })
 
   const candidates = candidatesQ.data ?? []

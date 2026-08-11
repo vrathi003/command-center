@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, Upload } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import {
   AddTransactionDrawer,
@@ -17,6 +18,7 @@ import {
   fetchTransactions,
   importTransactionsFile,
 } from '@/lib/api'
+import { formatErrorMessage } from '@/lib/apiError'
 import { formatMerchantCell } from '@/lib/merchantDisplay'
 import { formatPaise } from '@/lib/format'
 import type { TransactionRow } from '@/types/api'
@@ -122,6 +124,7 @@ export function TransactionsPage() {
       void qc.invalidateQueries({ queryKey: ['dashboard-alerts'] })
       void qc.invalidateQueries({ queryKey: ['budget-vs'] })
     },
+    meta: { successMessage: 'Transactions deleted' },
   })
 
   const upload = useMutation({
@@ -138,13 +141,13 @@ export function TransactionsPage() {
         data.errors.length > 0
           ? ` First issues: row ${data.errors[0].row} — ${data.errors[0].message}`
           : ''
-      setLastImport(
-        `Imported ${data.imported} row(s).${data.failed > 0 ? ` Failed: ${data.failed}.` : ''}${errPart}`,
-      )
+      const summary = `Imported ${data.imported} row(s).${data.failed > 0 ? ` Failed: ${data.failed}.` : ''}${errPart}`
+      setLastImport(summary)
+      toast.success(summary)
       setPdfPassword('')
     },
     onError: (e) => {
-      setLastImport(`Error: ${String(e)}`)
+      setLastImport(`Error: ${formatErrorMessage(e)}`)
     },
   })
 

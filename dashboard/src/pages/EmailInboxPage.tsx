@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, CalendarSearch, CheckCircle, RefreshCw, RotateCcw, ShieldAlert, Trash2, XCircle, Zap } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { PageHero } from '@/components/ui/PageHero'
 import { Panel } from '@/components/ui/Panel'
@@ -15,10 +16,12 @@ import {
   fetchAccounts,
   fetchEmailInbox,
   fetchEmailInboxStats,
+  fetchSettings,
   historicalSyncGmail,
   rejectEmailTransaction,
   syncGmailNow,
 } from '@/lib/api'
+import { ApiClientError } from '@/lib/apiError'
 import { formatPaise } from '@/lib/format'
 import type { AccountOut, HistoricalSyncResult, StagedEmailTransaction } from '@/types/api'
 
@@ -164,6 +167,7 @@ interface EditState {
   parsed_category: string
   parsed_payment_mode: string
   parsed_transaction_type: 'debit' | 'credit'
+  account_id: string
 }
 
 function itemToEditState(item: StagedEmailTransaction): EditState {
@@ -174,6 +178,7 @@ function itemToEditState(item: StagedEmailTransaction): EditState {
     parsed_category: item.parsed_category ?? 'Other',
     parsed_payment_mode: item.parsed_payment_mode ?? 'Other',
     parsed_transaction_type: (item.parsed_transaction_type as 'debit' | 'credit') ?? 'debit',
+    account_id: item.suggested_account_id != null ? String(item.suggested_account_id) : '',
   }
 }
 
@@ -391,6 +396,8 @@ function TransferApprovalModal({
 interface PendingCardProps {
   item: StagedEmailTransaction
   transferPair: TransferPair | undefined
+  accounts: AccountOut[]
+  requireAccount: boolean
   selected: boolean
   onToggleSelect: (id: number) => void
   onApprove: (item: StagedEmailTransaction, overrides: EditState) => void
@@ -407,6 +414,8 @@ interface PendingCardProps {
 function PendingCard({
   item,
   transferPair,
+  accounts,
+  requireAccount,
   selected,
   onToggleSelect,
   onApprove,
@@ -426,6 +435,11 @@ function PendingCard({
   function field(key: keyof EditState, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
+
+  const cashAccounts = accounts.filter(
+    (a) => a.account_class === 'asset_cash' || a.account_class === 'liability_cc' || a.type === 'savings' || a.type === 'credit_card' || a.type === 'current' || a.type === 'wallet',
+  )
+  const accountMissing = requireAccount && !form.account_id
 
   const isTransferPair = !!transferPair && variant === 'pending'
   const isQuarantined = variant === 'quarantined' || item.status === 'quarantined'
@@ -628,7 +642,47 @@ function PendingCard({
               ))}
             </select>
           </label>
+          <label className="col-span-2 flex flex-col gap-1 text-xs font-medium text-zinc-600 sm:col-span-3">
+            Account{requireAccount ? ' (required)' : ''}
+            <select
+              value={form.account_id}
+              onChange={(e) => field('account_id', e.target.value)}
+              className={`rounded border bg-white px-2 py-1 text-sm text-zinc-800 ${
+                accountMissing ? 'border-red-400' : 'border-zinc-200'
+              }`}
+            >
+              <option value="">Select account…</option>
+              {cashAccounts.map((a) => (
+                <option key={a.id} value={String(a.id)}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
+      )}
+
+      {!editing && requireAccount && (
+        <label className="mt-3 flex max-w-md flex-col gap-1 text-xs font-medium text-zinc-600">
+          Account{requireAccount ? ' (required)' : ''}
+          <select
+            value={form.account_id}
+            onChange={(e) => field('account_id', e.target.value)}
+            className={`rounded border bg-white px-2 py-1 text-sm text-zinc-800 ${
+              accountMissing ? 'border-red-400' : 'border-zinc-200'
+            }`}
+          >
+            <option value="">Select account…</option>
+            {cashAccounts.map((a) => (
+              <option key={a.id} value={String(a.id)}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          {accountMissing ? (
+            <span className="text-red-600">Choose an account before approving (ledger books).</span>
+          ) : null}
+        </label>
       )}
 
       {/* Action buttons */}
@@ -658,7 +712,7 @@ function PendingCard({
         {canForceSingleApprove ? (
           <button
             onClick={() => onForceApprove!(item, form)}
-            disabled={approving || rejecting || forceApproving}
+            disabled={approving || rejecting || forceApproving || accountMissing}
             className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
           >
             <ShieldAlert className="size-3.5" />
@@ -667,7 +721,7 @@ function PendingCard({
         ) : !isTransferQuarantine ? (
           <button
             onClick={() => onApprove(item, form)}
-            disabled={approving || rejecting || forceApproving}
+            disabled={approving || rejecting || forceApproving || accountMissing}
             className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
           >
             <CheckCircle className="size-3.5" />
@@ -944,6 +998,14 @@ export function EmailInboxPage() {
     queryFn: () => fetchAccounts(),
   })
 
+  const settingsQ = useQuery({
+    queryKey: ['settings'],
+    queryFn: fetchSettings,
+  })
+  const requireAccount =
+    (settingsQ.data?.project_config.ledger_engine ?? 'double_entry') === 'double_entry'
+  const accounts = accountsQ.data ?? []
+
   function invalidate() {
     qc.invalidateQueries({ queryKey: ['email-inbox'] })
     qc.invalidateQueries({ queryKey: ['email-inbox-stats'] })
@@ -959,7 +1021,11 @@ export function EmailInboxPage() {
     setTab('quarantined')
   }
 
-  const syncMut = useMutation({ mutationFn: syncGmailNow, onSuccess: invalidate })
+  const syncMut = useMutation({
+    mutationFn: syncGmailNow,
+    onSuccess: invalidate,
+    meta: { successMessage: 'Gmail sync finished' },
+  })
 
   const approveMut = useMutation({
     mutationFn: ({
@@ -972,6 +1038,13 @@ export function EmailInboxPage() {
       force?: boolean
     }) => {
       const amount_paise = rupeesToPaise(form.parsed_amount)
+      const account_id = form.account_id ? Number.parseInt(form.account_id, 10) : null
+      if (requireAccount && (account_id == null || Number.isNaN(account_id))) {
+        throw new ApiClientError(
+          422,
+          'Select an account before approving (required for double-entry ledger).',
+        )
+      }
       return approveEmailTransaction(id, {
         parsed_date: form.parsed_date || null,
         parsed_amount_paise: amount_paise,
@@ -979,6 +1052,7 @@ export function EmailInboxPage() {
         parsed_category: form.parsed_category || null,
         parsed_payment_mode: form.parsed_payment_mode || null,
         parsed_transaction_type: form.parsed_transaction_type,
+        account_id,
         force,
       })
     },
@@ -991,6 +1065,7 @@ export function EmailInboxPage() {
         )
       } else {
         setQuarantineBanner(null)
+        toast.success(force ? 'Force approved' : 'Transaction approved')
       }
     },
     onSettled: (_, __, { id }) => {
@@ -1006,6 +1081,7 @@ export function EmailInboxPage() {
       setActiveMutations((p) => { const n = { ...p }; delete n[id]; return n })
       invalidate()
     },
+    meta: { successMessage: 'Item rejected' },
   })
 
   const transferMut = useMutation({
@@ -1041,24 +1117,54 @@ export function EmailInboxPage() {
       } else {
         setTransferModalPair(null)
         setQuarantineBanner(null)
+        toast.success('Transfer approved')
       }
     },
     onSettled: () => invalidate(),
   })
 
-  const clearMut = useMutation({ mutationFn: clearRejectedEmails, onSuccess: invalidate })
+  const clearMut = useMutation({
+    mutationFn: clearRejectedEmails,
+    onSuccess: invalidate,
+    meta: { successMessage: 'Rejected items cleared' },
+  })
 
   const bulkApproveMut = useMutation({
-    mutationFn: async (ids: number[]) =>
-      Promise.all(ids.map((id) => approveEmailTransaction(id, {}))),
+    mutationFn: async (ids: number[]) => {
+      const itemsById = new Map((listQ.data ?? []).map((row) => [row.id, row]))
+      return Promise.all(
+        ids.map((id) => {
+          const item = itemsById.get(id)
+          const form = item ? itemToEditState(item) : null
+          const account_id = form?.account_id
+            ? Number.parseInt(form.account_id, 10)
+            : null
+          if (requireAccount && (account_id == null || Number.isNaN(account_id))) {
+            throw new ApiClientError(
+              422,
+              `Select an account on item #${id} before bulk approve (double-entry).`,
+            )
+          }
+          return approveEmailTransaction(id, { account_id })
+        }),
+      )
+    },
     onSuccess: (results) => {
       const quarantinedCount = results.filter((row) => row.status === 'quarantined').length
+      const approvedCount = results.length - quarantinedCount
       if (quarantinedCount > 0) {
         handleQuarantinedResult(
           `${quarantinedCount} item(s) moved to Quarantined due to possible duplicates. Review in the quarantine desk or use Force approve.`,
         )
       } else {
         setQuarantineBanner(null)
+      }
+      if (approvedCount > 0) {
+        toast.success(
+          approvedCount === 1
+            ? '1 transaction approved'
+            : `${approvedCount} transactions approved`,
+        )
       }
       setSelectedIds(new Set())
       invalidate()
@@ -1070,6 +1176,7 @@ export function EmailInboxPage() {
       await Promise.all(ids.map((id) => rejectEmailTransaction(id)))
     },
     onSuccess: () => { setSelectedIds(new Set()); invalidate() },
+    meta: { successMessage: 'Items rejected' },
   })
 
   const bulkUndoMut = useMutation({
@@ -1077,6 +1184,7 @@ export function EmailInboxPage() {
       await Promise.all(ids.map((id) => deleteApprovedEmail(id)))
     },
     onSuccess: () => { setSelectedIds(new Set()); invalidate() },
+    meta: { successMessage: 'Transactions undone' },
   })
 
   const undoOneMut = useMutation({
@@ -1086,11 +1194,11 @@ export function EmailInboxPage() {
       setUndoingIds((p) => { const n = new Set(p); n.delete(id); return n })
       invalidate()
     },
+    meta: { successMessage: 'Transaction undone' },
   })
 
   const items = listQ.data ?? []
   const stats = statsQ.data
-  const accounts = accountsQ.data ?? []
 
   // Compute transfer pairs only for pending items
   const transferPairs = useMemo(() => {
@@ -1355,6 +1463,8 @@ export function EmailInboxPage() {
                 <PendingCard
                   key={item.id}
                   item={item}
+                  accounts={accounts}
+                  requireAccount={requireAccount}
                   variant={tab === 'quarantined' ? 'quarantined' : 'pending'}
                   transferPair={transferPairs.get(item.id)}
                   selected={selectedIds.has(item.id)}

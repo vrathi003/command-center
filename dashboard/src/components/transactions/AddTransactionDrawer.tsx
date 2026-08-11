@@ -191,6 +191,7 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
       setNotes('')
       setTags('')
     },
+    meta: { successMessage: 'Transaction saved' },
   })
 
   const createTransfer = useMutation({
@@ -205,6 +206,7 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
       setNotes('')
       setTags('')
     },
+    meta: { successMessage: 'Transfer saved' },
   })
 
   const updateOne = useMutation({
@@ -231,6 +233,7 @@ export function AddTransactionDrawer({ open, onClose, accounts, editDraft }: Pro
       void qc.invalidateQueries({ queryKey: ['budget-vs'] })
       onClose()
     },
+    meta: { successMessage: 'Transaction updated' },
   })
 
   /** Feedback loop: "always classify this way?" checkbox creates a merchant rule (which

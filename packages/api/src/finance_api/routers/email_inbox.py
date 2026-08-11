@@ -233,13 +233,24 @@ async def manual_sync(
             ),
         )
     from finance_api.services.gmail_sync import sync_gmail_transactions  # noqa: PLC0415
+    from finance_common.repositories import domain_events  # noqa: PLC0415
 
-    n = await sync_gmail_transactions(
-        conn,
-        api.gmail_credentials_path,
-        api.gmail_token_path,
-        api.gmail_sync_lookback_hours,
-    )
+    try:
+        n = await sync_gmail_transactions(
+            conn,
+            api.gmail_credentials_path,
+            api.gmail_token_path,
+            api.gmail_sync_lookback_hours,
+        )
+    except Exception as exc:
+        msg = str(exc)
+        if "invalid_grant" in msg or "authentication failed" in msg.lower():
+            await domain_events.append_event(
+                conn,
+                event_type="ops.gmail_auth_failed",
+                payload={"error": msg[:500]},
+            )
+        raise HTTPException(status_code=502, detail=msg) from exc
     return SyncResult(new_items=n)
 
 

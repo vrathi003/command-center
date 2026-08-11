@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
+import { toast } from 'sonner'
 import {
   Bar,
   BarChart,
@@ -16,6 +17,7 @@ import { PageHero } from '@/components/ui/PageHero'
 import { Panel } from '@/components/ui/Panel'
 import { SectionTitle } from '@/components/ui/SectionTitle'
 import { downloadFYSummaryPdf, fetchFYSpending, fetchFYSummary, fetchSettings } from '@/lib/api'
+import { formatErrorMessage } from '@/lib/apiError'
 import { formatPaiseCompact } from '@/lib/format'
 
 
@@ -103,7 +105,7 @@ export function ReportsPage() {
                 void downloadFYSummaryPdf(effectiveFy || undefined)
                   .catch((e: unknown) => {
                     console.error(e)
-                    window.alert(e instanceof Error ? e.message : String(e))
+                    toast.error(formatErrorMessage(e))
                   })
                   .finally(() => setPdfLoading(false))
               }}

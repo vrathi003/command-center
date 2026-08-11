@@ -758,6 +758,7 @@ export function StatementImportPage() {
 
   const fetchMut = useMutation({
     mutationFn: (force?: boolean) => fetchStatementsImportNow(force),
+    meta: { successMessage: 'Statement fetch finished' },
     onSuccess: (data) => {
       qc.setQueryData(['statement-import-snapshot'], {
         id: data.snapshot_id ?? 0,
@@ -831,6 +832,7 @@ export function StatementImportPage() {
   const deleteTxMut = useMutation({
     mutationFn: (ids: string[]) => bulkDeleteStatementImportTransactions(ids),
     onSuccess: syncSnapshot,
+    meta: { successMessage: 'Statement rows deleted' },
   })
 
   const saveRuleMut = useMutation({

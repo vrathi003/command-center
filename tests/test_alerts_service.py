@@ -89,6 +89,24 @@ from finance_common.repositories.settings_repo import set_value
             "info",
         ),
         (
+            "ops.job_failed",
+            {"job": "price_sync", "error": "Yahoo timeout"},
+            "ops.job_failed|price_sync|Yahoo timeout",
+            "error",
+        ),
+        (
+            "ops.gmail_auth_failed",
+            {"error": "invalid_grant: Bad Request"},
+            "ops.gmail_auth_failed",
+            "error",
+        ),
+        (
+            "ops.backup_failed",
+            {"error": "No space left on device"},
+            "ops.backup_failed|No space left on device",
+            "error",
+        ),
+        (
             "migration.quarantine_created",
             {"candidate_id": 99, "reason": "needs_opening_balance"},
             "migration.quarantine|99",

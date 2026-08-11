@@ -43,6 +43,12 @@ def route_event(
         return _route_digest(payload, event_id=event_id, period="weekly")
     if event_type == "digest.monthly":
         return _route_digest(payload, event_id=event_id, period="monthly")
+    if event_type == "ops.job_failed":
+        return _route_ops_job_failed(payload, event_id=event_id)
+    if event_type == "ops.gmail_auth_failed":
+        return _route_ops_gmail_auth(payload, event_id=event_id)
+    if event_type == "ops.backup_failed":
+        return _route_ops_backup_failed(payload, event_id=event_id)
     return None
 
 
@@ -262,4 +268,46 @@ def _route_digest(
         title=title,
         message=message,
         severity="info",
+    )
+
+
+def _route_ops_job_failed(payload: Mapping[str, object], *, event_id: int) -> RoutedAlert:
+    job = _payload_str(payload, "job", "background job")
+    error = _payload_str(payload, "error", "Unknown error")
+    fingerprint = f"ops.job_failed|{job}|{error[:80]}"
+    return RoutedAlert(
+        fingerprint=fingerprint,
+        kind="ops",
+        title=f"Job failed: {job}",
+        message=error[:500],
+        severity="error",
+    )
+
+
+def _route_ops_gmail_auth(payload: Mapping[str, object], *, event_id: int) -> RoutedAlert:
+    error = _payload_str(payload, "error", "Gmail authentication failed")
+    fingerprint = "ops.gmail_auth_failed"
+    del event_id
+    return RoutedAlert(
+        fingerprint=fingerprint,
+        kind="ops",
+        title="Gmail authentication failed",
+        message=(
+            f"{error}. Re-run scripts/setup_gmail.py on the API host "
+            "(headless: --console with ssh -L 8080:localhost:8080)."
+        ),
+        severity="error",
+    )
+
+
+def _route_ops_backup_failed(payload: Mapping[str, object], *, event_id: int) -> RoutedAlert:
+    error = _payload_str(payload, "error", "Database backup failed")
+    fingerprint = f"ops.backup_failed|{error[:80]}"
+    del event_id
+    return RoutedAlert(
+        fingerprint=fingerprint,
+        kind="ops",
+        title="Database backup failed",
+        message=error[:500],
+        severity="error",
     )

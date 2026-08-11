@@ -112,7 +112,7 @@ export function AlertsPage() {
     <div className="flex flex-col gap-6">
       <PageHero
         eyebrow="Operations"
-        title="Alerts"
+        title="Notifications"
         description="In-app notifications from budget thresholds, due dates, and background checks."
         actions={
           <button

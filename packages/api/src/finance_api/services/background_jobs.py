@@ -64,10 +64,29 @@ async def job_alert_poll(db_path: Path) -> None:
             logger.info("Alert poll: processed %s domain event(s)", processed)
 
 
+async def _emit_ops_event(
+    db_path: Path, event_type: str, payload: dict[str, object]
+) -> None:
+    try:
+        async with open_db(db_path) as conn:
+            await domain_events.append_event(conn, event_type=event_type, payload=payload)
+    except Exception:
+        logger.exception("Failed to emit ops event %s", event_type)
+
+
 async def job_price_sync_6am(db_path: Path) -> None:
-    async with open_db(db_path) as conn:
-        n = await sync_investment_prices(conn)
+    try:
+        async with open_db(db_path) as conn:
+            n = await sync_investment_prices(conn)
         logger.info("Scheduled price sync: %s holding(s) updated", n)
+    except Exception as exc:
+        logger.exception("Scheduled price sync failed")
+        await _emit_ops_event(
+            db_path,
+            "ops.job_failed",
+            {"job": "price_sync", "error": str(exc)[:500]},
+        )
+        raise
 
 
 async def job_backup_2am(db_path: Path, backup_dir: Path | None) -> None:
@@ -79,8 +98,29 @@ async def job_backup_2am(db_path: Path, backup_dir: Path | None) -> None:
     try:
         shutil.copy2(db_path, dest)
         logger.info("Database backup: %s", dest)
-    except OSError:
+    except OSError as exc:
         logger.exception("Database backup failed")
+        await _emit_ops_event(
+            db_path,
+            "ops.backup_failed",
+            {"error": str(exc)[:500]},
+        )
+
+
+async def _emit_gmail_failure(db_path: Path, exc: BaseException) -> None:
+    msg = str(exc)
+    if "invalid_grant" in msg or "authentication failed" in msg.lower():
+        await _emit_ops_event(
+            db_path,
+            "ops.gmail_auth_failed",
+            {"error": msg[:500]},
+        )
+    else:
+        await _emit_ops_event(
+            db_path,
+            "ops.job_failed",
+            {"job": "gmail_sync", "error": msg[:500]},
+        )
 
 
 async def job_budget_and_alerts(db_path: Path, api: ApiSettings) -> None:
@@ -291,15 +331,20 @@ async def job_gmail_sync(db_path: Path, api: ApiSettings) -> None:
     """Every 3 hours — fetch new financial emails and insert to staging table."""
     if not api.gmail_credentials_path or not api.gmail_credentials_path.exists():
         return
-    async with open_db(db_path) as conn:
-        n = await sync_gmail_transactions(
-            conn,
-            api.gmail_credentials_path,
-            api.gmail_token_path,
-            api.gmail_sync_lookback_hours,
-        )
-        if n:
-            logger.info("Gmail sync: %s new staged transaction(s)", n)
+    try:
+        async with open_db(db_path) as conn:
+            n = await sync_gmail_transactions(
+                conn,
+                api.gmail_credentials_path,
+                api.gmail_token_path,
+                api.gmail_sync_lookback_hours,
+            )
+            if n:
+                logger.info("Gmail sync: %s new staged transaction(s)", n)
+    except Exception as exc:
+        logger.exception("Gmail sync job failed")
+        await _emit_gmail_failure(db_path, exc)
+        raise
 
 
 async def job_fetch_cc_statements(db_path: Path, api: ApiSettings) -> None:
@@ -307,16 +352,23 @@ async def job_fetch_cc_statements(db_path: Path, api: ApiSettings) -> None:
     with auto_fetch_enabled=1. Statements always land as pending_review; never applied."""
     if not api.gmail_credentials_path or not api.gmail_credentials_path.exists():
         return
-    async with open_db(db_path) as conn:
-        counts = await fetch_cc_statements(conn, api.gmail_credentials_path, api.gmail_token_path)
-        if counts["staged"]:
-            logger.info(
-                "CC statement auto-fetch: %s new statement(s) staged (skipped: %s unmatched, "
-                "%s duplicate)",
-                counts["staged"],
-                counts["skipped_unmatched"],
-                counts["skipped_duplicate"],
+    try:
+        async with open_db(db_path) as conn:
+            counts = await fetch_cc_statements(
+                conn, api.gmail_credentials_path, api.gmail_token_path
             )
+            if counts["staged"]:
+                logger.info(
+                    "CC statement auto-fetch: %s new statement(s) staged "
+                    "(skipped: %s unmatched, %s duplicate)",
+                    counts["staged"],
+                    counts["skipped_unmatched"],
+                    counts["skipped_duplicate"],
+                )
+    except Exception as exc:
+        logger.exception("CC statement fetch job failed")
+        await _emit_gmail_failure(db_path, exc)
+        raise
 
 
 async def job_emi_auto_advance(db_path: Path) -> None:
