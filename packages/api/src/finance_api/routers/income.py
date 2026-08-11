@@ -46,6 +46,8 @@ def _to_out(row: IncomeSourceRow) -> IncomeOut:
         frequency=row.frequency,
         taxability=row.taxability,
         is_active=row.is_active,
+        default_account_id=row.default_account_id,
+        category=row.category,
         monthly_equivalent_paise=eq,
     )
 
@@ -83,6 +85,8 @@ async def create_income(
         frequency=freq.value,
         taxability=tax.value,
         is_active=body.is_active,
+        default_account_id=body.default_account_id,
+        category=body.category,
     )
     row = await income_repo.get_income_source(conn, iid)
     if row is None:
@@ -121,6 +125,8 @@ async def put_income(
         frequency=freq.value,
         taxability=tax.value,
         is_active=body.is_active,
+        default_account_id=body.default_account_id,
+        category=body.category,
     )
     row = await income_repo.get_income_source(conn, income_id)
     if row is None:
