@@ -8,6 +8,10 @@ Type=simple
 User=__SERVICE_USER__
 WorkingDirectory=__REPO_ROOT__/dashboard
 Environment=PATH=__NODE_BIN_DIR__:/usr/local/bin:/usr/bin:/bin
+# Install deps when package-lock changes (no-op when already synced), then build.
+# Default TimeoutStartSec (90s) is too short for cold npm + tsc/vite.
+TimeoutStartSec=600
+ExecStartPre=__NPM_BIN__ install --no-audit --no-fund
 ExecStartPre=__NPM_BIN__ run build
 ExecStart=__NPM_BIN__ run preview -- --host 127.0.0.1 --port 4173 --strictPort
 Restart=always
