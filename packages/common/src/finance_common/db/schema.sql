@@ -132,6 +132,8 @@ CREATE TABLE IF NOT EXISTS income_sources (
     frequency TEXT NOT NULL,
     taxability TEXT NOT NULL,
     is_active INTEGER NOT NULL DEFAULT 1,
+    default_account_id INTEGER REFERENCES accounts(id),
+    category TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

@@ -47,6 +47,24 @@ async def budget_spend_total(conn: aiosqlite.Connection, *, start: date, end: da
     return 0 if row is None else int(row[0])
 
 
+async def income_credits_total(conn: aiosqlite.Connection, *, start: date, end: date) -> int:
+    """Return total income received (positive magnitude) from posted ledger credits."""
+    cursor = await conn.execute(
+        """
+        SELECT COALESCE(-SUM(posting.amount_paise), 0)
+        FROM ledger_postings AS posting
+        JOIN ledger_transactions AS tx ON tx.id = posting.transaction_id
+        JOIN accounts AS account ON account.id = posting.account_id
+        WHERE account.account_class = 'income'
+          AND tx.status = 'posted'
+          AND tx.date BETWEEN ? AND ?
+        """,
+        (start.isoformat(), end.isoformat()),
+    )
+    row = await cursor.fetchone()
+    return 0 if row is None else int(row[0])
+
+
 async def cash_flow_for_accounts(
     conn: aiosqlite.Connection,
     *,

@@ -29,6 +29,7 @@ import type {
   HomeItemSummaryOut,
   IncomeOut,
   IncomeSummaryOut,
+  RecordIncomeOut,
   InsurancePolicyOut,
   InsurancePremiumOut,
   InsuranceSummaryOut,
@@ -1005,6 +1006,8 @@ export async function postIncomeStream(body: {
   frequency: string
   taxability: string
   is_active?: boolean
+  default_account_id?: number | null
+  category?: string | null
 }): Promise<IncomeOut> {
   const res = await apiFetch(`${apiBase()}/api/income/`, {
     method: 'POST',
@@ -1023,6 +1026,8 @@ export async function putIncomeStream(
     frequency: string
     taxability: string
     is_active: boolean
+    default_account_id?: number | null
+    category?: string | null
   },
 ): Promise<IncomeOut> {
   const res = await apiFetch(`${apiBase()}/api/income/${id}`, {
@@ -1039,6 +1044,23 @@ export async function deleteIncomeStream(id: number): Promise<void> {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
   }
+}
+
+export async function recordIncome(
+  incomeId: number,
+  body: {
+    date: string
+    amount_paise?: number | null
+    account_id?: number | null
+    category?: string | null
+  },
+): Promise<RecordIncomeOut> {
+  const res = await apiFetch(`${apiBase()}/api/income/${incomeId}/record-income`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<RecordIncomeOut>(res)
 }
 
 export async function fetchSettings(): Promise<SettingsOut> {

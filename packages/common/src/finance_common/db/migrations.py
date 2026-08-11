@@ -102,6 +102,16 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
         )
         await conn.commit()
 
+    income_cols = await _column_names(conn, "income_sources")
+    if income_cols and "default_account_id" not in income_cols:
+        await conn.execute(
+            "ALTER TABLE income_sources ADD COLUMN default_account_id INTEGER REFERENCES accounts(id)"
+        )
+        await conn.commit()
+    if income_cols and "category" not in income_cols:
+        await conn.execute("ALTER TABLE income_sources ADD COLUMN category TEXT")
+        await conn.commit()
+
     cur = await conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='credit_cards'"
     )
