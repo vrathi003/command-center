@@ -30,10 +30,10 @@ Align Credit Cards, Debt, and Subscriptions & EMI product surfaces with the doub
 | Phase | Name | Deliverable |
 |-------|------|-------------|
 | **W1** ✅ Done | Credit cards | pay_bill → ledger; live balance from ledger; statement apply polish; optional sync cache · [acceptance report](../../../.superpowers/sdd/p-cc-w1-acceptance-report.md) |
-| **W2** | Debt + EMI | Bind `liability_loan`; EMI builder; hybrid auto/manual post; replace balance-only advance as sole money path |
+| **W2** ✅ Done | Debt + EMI | Bind `liability_loan`; EMI builder; hybrid auto/manual post; replace balance-only advance as sole money path · [acceptance report](../../../.superpowers/sdd/task-6-report.md) |
 | **W3** | Subscriptions | `account_id` + Record charge; reminders stay event/UI only |
 
-This document is the umbrella spec. **W1 is done; W2 is next.**
+This document is the umbrella spec. **W1–W2 done; W3 is next.**
 
 ---
 

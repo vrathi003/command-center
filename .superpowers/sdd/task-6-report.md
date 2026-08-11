@@ -1,15 +1,32 @@
-# Task 6 — Dashboard Reconciliation page
+# W2 Debt + EMI Ledger Alignment — Acceptance Report
 
-## Delivered
-
-- Added `/reconciliation` navigation and route.
-- Added an account-scoped statement workspace with statement selection, statement lines, suggestions, unmatched ledger entries, confirmation, ignore, manual matching, explicit adjustments, and soft-close/reopen controls.
-- Added typed reconciliation and ledger API clients.
+**Branch:** `feature/debt-emi-ledger-w2` · **Date:** 2026-08-11
 
 ## Verification
 
-`npm run build` passed after installing the lockfile dependencies with `npm ci`.
+- W2 debt EMI suite: **7 passed**
+  `uv run pytest tests/test_debt_emi_ledger.py -q --tb=line`
+- Ledger write guard: **passed**
+  `uv run python scripts/ci_check_ledger_writes.py`
+- Full suite: **427 passed**
+  `uv run pytest tests/ -q --tb=line`
 
-## Notes
+Five PyMuPDF SWIG deprecation warnings; no test failures.
 
-- Existing `uv.lock` changes were left uncommitted.
+## Spec §5 checklist
+
+| Item | Status |
+|------|--------|
+| liability_loan bind on debt create | ✅ |
+| `build_emi_payment` builder | ✅ |
+| Hybrid auto/manual EMI post | ✅ |
+| Schedule advance after post | ✅ |
+| Record EMI UI | ✅ |
+
+## Commits (W2)
+
+- `d9592f5` feat(debt): account_id and payment_account_id columns
+- `81d09ad` feat(ledger): build_emi_payment builder
+- `2c5fc8f` feat(debt): loan accounts and record-emi ledger post
+- `623990c` feat(debt): hybrid EMI auto-post job
+- `fbc022e` feat(dashboard): record EMI on debt page
