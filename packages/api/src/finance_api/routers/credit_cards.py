@@ -37,6 +37,7 @@ from finance_common.intake import Candidate, make_external_key
 from finance_common.intake.service import ingest
 from finance_common.ledger import builders
 from finance_common.ledger import service as ledger_service
+from finance_common.ledger.balances import account_balance_paise, balances_for_accounts
 from finance_common.ledger.errors import LedgerError
 from finance_common.ledger.models import PostTransactionInput
 from finance_common.parsing.credit_card_statement import (
@@ -61,6 +62,40 @@ from finance_common.repositories.intake_candidates import save_candidate
 from finance_common.types import Category, Paise, PaymentMode
 
 router = APIRouter(prefix="/credit-cards", tags=["credit-cards"])
+
+
+async def _cc_outstanding_paise(conn: aiosqlite.Connection, account_id: int) -> int:
+    balance = await account_balance_paise(conn, account_id)
+    return max(0, -balance)
+
+
+async def _cc_outstanding_batch(
+    conn: aiosqlite.Connection, account_ids: list[int]
+) -> dict[int, int]:
+    balances = await balances_for_accounts(conn, account_ids)
+    return {aid: max(0, -bal) for aid, bal in balances.items()}
+
+
+async def _resolve_live_balance(
+    conn: aiosqlite.Connection,
+    account_id: int,
+    *,
+    ledger_engine: str,
+) -> int:
+    if ledger_engine == "double_entry":
+        return await _cc_outstanding_paise(conn, account_id)
+    return await tx_repo.cc_live_balance(conn, account_id)
+
+
+async def _resolve_live_balances_batch(
+    conn: aiosqlite.Connection,
+    account_ids: list[int],
+    *,
+    ledger_engine: str,
+) -> dict[int, int]:
+    if ledger_engine == "double_entry":
+        return await _cc_outstanding_batch(conn, account_ids)
+    return await tx_repo.cc_live_balances_batch(conn, account_ids)
 
 
 def _total_limit_used(bal: int | None, emi_blocked: int) -> int:
@@ -205,7 +240,10 @@ async def list_cards(
     totals = await cc_repo.emi_totals_by_card(conn)
     rows = await cc_repo.list_credit_cards(conn, active_only=active_only)
     linked_ids = [r.account_id for r in rows if r.account_id is not None]
-    live_bals = await tx_repo.cc_live_balances_batch(conn, linked_ids)
+    project_config = await load_project_config(conn)
+    live_bals = await _resolve_live_balances_batch(
+        conn, linked_ids, ledger_engine=project_config.ledger_engine
+    )
     return [
         _card_out(r, totals.get(r.id, (0, 0, 0)), live_bals.get(r.account_id) if r.account_id else None)  # noqa: E501
         for r in rows
@@ -284,7 +322,10 @@ async def get_card(
     totals = await cc_repo.emi_totals_by_card(conn)
     live_bal: int | None = None
     if row.account_id is not None:
-        live_bal = await tx_repo.cc_live_balance(conn, row.account_id)
+        project_config = await load_project_config(conn)
+        live_bal = await _resolve_live_balance(
+            conn, row.account_id, ledger_engine=project_config.ledger_engine
+        )
     return _card_out(row, totals.get(card_id, (0, 0, 0)), live_bal)
 
 
@@ -341,7 +382,10 @@ async def link_account(
         raise HTTPException(status_code=404, detail="Credit card not found")
     if card.account_id is not None:
         totals = await cc_repo.emi_totals_by_card(conn)
-        live_bal = await tx_repo.cc_live_balance(conn, card.account_id)
+        project_config = await load_project_config(conn)
+        live_bal = await _resolve_live_balance(
+            conn, card.account_id, ledger_engine=project_config.ledger_engine
+        )
         return _card_out(card, totals.get(card_id, (0, 0, 0)), live_bal)
     existing_acc = await accounts_repo.get_account_by_name(conn, card.name)
     if existing_acc is not None:
@@ -391,7 +435,10 @@ async def get_live_balance(
             status_code=409,
             detail="No linked account — create a new card to auto-link or set account_id",
         )
-    balance = await tx_repo.cc_live_balance(conn, card.account_id)
+    project_config = await load_project_config(conn)
+    balance = await _resolve_live_balance(
+        conn, card.account_id, ledger_engine=project_config.ledger_engine
+    )
     return LiveBalanceResponse(live_balance_paise=balance, account_id=card.account_id)
 
 
