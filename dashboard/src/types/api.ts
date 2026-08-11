@@ -199,6 +199,13 @@ export type SubscriptionOut = {
   next_billing_date: string | null
   notes: string | null
   is_active: boolean
+  account_id: number | null
+}
+
+export type RecordChargeOut = {
+  ledger_transaction_id: number
+  next_billing_date: string | null
+  subscription: SubscriptionOut
 }
 
 export type CreditCardOut = {

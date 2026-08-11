@@ -1,10 +1,19 @@
-## Task 3 — Suggest matcher
+# Task 3 Report — record-charge ledger post
 
-Implemented a pure reconciliation matcher with deterministic, per-line proposals. It requires the same account, absolute amount equality, a configurable date window, and awards a payee-prefix bonus while excluding confirmed ledger transactions.
+**Status:** Done  
+**Commit:** (see parent return)  
+**Tests:** 4 passed in `tests/test_subscription_charge_ledger.py`
 
-Added golden tests for selecting the best candidate, excluding matched/ineligible candidates, and scoring date distance with absent payees.
+## Delivered
+- `subscription_charge.py`: `post_subscription_charge`, `advance_billing_date`, `uncategorized_expense_id`
+- Schemas: `RecordChargeBody`, `RecordChargeOut`
+- Route: `POST /subscriptions/{id}/record-charge` (201, double_entry only)
+- Ledger: `build_bank_expense` / `build_cc_swipe`, source `subscription`, advances `next_billing_date`
 
-Validation:
-- `uv run pytest tests/test_recon_schema.py tests/test_recon_repository.py tests/test_recon_suggest.py -q` — 6 passed
-- `uv run ruff check packages/common/src/finance_common/recon/suggest.py tests/test_recon_suggest.py` — passed
-- `uv run mypy packages/common/src/finance_common/recon/suggest.py` — passed
+## Coverage
+- Bank charge reduces asset / increases expense; monthly advance
+- CC swipe credits liability; default category `Subscriptions`
+- Missing account → 422; legacy engine → 422; no legacy `transactions` rows
+
+## Out of scope
+- Task 4 dashboard UI; Task 5 acceptance; `uv.lock`
