@@ -1,13 +1,14 @@
-# Task 4 — ReconciliationService report
+# Task 4 Report — Dashboard Record charge
 
-Implemented the reconciliation application service:
+**Status:** Done  
+**Build:** `npm run build --prefix dashboard` PASS
 
-- Imports normalized statement rows without ledger writes.
-- Suggests account/period ledger matches; confirmations, unmatches, ignores, soft-close, reopen, and explicit income/expense adjustments are controlled operations.
-- Compares balances through statement period end and closes only when all lines are cleared and balances agree.
-- Added close-gate coverage, including an after-period ledger transaction that must not affect the close.
+## Changes
+- `SubscriptionOut.account_id`; `RecordChargeOut` type
+- `recordSubscriptionCharge()` → POST `/api/subscriptions/{id}/record-charge`
+- Active subscription rows: **Record charge** → modal (date, pay-from account, optional amount, remember account)
+- Create/edit forms: optional default payment account select
+- On success: invalidate `subscriptions`, `transactions`, `dashboard-summary`
 
-Verification:
-
-- `uv run pytest tests/test_recon_*.py tests/test_ledger_*.py -q`
-- `uv run python scripts/ci_check_ledger_writes.py`
+## UX
+- Modal pattern mirrors DebtPage Record EMI; emerald styling matches Recurring page

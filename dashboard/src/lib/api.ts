@@ -13,6 +13,7 @@ import type {
   DashboardSummary,
   DebtOut,
   DebtSummaryOut,
+  RecordChargeOut,
   RecordEmiOut,
   LoanDisbursalOut,
   FixedIncomeOut,
@@ -1261,6 +1262,7 @@ export async function postSubscription(body: {
   next_billing_date: string | null
   notes: string | null
   is_active: boolean
+  account_id?: number | null
 }): Promise<SubscriptionOut> {
   const res = await apiFetch(`${apiBase()}/api/subscriptions/`, {
     method: 'POST',
@@ -1281,6 +1283,7 @@ export async function putSubscription(
     next_billing_date?: string | null
     notes?: string | null
     is_active?: boolean
+    account_id?: number | null
   },
 ): Promise<SubscriptionOut> {
   const res = await apiFetch(`${apiBase()}/api/subscriptions/${id}`, {
@@ -1297,6 +1300,22 @@ export async function deleteSubscription(id: number): Promise<void> {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
   }
+}
+
+export async function recordSubscriptionCharge(
+  subscriptionId: number,
+  body: {
+    date: string
+    amount_paise?: number | null
+    account_id?: number | null
+  },
+): Promise<RecordChargeOut> {
+  const res = await apiFetch(`${apiBase()}/api/subscriptions/${subscriptionId}/record-charge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<RecordChargeOut>(res)
 }
 
 // ── Loan disbursals ──────────────────────────────────────────────────────────

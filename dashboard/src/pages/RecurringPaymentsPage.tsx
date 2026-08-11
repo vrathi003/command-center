@@ -7,12 +7,17 @@ import { PageError, PageLoading } from '@/components/ui/PageStatus'
 import { PageHero } from '@/components/ui/PageHero'
 import { Panel } from '@/components/ui/Panel'
 import { SectionTitle } from '@/components/ui/SectionTitle'
-import { deleteSubscription, fetchDebts, fetchSubscriptions, postSubscription, putSubscription } from '@/lib/api'
+import { deleteSubscription, fetchAccounts, fetchDebts, fetchSubscriptions, postSubscription, putSubscription, recordSubscriptionCharge } from '@/lib/api'
 import { formatPaise, formatPaiseCompact } from '@/lib/format'
-import type { SubscriptionOut } from '@/types/api'
+import type { AccountOut, RecordChargeOut, SubscriptionOut } from '@/types/api'
 
 
 const BILLING_CYCLES = ['weekly', 'monthly', 'quarterly', 'yearly'] as const
+const PAYMENT_ACCOUNT_TYPES = new Set(['savings', 'current', 'wallet', 'credit_card'])
+
+function filterPaymentAccounts(accounts: AccountOut[]): AccountOut[] {
+  return accounts.filter((a) => PAYMENT_ACCOUNT_TYPES.has(a.type))
+}
 
 function rupeesToPaise(s: string): number | null {
   const n = Number.parseFloat(s.replace(/,/g, ''))
@@ -32,6 +37,10 @@ export function RecurringPaymentsPage() {
     queryKey: ['debts'],
     queryFn: fetchDebts,
   })
+  const accounts = useQuery({
+    queryKey: ['accounts', 'active'],
+    queryFn: () => fetchAccounts(true),
+  })
 
   const [nName, setNName] = useState('')
   const [nProvider, setNProvider] = useState('')
@@ -40,6 +49,19 @@ export function RecurringPaymentsPage() {
   const [nCycle, setNCycle] = useState<string>('monthly')
   const [nNext, setNNext] = useState('')
   const [nNotes, setNNotes] = useState('')
+  const [nAccountId, setNAccountId] = useState('')
+  const [recordChargeSubId, setRecordChargeSubId] = useState<number | null>(null)
+
+  const paymentAccounts = useMemo(
+    () => filterPaymentAccounts(accounts.data ?? []),
+    [accounts.data],
+  )
+
+  const invalidateLedger = () => {
+    void qc.invalidateQueries({ queryKey: ['subscriptions'] })
+    void qc.invalidateQueries({ queryKey: ['transactions'] })
+    void qc.invalidateQueries({ queryKey: ['dashboard-summary'] })
+  }
 
   const create = useMutation({
     mutationFn: postSubscription,
@@ -166,6 +188,10 @@ export function RecurringPaymentsPage() {
                 next_billing_date: nNext.trim() || null,
                 notes: nNotes.trim() || null,
                 is_active: true,
+                account_id: (() => {
+                  const id = Number.parseInt(nAccountId, 10)
+                  return !Number.isNaN(id) && id > 0 ? id : null
+                })(),
               })
               setNName('')
               setNProvider('')
@@ -239,6 +265,21 @@ export function RecurringPaymentsPage() {
                 onChange={(e) => setNNotes(e.target.value)}
               />
             </label>
+            <label className="text-xs font-medium text-zinc-700">
+              Payment account
+              <select
+                className="mt-1 block h-10 min-w-[10rem] rounded-lg border border-zinc-200 bg-white px-3 text-sm shadow-sm"
+                value={nAccountId}
+                onChange={(e) => setNAccountId(e.target.value)}
+              >
+                <option value="">— optional —</option>
+                {paymentAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}{a.institution ? ` · ${a.institution}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               type="submit"
               disabled={create.isPending}
@@ -280,9 +321,11 @@ export function RecurringPaymentsPage() {
                   <SubscriptionRow
                     key={`${s.id}-${s.amount_paise}-${s.monthly_equivalent_paise}-${s.name}-${s.is_active ? 1 : 0}`}
                     row={s}
+                    paymentAccounts={paymentAccounts}
                     busy={update.isPending || remove.isPending}
                     onSave={(body) => update.mutate({ id: s.id, body })}
                     onDelete={() => remove.mutate(s.id)}
+                    onRecordCharge={() => setRecordChargeSubId(s.id)}
                   />
                 ))
               )}
@@ -338,20 +381,180 @@ export function RecurringPaymentsPage() {
           </table>
         </Panel>
       </section>
+      {recordChargeSubId != null && (
+        <RecordChargeModal
+          sub={(subs.data ?? []).find((s) => s.id === recordChargeSubId)!}
+          paymentAccounts={paymentAccounts}
+          onClose={() => setRecordChargeSubId(null)}
+          onSuccess={invalidateLedger}
+        />
+      )}
+    </div>
+  )
+}
+
+function RecordChargeModal({
+  sub,
+  paymentAccounts,
+  onClose,
+  onSuccess,
+}: {
+  sub: SubscriptionOut
+  paymentAccounts: AccountOut[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [date, setDate] = useState(sub.next_billing_date ?? today)
+  const [accountId, setAccountId] = useState(
+    sub.account_id != null ? String(sub.account_id) : '',
+  )
+  const [amountOverride, setAmountOverride] = useState('')
+  const [rememberAccount, setRememberAccount] = useState(false)
+
+  const record = useMutation({
+    mutationFn: async (): Promise<RecordChargeOut> => {
+      const body: {
+        date: string
+        amount_paise?: number
+        account_id?: number
+      } = { date: date.trim() }
+      const acctId = Number.parseInt(accountId, 10)
+      if (!Number.isNaN(acctId) && acctId > 0) body.account_id = acctId
+      if (amountOverride.trim() !== '') {
+        const paise = rupeesToPaise(amountOverride)
+        if (paise == null || paise <= 0) throw new Error('Invalid amount')
+        body.amount_paise = paise
+      }
+      const result = await recordSubscriptionCharge(sub.id, body)
+      if (rememberAccount && !Number.isNaN(acctId) && acctId > 0 && acctId !== sub.account_id) {
+        await putSubscription(sub.id, { account_id: acctId })
+      }
+      return result
+    },
+    onSuccess: () => onSuccess(),
+  })
+
+  const inputCls = 'mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm'
+  const inputNumCls = `${inputCls} text-right tabular-nums`
+
+  const canSubmit =
+    date.trim() !== '' &&
+    (accountId !== '' || sub.account_id != null) &&
+    !record.isPending
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal
+      onClick={(e) => { if (e.target === e.currentTarget && !record.isPending) onClose() }}
+    >
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-semibold text-zinc-900">Record charge</h2>
+        <p className="mt-1 text-sm text-zinc-600">{sub.name}</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Default {formatPaise(sub.amount_paise)} · {sub.billing_cycle}
+        </p>
+
+        <form
+          className="mt-4 space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!canSubmit) return
+            record.mutate(undefined, { onSuccess: () => onClose() })
+          }}
+        >
+          <label className="block text-xs font-medium text-zinc-700">
+            Payment date
+            <input
+              type="date"
+              className={inputCls}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-700">
+            Pay from
+            <select
+              className={inputCls}
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              required={sub.account_id == null}
+            >
+              <option value="">— select account —</option>
+              {paymentAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.institution ? ` · ${a.institution}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-700">
+            Amount override (₹)
+            <input
+              className={inputNumCls}
+              inputMode="decimal"
+              placeholder={`Default ${sub.amount_paise / 100}`}
+              value={amountOverride}
+              onChange={(e) => setAmountOverride(e.target.value)}
+            />
+          </label>
+
+          <label className="flex items-center gap-2 text-sm text-zinc-700">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-zinc-300 text-emerald-700"
+              checked={rememberAccount}
+              onChange={(e) => setRememberAccount(e.target.checked)}
+            />
+            Remember this payment account
+          </label>
+
+          {record.isError ? (
+            <p className="text-sm text-red-600">{String(record.error)}</p>
+          ) : null}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              onClick={onClose}
+              disabled={record.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+            >
+              {record.isPending ? 'Recording…' : 'Record charge'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
 
 function SubscriptionRow({
   row,
+  paymentAccounts,
   onSave,
   onDelete,
+  onRecordCharge,
   busy,
 }: {
   row: SubscriptionOut
+  paymentAccounts: AccountOut[]
   onSave: (body: Parameters<typeof putSubscription>[1]) => void
   busy: boolean
   onDelete: () => void
+  onRecordCharge: () => void
 }) {
   const [name, setName] = useState(row.name)
   const [provider, setProvider] = useState(row.provider ?? '')
@@ -361,12 +564,16 @@ function SubscriptionRow({
   const [next, setNext] = useState(row.next_billing_date ?? '')
   const [notes, setNotes] = useState(row.notes ?? '')
   const [active, setActive] = useState(row.is_active)
+  const [accountId, setAccountId] = useState(
+    row.account_id != null ? String(row.account_id) : '',
+  )
 
   const save = () => {
     const paise = rupeesToPaise(amt)
     if (paise == null) {
       return
     }
+    const acct = Number.parseInt(accountId, 10)
     onSave({
       name: name.trim() || row.name,
       provider: provider.trim() || null,
@@ -376,6 +583,7 @@ function SubscriptionRow({
       next_billing_date: next.trim() || null,
       notes: notes.trim() || null,
       is_active: active,
+      account_id: !Number.isNaN(acct) && acct > 0 ? acct : null,
     })
   }
 
@@ -452,6 +660,16 @@ function SubscriptionRow({
           >
             Save
           </button>
+          {row.is_active ? (
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+              onClick={onRecordCharge}
+            >
+              Record charge
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={busy}
@@ -471,6 +689,19 @@ function SubscriptionRow({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
+        <select
+          className="mt-2 w-full min-w-[8rem] rounded border border-zinc-200 px-2 py-1 text-xs"
+          value={accountId}
+          onChange={(e) => setAccountId(e.target.value)}
+          title="Default payment account"
+        >
+          <option value="">No default account</option>
+          {paymentAccounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
       </td>
     </tr>
   )
