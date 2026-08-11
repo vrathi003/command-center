@@ -15,6 +15,8 @@ import type {
   DebtSummaryOut,
   RecordChargeOut,
   RecordEmiOut,
+  RecordFixedIncomeTradeOut,
+  RecordInvestmentTradeOut,
   LoanDisbursalOut,
   FixedIncomeOut,
   FixedIncomeSummaryOut,
@@ -719,6 +721,73 @@ export async function deleteFixedIncome(id: number): Promise<void> {
     const text = await res.text()
     throw new Error(text || `HTTP ${res.status}`)
   }
+}
+
+export async function recordInvestmentBuy(
+  invId: number,
+  body: {
+    date: string
+    amount_paise: number
+    units: number
+    bank_account_id: number
+    kind?: 'buy' | 'sip'
+  },
+): Promise<RecordInvestmentTradeOut> {
+  const res = await apiFetch(`${apiBase()}/api/investments/${invId}/record-buy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<RecordInvestmentTradeOut>(res)
+}
+
+export async function recordInvestmentSell(
+  invId: number,
+  body: {
+    date: string
+    amount_paise: number
+    units: number
+    bank_account_id: number
+  },
+): Promise<RecordInvestmentTradeOut> {
+  const res = await apiFetch(`${apiBase()}/api/investments/${invId}/record-sell`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<RecordInvestmentTradeOut>(res)
+}
+
+export async function recordFixedIncomeDeposit(
+  fiId: number,
+  body: {
+    date: string
+    amount_paise: number
+    bank_account_id: number
+  },
+): Promise<RecordFixedIncomeTradeOut> {
+  const res = await apiFetch(`${apiBase()}/api/fixed-income/${fiId}/record-deposit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<RecordFixedIncomeTradeOut>(res)
+}
+
+export async function recordFixedIncomeMaturity(
+  fiId: number,
+  body: {
+    date: string
+    bank_account_id: number
+    amount_paise?: number | null
+  },
+): Promise<RecordFixedIncomeTradeOut> {
+  const res = await apiFetch(`${apiBase()}/api/fixed-income/${fiId}/record-maturity`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<RecordFixedIncomeTradeOut>(res)
 }
 
 export async function fetchNetWorthHistory(limit = 365): Promise<NetWorthSnapshotOut[]> {

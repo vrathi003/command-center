@@ -326,9 +326,15 @@ export type InvestmentOut = {
   last_synced: string | null
   sector: string | null
   equity_tax_class: string
+  account_id: number | null
   cost_basis_paise: number | null
   market_value_paise: number | null
   unrealized_paise: number | null
+}
+
+export type RecordInvestmentTradeOut = {
+  ledger_transaction_id: number
+  investment: InvestmentOut
 }
 
 export type PortfolioSummaryOut = {
@@ -346,6 +352,12 @@ export type FixedIncomeOut = {
   rate_percent: number | null
   start_date: string | null
   maturity_date: string | null
+  account_id: number | null
+}
+
+export type RecordFixedIncomeTradeOut = {
+  ledger_transaction_id: number
+  fixed_income: FixedIncomeOut
 }
 
 export type FixedIncomeSummaryOut = {

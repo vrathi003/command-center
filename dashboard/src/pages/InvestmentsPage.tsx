@@ -11,6 +11,7 @@ import { FIXED_INCOME_TYPES, INVESTMENT_TYPES } from '@/constants/investments'
 import {
   deleteFixedIncome,
   deleteInvestment,
+  fetchAccounts,
   fetchFixedIncome,
   fetchFixedIncomeSummary,
   fetchInvestments,
@@ -19,8 +20,12 @@ import {
   postInvestment,
   putFixedIncome,
   putInvestment,
+  recordFixedIncomeDeposit,
+  recordFixedIncomeMaturity,
+  recordInvestmentBuy,
+  recordInvestmentSell,
 } from '@/lib/api'
-import type { FixedIncomeOut, InvestmentOut } from '@/types/api'
+import type { AccountOut, FixedIncomeOut, InvestmentOut, RecordFixedIncomeTradeOut, RecordInvestmentTradeOut } from '@/types/api'
 import { formatPaise, formatPaiseCompact } from '@/lib/format'
 
 
@@ -30,6 +35,431 @@ function rupeesToPaise(s: string): number | null {
     return null
   }
   return Math.round(n * 100)
+}
+
+const PAYMENT_ACCOUNT_TYPES = new Set(['savings', 'current', 'wallet', 'credit_card'])
+
+function filterPaymentAccounts(accounts: AccountOut[]): AccountOut[] {
+  return accounts.filter((a) => PAYMENT_ACCOUNT_TYPES.has(a.type))
+}
+
+export type InvestmentTradeMode = 'buy' | 'sip' | 'sell'
+
+export function RecordInvestmentTradeModal({
+  holding,
+  mode,
+  paymentAccounts,
+  onClose,
+  onSuccess,
+}: {
+  holding: InvestmentOut
+  mode: InvestmentTradeMode
+  paymentAccounts: AccountOut[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [date, setDate] = useState(today)
+  const [bankAccountId, setBankAccountId] = useState('')
+  const [amountInput, setAmountInput] = useState('')
+  const [unitsInput, setUnitsInput] = useState('')
+
+  const title =
+    mode === 'buy' ? 'Record buy' : mode === 'sip' ? 'Record SIP' : 'Record sell'
+
+  const record = useMutation({
+    mutationFn: async (): Promise<RecordInvestmentTradeOut> => {
+      const amountPaise = rupeesToPaise(amountInput)
+      const units = Number.parseFloat(unitsInput.replace(/,/g, ''))
+      const bankId = Number.parseInt(bankAccountId, 10)
+      if (amountPaise == null || amountPaise <= 0) throw new Error('Invalid amount')
+      if (Number.isNaN(units) || units <= 0) throw new Error('Invalid units')
+      if (Number.isNaN(bankId) || bankId <= 0) throw new Error('Select a bank account')
+      const body = {
+        date: date.trim(),
+        amount_paise: amountPaise,
+        units,
+        bank_account_id: bankId,
+      }
+      if (mode === 'sell') {
+        return recordInvestmentSell(holding.id, body)
+      }
+      return recordInvestmentBuy(holding.id, { ...body, kind: mode })
+    },
+    onSuccess: () => onSuccess(),
+  })
+
+  const inputCls = 'mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm'
+  const inputNumCls = `${inputCls} text-right tabular-nums`
+
+  const canSubmit =
+    date.trim() !== '' &&
+    bankAccountId !== '' &&
+    amountInput.trim() !== '' &&
+    unitsInput.trim() !== '' &&
+    !record.isPending
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal
+      onClick={(e) => { if (e.target === e.currentTarget && !record.isPending) onClose() }}
+    >
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-semibold text-zinc-900">{title}</h2>
+        <p className="mt-1 text-sm text-zinc-600">{holding.instrument}</p>
+        {holding.units != null ? (
+          <p className="mt-1 text-xs text-zinc-500">
+            Current units: {holding.units}
+            {holding.current_price_paise != null
+              ? ` · Last price ${formatPaise(holding.current_price_paise)}`
+              : ''}
+          </p>
+        ) : null}
+
+        <form
+          className="mt-4 space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!canSubmit) return
+            record.mutate(undefined, { onSuccess: () => onClose() })
+          }}
+        >
+          <label className="block text-xs font-medium text-zinc-700">
+            Trade date
+            <input
+              type="date"
+              className={inputCls}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-700">
+            {mode === 'sell' ? 'Proceeds to' : 'Pay from'}
+            <select
+              className={inputCls}
+              value={bankAccountId}
+              onChange={(e) => setBankAccountId(e.target.value)}
+              required
+            >
+              <option value="">— select account —</option>
+              {paymentAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.institution ? ` · ${a.institution}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-700">
+            Amount (₹)
+            <input
+              className={inputNumCls}
+              inputMode="decimal"
+              value={amountInput}
+              onChange={(e) => setAmountInput(e.target.value)}
+              required
+            />
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-700">
+            Units
+            <input
+              className={inputNumCls}
+              inputMode="decimal"
+              value={unitsInput}
+              onChange={(e) => setUnitsInput(e.target.value)}
+              required
+            />
+          </label>
+
+          {record.isError ? (
+            <p className="text-sm text-red-600">{String(record.error)}</p>
+          ) : null}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              onClick={onClose}
+              disabled={record.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+            >
+              {record.isPending ? 'Recording…' : title}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+export function RecordFixedIncomeDepositModal({
+  row,
+  paymentAccounts,
+  onClose,
+  onSuccess,
+}: {
+  row: FixedIncomeOut
+  paymentAccounts: AccountOut[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [date, setDate] = useState(row.start_date ?? today)
+  const [bankAccountId, setBankAccountId] = useState('')
+  const [amountInput, setAmountInput] = useState('')
+
+  const record = useMutation({
+    mutationFn: async (): Promise<RecordFixedIncomeTradeOut> => {
+      const amountPaise = rupeesToPaise(amountInput)
+      const bankId = Number.parseInt(bankAccountId, 10)
+      if (amountPaise == null || amountPaise <= 0) throw new Error('Invalid amount')
+      if (Number.isNaN(bankId) || bankId <= 0) throw new Error('Select a bank account')
+      return recordFixedIncomeDeposit(row.id, {
+        date: date.trim(),
+        amount_paise: amountPaise,
+        bank_account_id: bankId,
+      })
+    },
+    onSuccess: () => onSuccess(),
+  })
+
+  const inputCls = 'mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm'
+  const inputNumCls = `${inputCls} text-right tabular-nums`
+
+  const canSubmit =
+    date.trim() !== '' &&
+    bankAccountId !== '' &&
+    amountInput.trim() !== '' &&
+    !record.isPending
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal
+      onClick={(e) => { if (e.target === e.currentTarget && !record.isPending) onClose() }}
+    >
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-semibold text-zinc-900">Record deposit</h2>
+        <p className="mt-1 text-sm text-zinc-600">{row.institution}</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Principal {formatPaise(row.principal_paise)} · {row.type}
+        </p>
+
+        <form
+          className="mt-4 space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!canSubmit) return
+            record.mutate(undefined, { onSuccess: () => onClose() })
+          }}
+        >
+          <label className="block text-xs font-medium text-zinc-700">
+            Deposit date
+            <input
+              type="date"
+              className={inputCls}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-700">
+            Pay from
+            <select
+              className={inputCls}
+              value={bankAccountId}
+              onChange={(e) => setBankAccountId(e.target.value)}
+              required
+            >
+              <option value="">— select account —</option>
+              {paymentAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.institution ? ` · ${a.institution}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-700">
+            Amount (₹)
+            <input
+              className={inputNumCls}
+              inputMode="decimal"
+              value={amountInput}
+              onChange={(e) => setAmountInput(e.target.value)}
+              required
+            />
+          </label>
+
+          {record.isError ? (
+            <p className="text-sm text-red-600">{String(record.error)}</p>
+          ) : null}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              onClick={onClose}
+              disabled={record.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+            >
+              {record.isPending ? 'Recording…' : 'Record deposit'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+export function RecordFixedIncomeMaturityModal({
+  row,
+  paymentAccounts,
+  onClose,
+  onSuccess,
+}: {
+  row: FixedIncomeOut
+  paymentAccounts: AccountOut[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [date, setDate] = useState(row.maturity_date ?? today)
+  const [bankAccountId, setBankAccountId] = useState('')
+  const [amountInput, setAmountInput] = useState('')
+
+  const record = useMutation({
+    mutationFn: async (): Promise<RecordFixedIncomeTradeOut> => {
+      const bankId = Number.parseInt(bankAccountId, 10)
+      if (Number.isNaN(bankId) || bankId <= 0) throw new Error('Select a bank account')
+      const body: {
+        date: string
+        bank_account_id: number
+        amount_paise?: number
+      } = {
+        date: date.trim(),
+        bank_account_id: bankId,
+      }
+      if (amountInput.trim() !== '') {
+        const amountPaise = rupeesToPaise(amountInput)
+        if (amountPaise == null || amountPaise <= 0) throw new Error('Invalid amount')
+        body.amount_paise = amountPaise
+      }
+      return recordFixedIncomeMaturity(row.id, body)
+    },
+    onSuccess: () => onSuccess(),
+  })
+
+  const inputCls = 'mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm'
+  const inputNumCls = `${inputCls} text-right tabular-nums`
+
+  const canSubmit = date.trim() !== '' && bankAccountId !== '' && !record.isPending
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal
+      onClick={(e) => { if (e.target === e.currentTarget && !record.isPending) onClose() }}
+    >
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-semibold text-zinc-900">Record maturity</h2>
+        <p className="mt-1 text-sm text-zinc-600">{row.institution}</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Default payout {formatPaise(row.principal_paise)} · {row.type}
+        </p>
+
+        <form
+          className="mt-4 space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!canSubmit) return
+            record.mutate(undefined, { onSuccess: () => onClose() })
+          }}
+        >
+          <label className="block text-xs font-medium text-zinc-700">
+            Maturity date
+            <input
+              type="date"
+              className={inputCls}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-700">
+            Credit to
+            <select
+              className={inputCls}
+              value={bankAccountId}
+              onChange={(e) => setBankAccountId(e.target.value)}
+              required
+            >
+              <option value="">— select account —</option>
+              {paymentAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.institution ? ` · ${a.institution}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-700">
+            Payout override (₹)
+            <input
+              className={inputNumCls}
+              inputMode="decimal"
+              placeholder={`Default ${row.principal_paise / 100}`}
+              value={amountInput}
+              onChange={(e) => setAmountInput(e.target.value)}
+            />
+          </label>
+
+          {record.isError ? (
+            <p className="text-sm text-red-600">{String(record.error)}</p>
+          ) : null}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              onClick={onClose}
+              disabled={record.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+            >
+              {record.isPending ? 'Recording…' : 'Record maturity'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }
 
 /** Future value of monthly SIP (payment at month-end), paise out. */
@@ -77,6 +507,29 @@ export function InvestmentsPage() {
   const [sipYears, setSipYears] = useState('15')
   const [sipCagr, setSipCagr] = useState('12')
   const [sipStepUp, setSipStepUp] = useState('10')
+  const [recordInv, setRecordInv] = useState<{ id: number; mode: InvestmentTradeMode } | null>(null)
+  const [recordFiDepositId, setRecordFiDepositId] = useState<number | null>(null)
+  const [recordFiMaturityId, setRecordFiMaturityId] = useState<number | null>(null)
+
+  const accounts = useQuery({
+    queryKey: ['accounts', 'active'],
+    queryFn: () => fetchAccounts(true),
+  })
+
+  const paymentAccounts = useMemo(
+    () => filterPaymentAccounts(accounts.data ?? []),
+    [accounts.data],
+  )
+
+  const invalidateAfterTrade = () => {
+    void qc.invalidateQueries({ queryKey: ['investments'] })
+    void qc.invalidateQueries({ queryKey: ['portfolio-summary'] })
+    void qc.invalidateQueries({ queryKey: ['fixed-income'] })
+    void qc.invalidateQueries({ queryKey: ['fixed-income-summary'] })
+    void qc.invalidateQueries({ queryKey: ['dashboard-summary'] })
+    void qc.invalidateQueries({ queryKey: ['net-worth-history'] })
+    void qc.invalidateQueries({ queryKey: ['accounts'] })
+  }
 
   const inv = useMutation({
     mutationFn: postInvestment,
@@ -371,7 +824,7 @@ export function InvestmentsPage() {
                 <th className="px-4 py-3 text-right">Rate</th>
                 <th className="px-4 py-3">Start</th>
                 <th className="px-4 py-3">Maturity</th>
-                <th className="px-4 py-3 w-24" />
+                <th className="px-4 py-3 w-32" />
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
@@ -389,6 +842,8 @@ export function InvestmentsPage() {
                     busy={fiUp.isPending || fiDel.isPending}
                     onSave={(body) => fiUp.mutate({ id: r.id, body })}
                     onDelete={() => fiDel.mutate(r.id)}
+                    onRecordDeposit={() => setRecordFiDepositId(r.id)}
+                    onRecordMaturity={() => setRecordFiMaturityId(r.id)}
                   />
                 ))
               )}
@@ -504,7 +959,7 @@ export function InvestmentsPage() {
                 <th className="px-4 py-3 text-right">Cost</th>
                 <th className="px-4 py-3 text-right">Value</th>
                 <th className="px-4 py-3 text-right">P&L</th>
-                <th className="px-4 py-3 w-20" />
+                <th className="px-4 py-3 w-28" />
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
@@ -522,6 +977,9 @@ export function InvestmentsPage() {
                     busy={invUp.isPending || invDel.isPending}
                     onSave={(body) => invUp.mutate({ id: h.id, body })}
                     onDelete={() => invDel.mutate(h.id)}
+                    onRecordBuy={() => setRecordInv({ id: h.id, mode: 'buy' })}
+                    onRecordSip={() => setRecordInv({ id: h.id, mode: 'sip' })}
+                    onRecordSell={() => setRecordInv({ id: h.id, mode: 'sell' })}
                   />
                 ))
               )}
@@ -590,6 +1048,34 @@ export function InvestmentsPage() {
         </div>
         </Panel>
       </section>
+
+      {recordInv != null ? (
+        <RecordInvestmentTradeModal
+          holding={(holdings.data ?? []).find((h) => h.id === recordInv.id)!}
+          mode={recordInv.mode}
+          paymentAccounts={paymentAccounts}
+          onClose={() => setRecordInv(null)}
+          onSuccess={invalidateAfterTrade}
+        />
+      ) : null}
+
+      {recordFiDepositId != null ? (
+        <RecordFixedIncomeDepositModal
+          row={(fiList.data ?? []).find((r) => r.id === recordFiDepositId)!}
+          paymentAccounts={paymentAccounts}
+          onClose={() => setRecordFiDepositId(null)}
+          onSuccess={invalidateAfterTrade}
+        />
+      ) : null}
+
+      {recordFiMaturityId != null ? (
+        <RecordFixedIncomeMaturityModal
+          row={(fiList.data ?? []).find((r) => r.id === recordFiMaturityId)!}
+          paymentAccounts={paymentAccounts}
+          onClose={() => setRecordFiMaturityId(null)}
+          onSuccess={invalidateAfterTrade}
+        />
+      ) : null}
     </div>
   )
 }
@@ -599,6 +1085,8 @@ function FixedIncomeRow({
   busy,
   onSave,
   onDelete,
+  onRecordDeposit,
+  onRecordMaturity,
 }: {
   r: FixedIncomeOut
   busy: boolean
@@ -611,6 +1099,8 @@ function FixedIncomeRow({
     maturity_date?: string | null
   }) => void
   onDelete: () => void
+  onRecordDeposit: () => void
+  onRecordMaturity: () => void
 }) {
   const [inst, setInst] = useState(r.institution)
   const [t, setT] = useState(r.type)
@@ -694,6 +1184,22 @@ function FixedIncomeRow({
           <button
             type="button"
             disabled={busy}
+            className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+            onClick={onRecordDeposit}
+          >
+            Deposit
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-800 hover:bg-violet-100 disabled:opacity-50"
+            onClick={onRecordMaturity}
+          >
+            Maturity
+          </button>
+          <button
+            type="button"
+            disabled={busy}
             className="text-xs font-medium text-emerald-700 hover:underline disabled:opacity-50"
             onClick={save}
           >
@@ -722,6 +1228,9 @@ function HoldingRow({
   busy,
   onSave,
   onDelete,
+  onRecordBuy,
+  onRecordSip,
+  onRecordSell,
 }: {
   h: InvestmentOut
   busy: boolean
@@ -734,6 +1243,9 @@ function HoldingRow({
     current_price_paise?: number | null
   }) => void
   onDelete: () => void
+  onRecordBuy: () => void
+  onRecordSip: () => void
+  onRecordSell: () => void
 }) {
   const [name, setName] = useState(h.instrument)
   const [type, setType] = useState(h.type)
@@ -835,6 +1347,30 @@ function HoldingRow({
       </td>
       <td className="px-4 py-2">
         <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+            onClick={onRecordBuy}
+          >
+            Buy
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded border border-teal-200 bg-teal-50 px-2 py-1 text-xs font-medium text-teal-800 hover:bg-teal-100 disabled:opacity-50"
+            onClick={onRecordSip}
+          >
+            SIP
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-800 hover:bg-violet-100 disabled:opacity-50"
+            onClick={onRecordSell}
+          >
+            Sell
+          </button>
           <button
             type="button"
             disabled={busy}
