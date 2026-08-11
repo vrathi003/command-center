@@ -64,6 +64,43 @@ function paiseToRupees(p: number): string {
 interface TransferPair {
   debitId: number
   creditId: number
+  force?: boolean
+}
+
+/**
+ * Quarantined transfer pairs share an intake_candidate_id (debit + credit legs).
+ */
+function detectQuarantinedTransferPairs(
+  items: StagedEmailTransaction[],
+): Map<number, TransferPair> {
+  const byCandidate = new Map<number, StagedEmailTransaction[]>()
+  for (const item of items) {
+    if (item.status !== 'quarantined' || item.intake_candidate_id == null) continue
+    const group = byCandidate.get(item.intake_candidate_id) ?? []
+    group.push(item)
+    byCandidate.set(item.intake_candidate_id, group)
+  }
+
+  const result = new Map<number, TransferPair>()
+  for (const group of byCandidate.values()) {
+    const debit = group.find((i) => i.parsed_transaction_type === 'debit')
+    const credit = group.find((i) => i.parsed_transaction_type === 'credit')
+    if (!debit || !credit) continue
+    const pair: TransferPair = { debitId: debit.id, creditId: credit.id, force: true }
+    result.set(debit.id, pair)
+    result.set(credit.id, pair)
+  }
+  return result
+}
+
+function isTransferQuarantineItem(
+  item: StagedEmailTransaction,
+  transferPair: TransferPair | undefined,
+): boolean {
+  return (
+    item.status === 'quarantined' &&
+    (item.quarantine_reason === 'possible_transfer' || transferPair != null)
+  )
 }
 
 /**
@@ -360,6 +397,7 @@ interface PendingCardProps {
   onForceApprove?: (item: StagedEmailTransaction, overrides: EditState) => void
   onReject: (item: StagedEmailTransaction) => void
   onApproveAsTransfer: (pair: TransferPair) => void
+  onForceApproveAsTransfer?: (pair: TransferPair) => void
   approving: boolean
   forceApproving?: boolean
   rejecting: boolean
@@ -375,6 +413,7 @@ function PendingCard({
   onForceApprove,
   onReject,
   onApproveAsTransfer,
+  onForceApproveAsTransfer,
   approving,
   forceApproving,
   rejecting,
@@ -390,6 +429,10 @@ function PendingCard({
 
   const isTransferPair = !!transferPair && variant === 'pending'
   const isQuarantined = variant === 'quarantined' || item.status === 'quarantined'
+  const isTransferQuarantine = isQuarantined && isTransferQuarantineItem(item, transferPair)
+  const canForceAsTransfer =
+    isTransferQuarantine && !!transferPair && onForceApproveAsTransfer != null
+  const canForceSingleApprove = isQuarantined && !isTransferQuarantine && onForceApprove
 
   return (
     <div
@@ -421,7 +464,13 @@ function PendingCard({
                 Possible transfer
               </span>
             )}
-            {isQuarantined && (
+            {isTransferQuarantine && transferPair && (
+              <span className="ml-1 flex items-center gap-0.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                <Zap className="size-3" />
+                Transfer quarantine
+              </span>
+            )}
+            {isQuarantined && !isTransferQuarantine && (
               <span className="ml-1 flex items-center gap-0.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
                 <ShieldAlert className="size-3" />
                 Quarantined
@@ -467,7 +516,14 @@ function PendingCard({
         </span>
       </div>
 
-      {isQuarantined && (
+      {isTransferQuarantine && !transferPair && (
+        <div className="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          This looks like a bank transfer — pair it with the matching leg and use Force as transfer,
+          not single force approve.
+        </div>
+      )}
+
+      {isQuarantined && !isTransferQuarantine && (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <ShieldAlert className="size-3.5 shrink-0" />
           <span>
@@ -577,6 +633,17 @@ function PendingCard({
 
       {/* Action buttons */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
+        {canForceAsTransfer && (
+          <button
+            onClick={() => onForceApproveAsTransfer!(transferPair!)}
+            disabled={approving || rejecting || forceApproving}
+            className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            <Zap className="size-3.5" />
+            {forceApproving ? 'Force approving transfer…' : 'Force as transfer'}
+          </button>
+        )}
+
         {isTransferPair && (
           <button
             onClick={() => onApproveAsTransfer(transferPair)}
@@ -588,16 +655,16 @@ function PendingCard({
           </button>
         )}
 
-        {isQuarantined && onForceApprove ? (
+        {canForceSingleApprove ? (
           <button
-            onClick={() => onForceApprove(item, form)}
+            onClick={() => onForceApprove!(item, form)}
             disabled={approving || rejecting || forceApproving}
             className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
           >
             <ShieldAlert className="size-3.5" />
             {forceApproving ? 'Force approving…' : 'Force approve'}
           </button>
-        ) : (
+        ) : !isTransferQuarantine ? (
           <button
             onClick={() => onApprove(item, form)}
             disabled={approving || rejecting || forceApproving}
@@ -606,7 +673,7 @@ function PendingCard({
             <CheckCircle className="size-3.5" />
             {approving ? 'Approving…' : isTransferPair ? 'Approve individually' : 'Approve'}
           </button>
-        )}
+        ) : null}
 
         <button
           onClick={() => setEditing((p) => !p)}
@@ -982,10 +1049,20 @@ export function EmailInboxPage() {
   const clearMut = useMutation({ mutationFn: clearRejectedEmails, onSuccess: invalidate })
 
   const bulkApproveMut = useMutation({
-    mutationFn: async (ids: number[]) => {
-      await Promise.all(ids.map((id) => approveEmailTransaction(id, {})))
+    mutationFn: async (ids: number[]) =>
+      Promise.all(ids.map((id) => approveEmailTransaction(id, {}))),
+    onSuccess: (results) => {
+      const quarantinedCount = results.filter((row) => row.status === 'quarantined').length
+      if (quarantinedCount > 0) {
+        handleQuarantinedResult(
+          `${quarantinedCount} item(s) moved to Quarantined due to possible duplicates. Review in the quarantine desk or use Force approve.`,
+        )
+      } else {
+        setQuarantineBanner(null)
+      }
+      setSelectedIds(new Set())
+      invalidate()
     },
-    onSuccess: () => { setSelectedIds(new Set()); invalidate() },
   })
 
   const bulkRejectMut = useMutation({
@@ -1016,10 +1093,11 @@ export function EmailInboxPage() {
   const accounts = accountsQ.data ?? []
 
   // Compute transfer pairs only for pending items
-  const transferPairs = useMemo(
-    () => (tab === 'pending' ? detectTransferPairs(items) : new Map<number, TransferPair>()),
-    [items, tab],
-  )
+  const transferPairs = useMemo(() => {
+    if (tab === 'pending') return detectTransferPairs(items)
+    if (tab === 'quarantined') return detectQuarantinedTransferPairs(items)
+    return new Map<number, TransferPair>()
+  }, [items, tab])
 
   // Build a Map<id, item> for the transfer modal
   const itemsById = useMemo(
@@ -1288,6 +1366,7 @@ export function EmailInboxPage() {
                   onForceApprove={(it, form) => approveMut.mutate({ id: it.id, form, force: true })}
                   onReject={(it) => rejectMut.mutate({ id: it.id })}
                   onApproveAsTransfer={setTransferModalPair}
+                  onForceApproveAsTransfer={(pair) => setTransferModalPair(pair)}
                 />
               ))
             : items.map((item) => (
@@ -1309,7 +1388,7 @@ export function EmailInboxPage() {
           pair={transferModalPair}
           itemsById={itemsById}
           accounts={accounts}
-          onConfirm={(args) => transferMut.mutate(args)}
+          onConfirm={(args) => transferMut.mutate({ ...args, force: transferModalPair.force })}
           onClose={() => setTransferModalPair(null)}
           isPending={transferMut.isPending}
         />

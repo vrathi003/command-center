@@ -733,6 +733,7 @@ export type StagedEmailTransaction = {
   created_transaction_id: number | null
   ledger_transaction_id: number | null
   intake_candidate_id: number | null
+  quarantine_reason?: string | null
   created_at: string
 }
 

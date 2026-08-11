@@ -48,14 +48,16 @@ async def _insert_staged(
     tx_type: str = "debit",
     status: str = "pending",
     intake_candidate_id: int | None = None,
+    raw_snippet: str | None = None,
 ) -> int:
     cur = await conn.execute(
         """
         INSERT INTO email_transaction_staging (
             gmail_message_id, email_date, parsed_date, parsed_amount_paise,
             parsed_merchant, parsed_category, parsed_payment_mode,
-            parsed_transaction_type, suggested_account_id, status, intake_candidate_id
-        ) VALUES (?, ?, ?, ?, ?, 'Food', 'UPI', ?, ?, ?, ?)
+            parsed_transaction_type, suggested_account_id, status, intake_candidate_id,
+            raw_snippet
+        ) VALUES (?, ?, ?, ?, ?, 'Food', 'UPI', ?, ?, ?, ?, ?)
         """,
         (
             gmail_message_id,
@@ -67,6 +69,7 @@ async def _insert_staged(
             account_id,
             status,
             intake_candidate_id,
+            raw_snippet,
         ),
     )
     item_id = cur.lastrowid
@@ -399,6 +402,126 @@ async def test_force_approve_updates_existing_quarantine_candidate(tmp_path: Pat
     assert rows.get("posted") == 2
     assert candidate is not None
     assert candidate[0] == "posted"
+
+
+@pytest.mark.asyncio
+async def test_force_approve_transfer_quarantine_pair_raises(tmp_path: Path) -> None:
+    db = tmp_path / "bridge-transfer-q.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        ids = await _seed_accounts(conn)
+        first_id = await _insert_staged(
+            conn, gmail_message_id="xfer-q-first", account_id=ids["Bank"]
+        )
+        await approve_staged_item(
+            conn, staging_id=first_id, overrides=ApproveOverrides(), force=False
+        )
+        debit_id = await _insert_staged(
+            conn, gmail_message_id="xfer-q-debit", account_id=ids["Bank"]
+        )
+        credit_id = await _insert_staged(
+            conn,
+            gmail_message_id="xfer-q-credit",
+            account_id=ids["Bank 2"],
+            tx_type="credit",
+        )
+        debit_row, credit_row, _ = await approve_as_transfer(
+            conn,
+            debit_id=debit_id,
+            credit_id=credit_id,
+            overrides=TransferOverrides(),
+            force=False,
+        )
+        assert debit_row.status == "quarantined"
+        assert credit_row.status == "quarantined"
+
+        with pytest.raises(EmailStagingStatusError, match="approve-as-transfer with force=true"):
+            await approve_staged_item(
+                conn,
+                staging_id=debit_id,
+                overrides=ApproveOverrides(),
+                force=True,
+            )
+
+
+@pytest.mark.asyncio
+async def test_force_approve_possible_transfer_quarantine_raises(tmp_path: Path) -> None:
+    db = tmp_path / "bridge-transfer-single-q.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        ids = await _seed_accounts(conn)
+        item_id = await _insert_staged(
+            conn,
+            gmail_message_id="xfer-single-q",
+            account_id=ids["Bank"],
+            raw_snippet="NEFT to self savings account",
+        )
+        row = await approve_staged_item(
+            conn, staging_id=item_id, overrides=ApproveOverrides(), force=False
+        )
+        assert row.status == "quarantined"
+
+        with pytest.raises(EmailStagingStatusError, match="approve-as-transfer with force=true"):
+            await approve_staged_item(
+                conn,
+                staging_id=item_id,
+                overrides=ApproveOverrides(),
+                force=True,
+            )
+
+
+@pytest.mark.asyncio
+async def test_force_approve_as_transfer_updates_existing_candidate(tmp_path: Path) -> None:
+    db = tmp_path / "bridge-transfer-force-update.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        ids = await _seed_accounts(conn)
+        first_id = await _insert_staged(
+            conn, gmail_message_id="xfer-force-update-first", account_id=ids["Bank"]
+        )
+        await approve_staged_item(
+            conn, staging_id=first_id, overrides=ApproveOverrides(), force=False
+        )
+        debit_id = await _insert_staged(
+            conn, gmail_message_id="xfer-force-update-debit", account_id=ids["Bank"]
+        )
+        credit_id = await _insert_staged(
+            conn,
+            gmail_message_id="xfer-force-update-credit",
+            account_id=ids["Bank 2"],
+            tx_type="credit",
+        )
+        debit_row, _, _ = await approve_as_transfer(
+            conn,
+            debit_id=debit_id,
+            credit_id=credit_id,
+            overrides=TransferOverrides(),
+            force=False,
+        )
+        candidate_id = debit_row.intake_candidate_id
+        assert candidate_id is not None
+
+        await approve_as_transfer(
+            conn,
+            debit_id=debit_id,
+            credit_id=credit_id,
+            overrides=TransferOverrides(),
+            force=True,
+        )
+
+        candidate = await (
+            await conn.execute(
+                "SELECT status FROM intake_candidates WHERE id = ?", (candidate_id,)
+            )
+        ).fetchone()
+        count = await (
+            await conn.execute("SELECT COUNT(*) FROM intake_candidates WHERE source = 'email'")
+        ).fetchone()
+
+    assert candidate is not None
+    assert candidate[0] == "posted"
+    assert count is not None
+    assert count[0] == 2
 
 
 @pytest.mark.asyncio

@@ -258,6 +258,66 @@ def test_approve_as_transfer_quarantines_soft_duplicate(api_client: TestClient) 
     assert body["debit_item"]["intake_candidate_id"] == body["credit_item"]["intake_candidate_id"]
 
 
+def test_force_approve_transfer_quarantine_pair_rejected_by_api(
+    api_client: TestClient,
+) -> None:
+    ids = _seed_accounts()
+    first_item = _stage(gmail_message_id="api-xfer-q-first", account_id=ids["Bank"])
+    assert api_client.post(f"/api/email-inbox/{first_item}/approve", json={}).status_code == 200
+    debit_id = _stage(gmail_message_id="api-xfer-q-debit", account_id=ids["Bank"])
+    credit_id = _stage(
+        gmail_message_id="api-xfer-q-credit",
+        account_id=ids["Bank 2"],
+        tx_type="credit",
+    )
+    quarantined = api_client.post(
+        "/api/email-inbox/approve-as-transfer",
+        json={"debit_id": debit_id, "credit_id": credit_id},
+    )
+    assert quarantined.status_code == 200
+    assert quarantined.json()["debit_item"]["status"] == "quarantined"
+
+    forced_single = api_client.post(
+        f"/api/email-inbox/{debit_id}/approve",
+        json={"force": True},
+    )
+    assert forced_single.status_code == 409
+    assert "approve-as-transfer with force=true" in forced_single.json()["detail"]
+
+
+def test_force_approve_as_transfer_updates_existing_candidate(
+    api_client: TestClient,
+) -> None:
+    ids = _seed_accounts()
+    first_item = _stage(gmail_message_id="api-xfer-force-first", account_id=ids["Bank"])
+    assert api_client.post(f"/api/email-inbox/{first_item}/approve", json={}).status_code == 200
+    debit_id = _stage(gmail_message_id="api-xfer-force-debit", account_id=ids["Bank"])
+    credit_id = _stage(
+        gmail_message_id="api-xfer-force-credit",
+        account_id=ids["Bank 2"],
+        tx_type="credit",
+    )
+    quarantined = api_client.post(
+        "/api/email-inbox/approve-as-transfer",
+        json={"debit_id": debit_id, "credit_id": credit_id},
+    ).json()
+    candidate_id = quarantined["debit_item"]["intake_candidate_id"]
+
+    forced = api_client.post(
+        "/api/email-inbox/approve-as-transfer",
+        json={"debit_id": debit_id, "credit_id": credit_id, "force": True},
+    )
+    assert forced.status_code == 200
+    assert forced.json()["debit_item"]["status"] == "approved"
+    assert _candidate_status(candidate_id) == "posted"
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    count = conn.execute(
+        "SELECT COUNT(*) FROM intake_candidates WHERE source = 'email'"
+    ).fetchone()[0]
+    conn.close()
+    assert count == 2
+
+
 def test_force_approve_from_quarantined_updates_existing_candidate(
     api_client: TestClient,
 ) -> None:

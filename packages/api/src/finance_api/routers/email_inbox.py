@@ -60,6 +60,7 @@ class StagedEmailOut(BaseModel):
     created_transaction_id: int | None
     ledger_transaction_id: int | None
     intake_candidate_id: int | None
+    quarantine_reason: str | None = None
     created_at: str
 
 
@@ -128,7 +129,7 @@ class ApproveAsTransferResult(BaseModel):
     credit_item: StagedEmailOut
 
 
-def _to_out(row: StagedEmailRow) -> StagedEmailOut:
+def _to_out(row: StagedEmailRow, *, quarantine_reason: str | None = None) -> StagedEmailOut:
     return StagedEmailOut(
         id=row.id,
         gmail_message_id=row.gmail_message_id,
@@ -147,8 +148,25 @@ def _to_out(row: StagedEmailRow) -> StagedEmailOut:
         created_transaction_id=row.created_transaction_id,
         ledger_transaction_id=row.ledger_transaction_id,
         intake_candidate_id=row.intake_candidate_id,
+        quarantine_reason=quarantine_reason,
         created_at=row.created_at,
     )
+
+
+async def _quarantine_reason_for_row(
+    conn: aiosqlite.Connection, row: StagedEmailRow
+) -> str | None:
+    if row.intake_candidate_id is None:
+        return None
+    candidate = await get_candidate(conn, row.intake_candidate_id)
+    if candidate is None:
+        return None
+    reason = candidate.get("quarantine_reason")
+    return str(reason) if reason is not None else None
+
+
+async def _to_out_enriched(conn: aiosqlite.Connection, row: StagedEmailRow) -> StagedEmailOut:
+    return _to_out(row, quarantine_reason=await _quarantine_reason_for_row(conn, row))
 
 
 def _raise_bridge_http(exc: Exception) -> None:
@@ -197,7 +215,7 @@ async def list_inbox(
     limit: int = 200,
 ) -> list[StagedEmailOut]:
     rows = await staging_repo.list_staged(conn, status=status, limit=min(limit, 500))
-    return [_to_out(r) for r in rows]
+    return [await _to_out_enriched(conn, row) for row in rows]
 
 
 @router.post("/sync", response_model=SyncResult)
@@ -453,7 +471,7 @@ async def approve_staged(
             )
         except (EmailStagingNotFoundError, EmailStagingStatusError, ValueError) as exc:
             _raise_bridge_http(exc)
-        return _to_out(updated)
+        return await _to_out_enriched(conn, updated)
 
     tx_date_str = body.parsed_date or row.parsed_date
     amount_paise = (

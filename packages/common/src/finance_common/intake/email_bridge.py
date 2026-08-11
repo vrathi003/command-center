@@ -18,7 +18,11 @@ from finance_common.project_config import load_project_config
 from finance_common.repositories import email_staging as staging_repo
 from finance_common.repositories.domain_events import append_event
 from finance_common.repositories.email_staging import StagedEmailRow
-from finance_common.repositories.intake_candidates import save_candidate, update_candidate_status
+from finance_common.repositories.intake_candidates import (
+    get_candidate,
+    save_candidate,
+    update_candidate_status,
+)
 
 
 class EmailStagingNotFoundError(LookupError):
@@ -57,6 +61,41 @@ def _assert_approvable(row: StagedEmailRow, *, force: bool) -> None:
         return
     raise EmailStagingStatusError(
         f"Staging item {row.id} has status {row.status!r} and cannot be approved"
+    )
+
+
+def _transfer_quarantine_pair_ids(siblings: list[StagedEmailRow]) -> tuple[int, int] | None:
+    debits = [row for row in siblings if row.parsed_transaction_type == "debit"]
+    credits = [row for row in siblings if row.parsed_transaction_type == "credit"]
+    if len(debits) == 1 and len(credits) == 1:
+        return debits[0].id, credits[0].id
+    return None
+
+
+async def _raise_if_transfer_quarantine_force_single(
+    conn: aiosqlite.Connection,
+    row: StagedEmailRow,
+) -> None:
+    """Refuse force-approve of a quarantined transfer leg as a normal debit/credit."""
+    if row.status != "quarantined" or row.intake_candidate_id is None:
+        return
+
+    candidate = await get_candidate(conn, row.intake_candidate_id)
+    reason = str(candidate["quarantine_reason"]) if candidate and candidate["quarantine_reason"] else None
+    siblings = await staging_repo.get_by_intake_candidate_id(conn, row.intake_candidate_id)
+    pair_ids = _transfer_quarantine_pair_ids(siblings)
+
+    if reason != "possible_transfer" and pair_ids is None:
+        return
+
+    if pair_ids is not None:
+        debit_id, credit_id = pair_ids
+        raise EmailStagingStatusError(
+            "Use approve-as-transfer with force=true for transfer quarantines "
+            f"(debit_id={debit_id}, credit_id={credit_id})"
+        )
+    raise EmailStagingStatusError(
+        "Use approve-as-transfer with force=true for transfer quarantines"
     )
 
 
@@ -221,6 +260,7 @@ async def approve_staged_item(
                 intake_candidate_id=result_id,
             )
     else:
+        await _raise_if_transfer_quarantine_force_single(conn, row)
         try:
             posting_plan = await plan_postings(conn, candidate)
             ledger_transaction_id = await ledger_service.post(conn, posting_plan)
@@ -361,25 +401,35 @@ async def approve_as_transfer(
     except (IntakePlanError, LedgerError) as exc:
         raise ValueError(str(exc)) from exc
 
-    transfer_candidate = Candidate(
-        source="email",
-        tx_date=tx_date,
-        amount_paise=amount_paise,
-        direction="out",
-        suggested_account_id=from_account_id,
-        suggested_counter_account_id=to_account_id,
-        payee=payee,
-        narration=overrides.notes,
-        external_key=external_key,
-        confidence=1.0,
-        email_staging_id=debit_id,
-    )
-    await save_candidate(
-        conn,
-        transfer_candidate,
-        status="posted",
-        ledger_transaction_id=ledger_transaction_id,
-    )
+    candidate_id = debit_row.intake_candidate_id or credit_row.intake_candidate_id
+    if candidate_id is not None:
+        await update_candidate_status(
+            conn,
+            candidate_id,
+            status="posted",
+            ledger_transaction_id=ledger_transaction_id,
+            clear_quarantine_reason=True,
+        )
+    else:
+        transfer_candidate = Candidate(
+            source="email",
+            tx_date=tx_date,
+            amount_paise=amount_paise,
+            direction="out",
+            suggested_account_id=from_account_id,
+            suggested_counter_account_id=to_account_id,
+            payee=payee,
+            narration=overrides.notes,
+            external_key=external_key,
+            confidence=1.0,
+            email_staging_id=debit_id,
+        )
+        await save_candidate(
+            conn,
+            transfer_candidate,
+            status="posted",
+            ledger_transaction_id=ledger_transaction_id,
+        )
 
     await staging_repo.set_status(
         conn,
