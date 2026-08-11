@@ -931,6 +931,15 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
             )
             await conn.commit()
 
+    # email_transaction_staging.status includes quarantined (app-enforced; no CHECK).
+    email_staging_cols = await _column_names(conn, "email_transaction_staging")
+    if "intake_candidate_id" not in email_staging_cols:
+        await conn.execute(
+            "ALTER TABLE email_transaction_staging "
+            "ADD COLUMN intake_candidate_id INTEGER REFERENCES intake_candidates(id)"
+        )
+        await conn.commit()
+
     # ── Reconciliation control book ───────────────────────────────────────────
     cur = await conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='recon_statements'"

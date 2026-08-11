@@ -532,6 +532,7 @@ CREATE TABLE IF NOT EXISTS journal_entries (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- status: pending | approved | rejected | quarantined (app-enforced; no CHECK)
 CREATE TABLE IF NOT EXISTS email_transaction_staging (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     gmail_message_id TEXT NOT NULL UNIQUE,
@@ -549,6 +550,7 @@ CREATE TABLE IF NOT EXISTS email_transaction_staging (
     status TEXT NOT NULL DEFAULT 'pending',
     created_transaction_id INTEGER REFERENCES transactions(id),
     ledger_transaction_id INTEGER REFERENCES ledger_transactions(id),
+    intake_candidate_id INTEGER REFERENCES intake_candidates(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
