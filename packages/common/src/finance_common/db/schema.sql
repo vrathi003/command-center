@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS debts (
     start_date TEXT,
     next_emi_date TEXT,
     status TEXT NOT NULL DEFAULT 'active',
+    account_id INTEGER REFERENCES accounts(id),
+    payment_account_id INTEGER REFERENCES accounts(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

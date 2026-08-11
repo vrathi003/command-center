@@ -380,6 +380,14 @@ async def apply_migrations(conn: aiosqlite.Connection) -> None:
         await conn.execute("ALTER TABLE debts ADD COLUMN first_emi_date TEXT")
     if "full_emi_start_date" not in debt_cols:
         await conn.execute("ALTER TABLE debts ADD COLUMN full_emi_start_date TEXT")
+    if "account_id" not in debt_cols:
+        await conn.execute(
+            "ALTER TABLE debts ADD COLUMN account_id INTEGER REFERENCES accounts(id)"
+        )
+    if "payment_account_id" not in debt_cols:
+        await conn.execute(
+            "ALTER TABLE debts ADD COLUMN payment_account_id INTEGER REFERENCES accounts(id)"
+        )
     await conn.commit()
 
     # ── Asset cost enhancements: is_paid flag ────────────────────────────────
