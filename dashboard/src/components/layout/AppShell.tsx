@@ -2,6 +2,7 @@ import { useIsMutating, useQuery } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import {
   ArrowLeftRight,
+  Bell,
   Building2,
   CreditCard,
   FileDown,
@@ -49,11 +50,12 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: 'Import',
+    label: 'Operations',
     items: [
       { to: '/statement-import', label: 'Statement import', icon: FileDown },
       { to: '/email-inbox', label: 'Gmail inbox', icon: Mail },
       { to: '/transactions/quarantine', label: 'Ledger quarantine', icon: ShieldAlert },
+      { to: '/alerts', label: 'Alerts', icon: Bell },
     ],
   },
   {

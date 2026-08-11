@@ -666,8 +666,29 @@ CREATE TABLE IF NOT EXISTS domain_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type TEXT NOT NULL,
     payload_json TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    processed_at TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_domain_events_unprocessed
+    ON domain_events(id) WHERE processed_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS alert_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER REFERENCES domain_events(id),
+    event_type TEXT NOT NULL,
+    fingerprint TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'info'
+        CHECK (severity IN ('info', 'warn', 'error')),
+    status TEXT NOT NULL DEFAULT 'unread'
+        CHECK (status IN ('unread', 'acked')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    acked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_alert_notifications_status_created
+    ON alert_notifications(status, created_at DESC);
 
 -- ── Reconciliation control book ───────────────────────────────────────────────
 

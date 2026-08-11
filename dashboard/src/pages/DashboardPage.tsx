@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { IndeterminateProgressBar } from '@/components/ui/IndeterminateProgressBar'
 import { AlertsBanner } from '@/components/dashboard/AlertsBanner'
@@ -8,11 +8,13 @@ import { Panel } from '@/components/ui/Panel'
 import { PageError, PageLoading } from '@/components/ui/PageStatus'
 import { PageHero } from '@/components/ui/PageHero'
 import { SectionTitle } from '@/components/ui/SectionTitle'
-import { fetchDashboardAlerts, fetchDashboardSummary } from '@/lib/api'
+import { ackAlert, fetchDashboardAlerts, fetchDashboardSummary } from '@/lib/api'
 import { formatPaise, formatPaiseCompact } from '@/lib/format'
 
 
 export function DashboardPage() {
+  const queryClient = useQueryClient()
+
   const summary = useQuery({
     queryKey: ['dashboard-summary'],
     queryFn: fetchDashboardSummary,
@@ -21,6 +23,14 @@ export function DashboardPage() {
   const alerts = useQuery({
     queryKey: ['dashboard-alerts'],
     queryFn: fetchDashboardAlerts,
+  })
+
+  const ackMutation = useMutation({
+    mutationFn: ackAlert,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-alerts'] })
+      void queryClient.invalidateQueries({ queryKey: ['alerts'] })
+    },
   })
 
   if (summary.isPending) {
@@ -66,7 +76,13 @@ export function DashboardPage() {
         }
       />
 
-      {alerts.data ? <AlertsBanner data={alerts.data} /> : null}
+      {alerts.data ? (
+        <AlertsBanner
+          data={alerts.data}
+          onAck={(id) => ackMutation.mutate(id)}
+          ackingId={ackMutation.isPending ? (ackMutation.variables ?? null) : null}
+        />
+      ) : null}
 
       <section>
         <SectionTitle>Spending</SectionTitle>

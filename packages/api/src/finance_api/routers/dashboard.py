@@ -8,8 +8,9 @@ import aiosqlite
 from fastapi import APIRouter, Depends
 
 from finance_api.deps import get_conn
-from finance_api.schemas.dashboard import DashboardAlerts, DashboardSummary
+from finance_api.schemas.dashboard import AlertItem, DashboardAlerts, DashboardSummary
 from finance_api.services.dashboard_service import build_summary
+from finance_common.repositories import alerts
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -25,5 +26,15 @@ async def dashboard_summary(
 async def dashboard_alerts(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
 ) -> DashboardAlerts:
-    _ = conn
-    return DashboardAlerts(alerts=[])
+    rows = await alerts.list_notifications(conn, status="unread", limit=5)
+    return DashboardAlerts(
+        alerts=[
+            AlertItem(
+                id=row.id,
+                kind=row.title or row.kind,
+                message=row.message,
+                severity=row.severity,
+            )
+            for row in rows
+        ]
+    )

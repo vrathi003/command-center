@@ -22,12 +22,29 @@ export type AccountOut = {
   is_active: boolean
 }
 
+export type DashboardAlertItem = {
+  id?: number
+  kind: string
+  message: string
+  severity: string
+}
+
 export type DashboardAlerts = {
-  alerts: Array<{
-    kind: string
-    message: string
-    severity: string
-  }>
+  alerts: DashboardAlertItem[]
+}
+
+export type AlertNotification = {
+  id: number
+  event_id: number | null
+  event_type: string
+  fingerprint: string
+  kind: string
+  title: string
+  message: string
+  severity: string
+  status: string
+  created_at: string
+  acked_at: string | null
 }
 
 export type TransactionRow = {
