@@ -1,6 +1,6 @@
 # W2 Debt + EMI Ledger Alignment — Acceptance Report
 
-**Branch:** `feature/debt-emi-ledger-w2` · **Date:** 2026-08-11
+**Branch:** `feature/debt-emi-ledger-w2` · **Date:** 2026-08-11 · **Acceptance commit:** `26c5c53`
 
 ## Verification
 
@@ -30,3 +30,4 @@ Five PyMuPDF SWIG deprecation warnings; no test failures.
 - `2c5fc8f` feat(debt): loan accounts and record-emi ledger post
 - `623990c` feat(debt): hybrid EMI auto-post job
 - `fbc022e` feat(dashboard): record EMI on debt page
+- `26c5c53` docs(debt): mark EMI ledger W2 complete
