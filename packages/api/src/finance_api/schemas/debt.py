@@ -20,6 +20,8 @@ class DebtOut(BaseModel):
     tenure_months: int | None = None
     first_emi_date: str | None = None
     full_emi_start_date: str | None = None
+    account_id: int | None = None
+    payment_account_id: int | None = None
 
 
 class DebtSummaryOut(BaseModel):
@@ -44,6 +46,7 @@ class DebtCreateBody(BaseModel):
     tenure_months: int | None = Field(default=None, ge=1, le=360)
     first_emi_date: str | None = None
     full_emi_start_date: str | None = None
+    payment_account_id: int | None = Field(default=None, gt=0)
 
 
 class DebtPutBody(BaseModel):
@@ -60,6 +63,18 @@ class DebtPutBody(BaseModel):
     tenure_months: int | None = Field(default=None, ge=1, le=360)
     first_emi_date: str | None = None
     full_emi_start_date: str | None = None
+    payment_account_id: int | None = Field(default=None, gt=0)
+
+
+class RecordEmiBody(BaseModel):
+    date: str
+    principal_paise: int | None = Field(default=None, ge=0)
+    interest_paise: int | None = Field(default=None, ge=0)
+    payment_account_id: int | None = Field(default=None, gt=0)
+
+
+class RecordEmiOut(BaseModel):
+    ledger_transaction_id: int
 
 
 class AmortizationRow(BaseModel):
