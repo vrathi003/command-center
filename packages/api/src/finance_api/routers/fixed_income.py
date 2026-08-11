@@ -3,19 +3,29 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date as date_cls
 from typing import Annotated
 
 import aiosqlite
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from finance_api.deps import get_conn
+from finance_api.deps_ledger import require_ledger_writes
 from finance_api.schemas.investment import (
     FixedIncomeCreateBody,
     FixedIncomeOut,
     FixedIncomePutBody,
     FixedIncomeSummaryOut,
+    RecordFixedIncomeDepositBody,
+    RecordFixedIncomeMaturityBody,
+    RecordFixedIncomeTradeOut,
 )
-from finance_api.services.investment_ledger import ensure_fixed_income_account_and_seed
+from finance_api.services.investment_ledger import (
+    ensure_fixed_income_account_and_seed,
+    record_fixed_income_deposit,
+    record_fixed_income_maturity,
+)
+from finance_common.ledger.errors import LedgerError
 from finance_common.project_config import load_project_config
 from finance_common.repositories import fixed_income as fi_repo
 from finance_common.repositories.fixed_income import FixedIncomeRow
@@ -129,3 +139,93 @@ async def delete_fixed_income(
     ok = await fi_repo.delete_fixed_income(conn, fi_id)
     if not ok:
         raise HTTPException(status_code=404, detail="fixed income not found")
+
+
+async def _require_double_entry(conn: aiosqlite.Connection) -> None:
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine != "double_entry":
+        raise HTTPException(
+            status_code=422,
+            detail="record requires double_entry ledger engine",
+        )
+
+
+def _parse_trade_date(date_str: str) -> date_cls:
+    try:
+        return date_cls.fromisoformat(date_str)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail="invalid date") from e
+
+
+@router.post(
+    "/{fi_id}/record-deposit",
+    response_model=RecordFixedIncomeTradeOut,
+    status_code=201,
+)
+async def record_deposit(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
+    fi_id: int,
+    body: RecordFixedIncomeDepositBody,
+) -> RecordFixedIncomeTradeOut:
+    """Post fixed-income deposit through the ledger."""
+    row = await fi_repo.get_fixed_income(conn, fi_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="fixed income not found")
+
+    await _require_double_entry(conn)
+    require_ledger_writes(request)
+
+    try:
+        ledger_transaction_id, updated = await record_fixed_income_deposit(
+            conn,
+            fi_row=row,
+            tx_date=_parse_trade_date(body.date),
+            amount_paise=body.amount_paise,
+            bank_account_id=body.bank_account_id,
+        )
+    except LedgerError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    return RecordFixedIncomeTradeOut(
+        ledger_transaction_id=ledger_transaction_id,
+        fixed_income=_to_out(updated),
+    )
+
+
+@router.post(
+    "/{fi_id}/record-maturity",
+    response_model=RecordFixedIncomeTradeOut,
+    status_code=201,
+)
+async def record_maturity(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
+    fi_id: int,
+    body: RecordFixedIncomeMaturityBody,
+) -> RecordFixedIncomeTradeOut:
+    """Post fixed-income maturity/withdrawal through the ledger."""
+    row = await fi_repo.get_fixed_income(conn, fi_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="fixed income not found")
+
+    await _require_double_entry(conn)
+    require_ledger_writes(request)
+
+    amount_paise = body.amount_paise if body.amount_paise is not None else row.principal_paise
+
+    try:
+        ledger_transaction_id, updated = await record_fixed_income_maturity(
+            conn,
+            fi_row=row,
+            tx_date=_parse_trade_date(body.date),
+            amount_paise=amount_paise,
+            bank_account_id=body.bank_account_id,
+        )
+    except LedgerError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    return RecordFixedIncomeTradeOut(
+        ledger_transaction_id=ledger_transaction_id,
+        fixed_income=_to_out(updated),
+    )

@@ -317,3 +317,141 @@ def test_record_buy_requires_double_entry(api_client: TestClient) -> None:
     )
     assert response.status_code == 422
     assert "double_entry" in response.json()["detail"]
+
+
+def _create_empty_fixed_income(api_client: TestClient) -> dict[str, object]:
+    response = api_client.post(
+        "/api/fixed-income/",
+        json={
+            "institution": "Post Office RD",
+            "type": "RD",
+            "principal_paise": 0,
+            "rate_percent": 6.5,
+            "start_date": "2026-01-01",
+            "maturity_date": "2027-01-01",
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_record_deposit_reduces_bank_increases_fi_principal(
+    api_client: TestClient,
+) -> None:
+    bank_id = _create_bank(api_client)
+    _seed_bank_balance(api_client, bank_id=bank_id, amount_paise=500_000_00)
+
+    fi = _create_empty_fixed_income(api_client)
+    fi_id = int(fi["id"])
+    fi_account_id = int(fi["account_id"])
+
+    bank_before = _balance(api_client, bank_id)
+    fi_before = _balance(api_client, fi_account_id)
+    deposit_amount = 100_000_00
+
+    response = api_client.post(
+        f"/api/fixed-income/{fi_id}/record-deposit",
+        json={
+            "date": "2026-08-01",
+            "amount_paise": deposit_amount,
+            "bank_account_id": bank_id,
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert int(body["ledger_transaction_id"]) > 0
+    updated = body["fixed_income"]
+    assert updated["principal_paise"] == deposit_amount
+
+    assert _balance(api_client, bank_id) == bank_before - deposit_amount
+    assert _balance(api_client, fi_account_id) == fi_before + deposit_amount
+
+
+def test_record_maturity_reverses_deposit(api_client: TestClient) -> None:
+    bank_id = _create_bank(api_client)
+    _seed_bank_balance(api_client, bank_id=bank_id, amount_paise=500_000_00)
+
+    fi = _create_empty_fixed_income(api_client)
+    fi_id = int(fi["id"])
+    fi_account_id = int(fi["account_id"])
+
+    deposit_amount = 200_000_00
+    deposit_response = api_client.post(
+        f"/api/fixed-income/{fi_id}/record-deposit",
+        json={
+            "date": "2026-08-01",
+            "amount_paise": deposit_amount,
+            "bank_account_id": bank_id,
+        },
+    )
+    assert deposit_response.status_code == 201, deposit_response.text
+
+    bank_before = _balance(api_client, bank_id)
+    fi_before = _balance(api_client, fi_account_id)
+
+    response = api_client.post(
+        f"/api/fixed-income/{fi_id}/record-maturity",
+        json={
+            "date": "2026-08-15",
+            "bank_account_id": bank_id,
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert int(body["ledger_transaction_id"]) > 0
+    updated = body["fixed_income"]
+    assert updated["principal_paise"] == 0
+
+    assert _balance(api_client, bank_id) == bank_before + deposit_amount
+    assert _balance(api_client, fi_account_id) == fi_before - deposit_amount
+
+
+def test_record_maturity_partial_reduces_principal(
+    api_client: TestClient,
+) -> None:
+    bank_id = _create_bank(api_client)
+    _seed_bank_balance(api_client, bank_id=bank_id, amount_paise=1_000_000_00)
+
+    fi = _create_fixed_income(api_client)
+    fi_id = int(fi["id"])
+    fi_account_id = int(fi["account_id"])
+    original_principal = int(fi["principal_paise"])
+    withdraw_amount = 200_000_00
+
+    response = api_client.post(
+        f"/api/fixed-income/{fi_id}/record-maturity",
+        json={
+            "date": "2026-08-15",
+            "amount_paise": withdraw_amount,
+            "bank_account_id": bank_id,
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    updated = body["fixed_income"]
+    assert updated["principal_paise"] == original_principal - withdraw_amount
+
+    fi_balance = _balance(api_client, fi_account_id)
+    assert fi_balance == original_principal - withdraw_amount
+
+
+def test_record_deposit_requires_double_entry(api_client: TestClient) -> None:
+    bank_id = _create_bank(api_client)
+    fi = _create_empty_fixed_income(api_client)
+    fi_id = int(fi["id"])
+
+    api_client.put(
+        "/api/settings/",
+        json={"project_config": {"ledger_engine": "legacy"}},
+    )
+
+    response = api_client.post(
+        f"/api/fixed-income/{fi_id}/record-deposit",
+        json={
+            "date": "2026-08-01",
+            "amount_paise": 10_000_00,
+            "bank_account_id": bank_id,
+        },
+    )
+    assert response.status_code == 422
+    assert "double_entry" in response.json()["detail"]

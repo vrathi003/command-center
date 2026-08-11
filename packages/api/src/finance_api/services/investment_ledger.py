@@ -264,3 +264,105 @@ async def record_investment_sell(
     )
     await inv_repo.update_investment_row(conn, updated)
     return ledger_transaction_id, updated
+
+
+async def record_fixed_income_deposit(
+    conn: aiosqlite.Connection,
+    *,
+    fi_row: FixedIncomeRow,
+    tx_date: date,
+    amount_paise: int,
+    bank_account_id: int,
+) -> tuple[int, FixedIncomeRow]:
+    """Post deposit through ledger; increase principal."""
+    if amount_paise <= 0:
+        raise LedgerError("amount_paise must be positive")
+
+    bank = await accounts_repo.get_account(conn, bank_account_id)
+    if bank is None:
+        raise LedgerError("bank_account_id not found")
+
+    fi_account_id = await _ensure_fixed_income_account(conn, fi_row)
+    refreshed = await fi_repo.get_fixed_income(conn, fi_row.id)
+    if refreshed is None:
+        raise LedgerError("fixed income not found after ensure")
+
+    new_principal = refreshed.principal_paise + amount_paise
+
+    postings = builders.build_investment_buy(
+        bank_id=bank_account_id,
+        investment_account_id=fi_account_id,
+        amount_paise=amount_paise,
+    )
+    ledger_transaction_id = await ledger_service.post(
+        conn,
+        PostTransactionInput(
+            tx_date=tx_date,
+            postings=postings,
+            payee=refreshed.institution,
+            notes=f"Fixed income Deposit — {refreshed.institution}",
+            source="fixed_income",
+            external_key=(
+                f"fi_deposit:{refreshed.id}:{tx_date.isoformat()}:{amount_paise}"
+            ),
+        ),
+    )
+
+    updated = replace(
+        refreshed,
+        principal_paise=new_principal,
+        account_id=fi_account_id,
+    )
+    await fi_repo.update_fixed_income_row(conn, updated)
+    return ledger_transaction_id, updated
+
+
+async def record_fixed_income_maturity(
+    conn: aiosqlite.Connection,
+    *,
+    fi_row: FixedIncomeRow,
+    tx_date: date,
+    amount_paise: int,
+    bank_account_id: int,
+) -> tuple[int, FixedIncomeRow]:
+    """Post maturity/withdrawal through ledger; reduce principal (min 0)."""
+    if amount_paise <= 0:
+        raise LedgerError("amount_paise must be positive")
+
+    bank = await accounts_repo.get_account(conn, bank_account_id)
+    if bank is None:
+        raise LedgerError("bank_account_id not found")
+
+    fi_account_id = await _ensure_fixed_income_account(conn, fi_row)
+    refreshed = await fi_repo.get_fixed_income(conn, fi_row.id)
+    if refreshed is None:
+        raise LedgerError("fixed income not found after ensure")
+
+    new_principal = max(0, refreshed.principal_paise - amount_paise)
+
+    postings = builders.build_investment_sell(
+        bank_id=bank_account_id,
+        investment_account_id=fi_account_id,
+        amount_paise=amount_paise,
+    )
+    ledger_transaction_id = await ledger_service.post(
+        conn,
+        PostTransactionInput(
+            tx_date=tx_date,
+            postings=postings,
+            payee=refreshed.institution,
+            notes=f"Fixed income Maturity — {refreshed.institution}",
+            source="fixed_income",
+            external_key=(
+                f"fi_maturity:{refreshed.id}:{tx_date.isoformat()}:{amount_paise}"
+            ),
+        ),
+    )
+
+    updated = replace(
+        refreshed,
+        principal_paise=new_principal,
+        account_id=fi_account_id,
+    )
+    await fi_repo.update_fixed_income_row(conn, updated)
+    return ledger_transaction_id, updated

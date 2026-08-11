@@ -112,3 +112,20 @@ class RecordInvestmentBuyBody(RecordInvestmentTradeBody):
 class RecordInvestmentTradeOut(BaseModel):
     ledger_transaction_id: int
     investment: InvestmentOut
+
+
+class RecordFixedIncomeDepositBody(BaseModel):
+    date: str
+    amount_paise: int = Field(gt=0)
+    bank_account_id: int = Field(gt=0)
+
+
+class RecordFixedIncomeMaturityBody(BaseModel):
+    date: str
+    bank_account_id: int = Field(gt=0)
+    amount_paise: int | None = Field(default=None, gt=0)
+
+
+class RecordFixedIncomeTradeOut(BaseModel):
+    ledger_transaction_id: int
+    fixed_income: FixedIncomeOut
