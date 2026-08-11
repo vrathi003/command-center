@@ -448,12 +448,19 @@ export type IncomeOut = {
   frequency: string
   taxability: string
   is_active: boolean
+  default_account_id: number | null
+  category: string | null
   monthly_equivalent_paise: number
 }
 
 export type IncomeSummaryOut = {
   stream_count: number
   total_monthly_equivalent_paise: number
+}
+
+export type RecordIncomeOut = {
+  ledger_transaction_id: number
+  income: IncomeOut
 }
 
 export type SettingsOut = {

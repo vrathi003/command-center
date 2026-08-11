@@ -9,16 +9,24 @@ import { SectionTitle } from '@/components/ui/SectionTitle'
 import { INCOME_FREQUENCIES, INCOME_TYPES, TAXABILITY } from '@/constants/income'
 import {
   deleteIncomeStream,
+  fetchAccounts,
   fetchIncomeStreams,
   fetchIncomeSummary,
   fetchSettings,
   postIncomeStream,
   putIncomeStream,
   putSettings,
+  recordIncome,
 } from '@/lib/api'
 import { estimateNewRegimeTaxPaise, estimateOldRegimeTaxPaise } from '@/lib/indiaTax'
 import { formatPaise, formatPaiseCompact } from '@/lib/format'
-import type { IncomeOut } from '@/types/api'
+import type { AccountOut, IncomeOut, RecordIncomeOut } from '@/types/api'
+
+const BANK_ACCOUNT_TYPES = new Set(['savings', 'current', 'wallet'])
+
+function filterBankAccounts(accounts: AccountOut[]): AccountOut[] {
+  return accounts.filter((a) => BANK_ACCOUNT_TYPES.has(a.type))
+}
 
 
 function rupeesToPaise(s: string): number | null {
@@ -41,6 +49,18 @@ export function IncomeTaxPage() {
     queryKey: ['income-streams'],
     queryFn: () => fetchIncomeStreams(true),
   })
+
+  const accounts = useQuery({
+    queryKey: ['accounts'],
+    queryFn: () => fetchAccounts(true),
+  })
+
+  const bankAccounts = useMemo(
+    () => filterBankAccounts(accounts.data ?? []),
+    [accounts.data],
+  )
+
+  const [recordIncomeId, setRecordIncomeId] = useState<number | null>(null)
 
   const taxSettings = useQuery({
     queryKey: ['settings'],
@@ -108,6 +128,8 @@ export function IncomeTaxPage() {
   const [nAmt, setNAmt] = useState('150000')
   const [nFreq, setNFreq] = useState<string>(INCOME_FREQUENCIES[0])
   const [nTax, setNTax] = useState<string>(TAXABILITY[0])
+  const [nDefaultAccount, setNDefaultAccount] = useState('')
+  const [nCategory, setNCategory] = useState('Salary')
 
   const add = useMutation({
     mutationFn: postIncomeStream,
@@ -127,6 +149,8 @@ export function IncomeTaxPage() {
       frequency: string
       taxability: string
       is_active: boolean
+      default_account_id?: number | null
+      category?: string | null
     }) => {
       const { id, ...body } = args
       return putIncomeStream(id, body)
@@ -147,16 +171,18 @@ export function IncomeTaxPage() {
     },
   })
 
-  if (summary.isPending || streams.isPending || taxSettings.isPending) {
+  if (summary.isPending || streams.isPending || taxSettings.isPending || accounts.isPending) {
     return <PageLoading lines={4} showFooterBlock />
   }
 
-  if (summary.isError || streams.isError || taxSettings.isError) {
+  if (summary.isError || streams.isError || taxSettings.isError || accounts.isError) {
     return (
       <PageError
         title="Could not load income data"
         message={
-          <p className="text-sm">{String(summary.error ?? streams.error ?? taxSettings.error)}</p>
+          <p className="text-sm">
+            {String(summary.error ?? streams.error ?? taxSettings.error ?? accounts.error)}
+          </p>
         }
       />
     )
@@ -165,12 +191,16 @@ export function IncomeTaxPage() {
   const s = summary.data
   const list = streams.data
 
+  const recordIncomeStream = recordIncomeId != null
+    ? list.find((row) => row.id === recordIncomeId) ?? null
+    : null
+
   return (
     <div className="space-y-10">
       <PageHero
         eyebrow="Income"
         title="Income & tax"
-        description="Multiple income streams drive the dashboard savings rate · tax hints for planning (not tax advice)"
+        description="Multiple income streams for tax planning · Record income posts to the ledger and drives savings rate"
       />
 
       <section className="grid gap-4 sm:grid-cols-2">
@@ -284,6 +314,11 @@ export function IncomeTaxPage() {
               frequency: nFreq,
               taxability: nTax,
               is_active: true,
+              default_account_id:
+                nDefaultAccount.trim() === ''
+                  ? null
+                  : Number.parseInt(nDefaultAccount, 10) || null,
+              category: nCategory.trim() || null,
             })
           }}
         >
@@ -346,6 +381,30 @@ export function IncomeTaxPage() {
               ))}
             </select>
           </label>
+          <label className="text-xs font-medium text-zinc-600">
+            Default bank
+            <select
+              className="mt-1 block rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+              value={nDefaultAccount}
+              onChange={(e) => setNDefaultAccount(e.target.value)}
+            >
+              <option value="">— none —</option>
+              {bankAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.institution ? ` · ${a.institution}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-medium text-zinc-600">
+            Category
+            <input
+              className="mt-1 block w-28 rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+              value={nCategory}
+              onChange={(e) => setNCategory(e.target.value)}
+              placeholder="Salary"
+            />
+          </label>
           <button
             type="submit"
             disabled={add.isPending}
@@ -361,7 +420,7 @@ export function IncomeTaxPage() {
       <section>
         <SectionTitle>Income streams</SectionTitle>
         <Panel variant="table" padding={false}>
-        <table className="w-full min-w-[900px] text-left text-sm">
+        <table className="w-full min-w-[1100px] text-left text-sm">
           <thead className="bg-zinc-50 text-xs font-medium uppercase tracking-wide text-zinc-500">
             <tr>
               <th className="px-4 py-2">Name</th>
@@ -369,6 +428,8 @@ export function IncomeTaxPage() {
               <th className="px-4 py-2 text-right">Amount</th>
               <th className="px-4 py-2">Frequency</th>
               <th className="px-4 py-2">Tax</th>
+              <th className="px-4 py-2">Bank</th>
+              <th className="px-4 py-2">Category</th>
               <th className="px-4 py-2 text-right">Monthly eq.</th>
               <th className="px-4 py-2">Active</th>
               <th className="px-4 py-2" />
@@ -379,8 +440,10 @@ export function IncomeTaxPage() {
               <IncomeRow
                 key={row.id}
                 row={row}
+                bankAccounts={bankAccounts}
                 onSave={(body) => update.mutate({ id: row.id, ...body })}
                 onDelete={() => remove.mutate(row.id)}
+                onRecordIncome={() => setRecordIncomeId(row.id)}
                 busy={update.isPending || remove.isPending}
               />
             ))}
@@ -391,17 +454,209 @@ export function IncomeTaxPage() {
         ) : null}
         </Panel>
       </section>
+
+      {recordIncomeStream ? (
+        <RecordIncomeModal
+          stream={recordIncomeStream}
+          bankAccounts={bankAccounts}
+          onClose={() => setRecordIncomeId(null)}
+          onSuccess={() => {
+            void qc.invalidateQueries({ queryKey: ['income-streams'] })
+            void qc.invalidateQueries({ queryKey: ['dashboard-summary'] })
+          }}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function RecordIncomeModal({
+  stream,
+  bankAccounts,
+  onClose,
+  onSuccess,
+}: {
+  stream: IncomeOut
+  bankAccounts: AccountOut[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [date, setDate] = useState(today)
+  const [accountId, setAccountId] = useState(
+    stream.default_account_id != null ? String(stream.default_account_id) : '',
+  )
+  const [amountOverride, setAmountOverride] = useState('')
+  const [category, setCategory] = useState(stream.category ?? 'Salary')
+  const [rememberAccount, setRememberAccount] = useState(false)
+
+  const record = useMutation({
+    mutationFn: async (): Promise<RecordIncomeOut> => {
+      const body: {
+        date: string
+        amount_paise?: number
+        account_id?: number
+        category?: string
+      } = { date: date.trim() }
+      const acctId = Number.parseInt(accountId, 10)
+      if (!Number.isNaN(acctId) && acctId > 0) body.account_id = acctId
+      if (amountOverride.trim() !== '') {
+        const paise = rupeesToPaise(amountOverride)
+        if (paise == null || paise <= 0) throw new Error('Invalid amount')
+        body.amount_paise = paise
+      }
+      if (category.trim() !== '') body.category = category.trim()
+      const result = await recordIncome(stream.id, body)
+      if (
+        rememberAccount
+        && !Number.isNaN(acctId)
+        && acctId > 0
+        && acctId !== stream.default_account_id
+      ) {
+        await putIncomeStream(stream.id, {
+          name: stream.name,
+          type: stream.type,
+          amount_paise: stream.amount_paise,
+          frequency: stream.frequency,
+          taxability: stream.taxability,
+          is_active: stream.is_active,
+          default_account_id: acctId,
+          category: category.trim() || stream.category,
+        })
+      }
+      return result
+    },
+    onSuccess: () => onSuccess(),
+  })
+
+  const inputCls = 'mt-1 block w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm'
+  const inputNumCls = `${inputCls} text-right tabular-nums`
+
+  const canSubmit =
+    date.trim() !== ''
+    && (accountId !== '' || stream.default_account_id != null)
+    && !record.isPending
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal
+      onClick={(e) => { if (e.target === e.currentTarget && !record.isPending) onClose() }}
+    >
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-semibold text-zinc-900">Record income</h2>
+        <p className="mt-1 text-sm text-zinc-600">{stream.name}</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Default {stream.amount_paise != null ? formatPaise(stream.amount_paise) : '—'} · {stream.frequency}
+        </p>
+
+        <form
+          className="mt-4 space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!canSubmit) return
+            record.mutate(undefined, { onSuccess: () => onClose() })
+          }}
+        >
+          <label className="block text-xs font-medium text-zinc-700">
+            Payment date
+            <input
+              type="date"
+              className={inputCls}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              required
+            />
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-700">
+            Deposit to
+            <select
+              className={inputCls}
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              required={stream.default_account_id == null}
+            >
+              <option value="">— select account —</option>
+              {bankAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.institution ? ` · ${a.institution}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-700">
+            Amount override (₹)
+            <input
+              className={inputNumCls}
+              inputMode="decimal"
+              placeholder={
+                stream.amount_paise != null ? String(stream.amount_paise / 100) : 'Amount'
+              }
+              value={amountOverride}
+              onChange={(e) => setAmountOverride(e.target.value)}
+            />
+          </label>
+
+          <label className="block text-xs font-medium text-zinc-700">
+            Category
+            <input
+              className={inputCls}
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="Salary"
+            />
+          </label>
+
+          <label className="flex items-center gap-2 text-sm text-zinc-700">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-zinc-300 text-emerald-700"
+              checked={rememberAccount}
+              onChange={(e) => setRememberAccount(e.target.checked)}
+            />
+            Remember this bank account
+          </label>
+
+          {record.isError ? (
+            <p className="text-sm text-red-600">{String(record.error)}</p>
+          ) : null}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+              onClick={onClose}
+              disabled={record.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+            >
+              {record.isPending ? 'Recording…' : 'Record income'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
 
 function IncomeRow({
   row,
+  bankAccounts,
   onSave,
   onDelete,
+  onRecordIncome,
   busy,
 }: {
   row: IncomeOut
+  bankAccounts: AccountOut[]
   onSave: (body: {
     name: string
     type: string
@@ -409,8 +664,11 @@ function IncomeRow({
     frequency: string
     taxability: string
     is_active: boolean
+    default_account_id?: number | null
+    category?: string | null
   }) => void
   onDelete: () => void
+  onRecordIncome: () => void
   busy: boolean
 }) {
   const [name, setName] = useState(row.name)
@@ -419,6 +677,10 @@ function IncomeRow({
   const [freq, setFreq] = useState(row.frequency)
   const [tax, setTax] = useState(row.taxability)
   const [active, setActive] = useState(row.is_active)
+  const [defaultAccount, setDefaultAccount] = useState(
+    row.default_account_id != null ? String(row.default_account_id) : '',
+  )
+  const [category, setCategory] = useState(row.category ?? '')
 
   return (
     <tr className="border-t border-zinc-100">
@@ -476,6 +738,28 @@ function IncomeRow({
           ))}
         </select>
       </td>
+      <td className="px-4 py-2 align-top">
+        <select
+          className="max-w-[8rem] rounded border border-zinc-200 px-1 py-1 text-sm"
+          value={defaultAccount}
+          onChange={(e) => setDefaultAccount(e.target.value)}
+        >
+          <option value="">—</option>
+          {bankAccounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="px-4 py-2 align-top">
+        <input
+          className="w-24 rounded border border-zinc-200 px-2 py-1 text-sm"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          placeholder="Salary"
+        />
+      </td>
       <td className="px-4 py-2 text-right tabular-nums text-zinc-700">
         {formatPaiseCompact(row.monthly_equivalent_paise)}
       </td>
@@ -488,7 +772,16 @@ function IncomeRow({
         />
       </td>
       <td className="px-4 py-2 align-top">
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+            onClick={onRecordIncome}
+          >
+            Record income
+          </button>
+          <div className="flex gap-2">
           <button
             type="button"
             disabled={busy}
@@ -498,6 +791,9 @@ function IncomeRow({
               if (p == null && amt.trim() !== '') {
                 return
               }
+              const acctId = defaultAccount.trim() === ''
+                ? null
+                : Number.parseInt(defaultAccount, 10) || null
               onSave({
                 name: name.trim() || row.name,
                 type,
@@ -505,6 +801,8 @@ function IncomeRow({
                 frequency: freq,
                 taxability: tax,
                 is_active: active,
+                default_account_id: acctId,
+                category: category.trim() || null,
               })
             }}
           >
@@ -522,6 +820,7 @@ function IncomeRow({
           >
             Delete
           </button>
+          </div>
         </div>
       </td>
     </tr>
