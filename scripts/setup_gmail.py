@@ -4,10 +4,13 @@
 Normal use (machine has a browser):
     python scripts/setup_gmail.py --credentials ~/finance/gmail_credentials.json
 
-Headless / Tailscale server (no browser on the machine running the API):
+Headless / Tailscale server (no browser on the API host):
+    # On your laptop, forward the callback port to the server:
+    ssh -L 8080:localhost:8080 user@api-host
+    # On the API host:
     python scripts/setup_gmail.py --credentials ~/finance/gmail_credentials.json --console
-    # Copy the URL it prints, open it on any browser, click Allow,
-    # paste the code back into the terminal.
+    # Open the printed URL in the laptop browser, sign in, Allow.
+    # Google redirects to http://localhost:8080 on the laptop → tunnel → server.
 
 After running, set in your .env:
     GMAIL_CREDENTIALS_PATH=~/finance/gmail_credentials.json
@@ -21,6 +24,8 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+
+_HEADLESS_CALLBACK_PORT = 8080
 
 
 def main() -> None:
@@ -39,9 +44,15 @@ def main() -> None:
         "--console",
         action="store_true",
         help=(
-            "Use copy-paste flow instead of opening a browser. "
-            "Use this when running on a headless server or remote machine (e.g. via Tailscale SSH)."
+            "Headless/remote mode: print auth URL and listen on localhost:8080 "
+            "(do not open a browser). Use with SSH -L 8080:localhost:8080 from your laptop."
         ),
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=_HEADLESS_CALLBACK_PORT,
+        help=f"Callback port for --console (default: {_HEADLESS_CALLBACK_PORT})",
     )
     args = parser.parse_args()
 
@@ -68,15 +79,20 @@ def main() -> None:
     flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), scopes)
 
     if args.console:
+        port = args.port
         print()
-        print("── Console (copy-paste) mode ──────────────────────────────────────")
-        print("1. Copy the URL below and open it in any browser")
-        print("2. Sign in with the Gmail you added as a test user")
-        print("3. Click Allow")
-        print("4. Copy the authorization code shown in the browser")
-        print("5. Paste it below")
+        print("── Headless mode (local callback + optional SSH tunnel) ───────────")
+        print("Google removed the old copy-paste OAuth code flow.")
         print()
-        creds = flow.run_console()
+        print("If this host has no browser (e.g. Ubuntu over SSH), on your laptop run:")
+        print(f"  ssh -L {port}:localhost:{port} <user>@<this-host>")
+        print("Keep that SSH session open, then:")
+        print("1. Copy the authorization URL printed below")
+        print("2. Open it in the laptop browser")
+        print("3. Sign in with the Gmail test user and click Allow")
+        print(f"4. Browser redirects to http://localhost:{port} → tunnel → this host")
+        print()
+        creds = flow.run_local_server(port=port, open_browser=False)
     else:
         print("Opening browser for OAuth consent…")
         print("(Use --console if you're on a headless/remote machine)")

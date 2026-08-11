@@ -82,17 +82,21 @@ python scripts/setup_gmail.py --credentials ~/finance/gmail_credentials.json
 A browser tab opens. Sign in with the Gmail you added as a test user in Step 4. Click **Allow**. The script saves `~/finance/gmail_token.json` and prints the env vars to set.
 
 ### If you run the API on a remote/headless machine (Tailscale server, no browser)
-Use the `--console` flag — it gives you a URL to open on any browser, then paste back the code:
+Google removed the old copy-paste OAuth code flow. Use `--console` with an SSH tunnel so the browser callback reaches the API host:
+
 ```bash
+# On your laptop (keep this session open):
+ssh -L 8080:localhost:8080 user@api-host
+
+# On the API host:
 python scripts/setup_gmail.py --credentials ~/finance/gmail_credentials.json --console
 ```
-1. Copy the URL it prints
-2. Open it in any browser (on your laptop, phone, anything)
+1. Copy the authorization URL it prints
+2. Open it in the **laptop** browser
 3. Sign in and click Allow
-4. Copy the authorization code shown in the browser
-5. Paste it back into the terminal prompt
+4. Browser redirects to `http://localhost:8080` → tunnel → API host completes the flow
 
-The token is saved on the server where the API runs. You only do this once.
+The token is saved on the server where the API runs. You only do this once (until `invalid_grant`).
 
 ---
 
@@ -142,7 +146,8 @@ The API server and token file live on whatever machine runs `start.py` / `make d
 | "redirect_uri_mismatch" | You're using the wrong credential type — re-create with **Desktop app** not Web |
 | "invalid_client" | Credentials file is corrupted or wrong project — re-download |
 | Token expires / "invalid_grant" | Delete `~/finance/gmail_token.json` and re-run `setup_gmail.py` |
-| Script opens browser but nothing happens | Try `--console` flag |
+| `run_console` AttributeError | Old OOB flow removed — pull latest script; use `--console` with `ssh -L 8080:localhost:8080` |
+| Script opens browser but nothing happens | Try `--console` + SSH tunnel (Step 7) |
 | Sync returns 0 items | Gmail query may not match your bank's sender domain — check `_GMAIL_QUERY` in `gmail_sync.py` and add your bank's domain if missing |
 
 ---
