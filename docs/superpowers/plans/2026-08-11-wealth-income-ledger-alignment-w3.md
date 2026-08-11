@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-11-wealth-stack-ledger-alignment-design.md` §7
 
+**Status:** ✅ Complete (2026-08-11). Goals linking deferred to W4.
+
 ## Global Constraints
 
 - Streams remain planning metadata; no auto-post on payday.
@@ -35,7 +37,7 @@
 
 - Add nullable `default_account_id`, `category` to income_sources
 - Wire CRUD schemas/router
-- [ ] Commit `feat(income): default_account_id and category columns`
+- [x] Commit `feat(income): default_account_id and category columns`
 
 ---
 
@@ -50,7 +52,7 @@ async def post_income_credit(conn, *, source, payment_date, amount_paise=None, a
 - Category = override or source.category or "Salary"
 - Income account = system Uncategorized Income (mirror Uncategorized Expense helper)
 - `build_bank_income` + LedgerService.post; merchant=source.name
-- [ ] Tests; commit `feat(income): record-income ledger post`
+- [x] Tests; commit `feat(income): record-income ledger post`
 
 ---
 
@@ -58,7 +60,7 @@ async def post_income_credit(conn, *, source, payment_date, amount_paise=None, a
 
 - When double_entry, dashboard summary savings rate numerator/denominator uses ledger income credits in period (query postings on income accounts or credit-normal income class)
 - Else keep income_sources monthly equivalent
-- [ ] Test; commit `feat(dashboard): savings rate from ledger income credits`
+- [x] Test; commit `feat(dashboard): savings rate from ledger income credits`
 
 ---
 
@@ -66,7 +68,7 @@ async def post_income_credit(conn, *, source, payment_date, amount_paise=None, a
 
 - API client + IncomeTaxPage modal (date, bank, amount, category prefilled)
 - Optional default bank/category on create/edit
-- [ ] Build PASS; commit `feat(dashboard): record income from streams`
+- [x] Build PASS; commit `feat(dashboard): record income from streams`
 
 ---
 
@@ -74,7 +76,7 @@ async def post_income_credit(conn, *, source, payment_date, amount_paise=None, a
 
 - Full pytest + check-ledger-writes
 - Mark W3 ✅ on umbrella; note Goals W4 later; package W1–W3 done for wealth money paths
-- Commit `docs(wealth): mark income ledger W3 complete`
+- [x] Commit `docs(wealth): mark income ledger W3 complete`
 
 ---
 

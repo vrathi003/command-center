@@ -38,10 +38,10 @@ Align **Investments**, **Fixed income**, **Net Worth**, **Income & Tax**, and (l
 |-------|------|-------------|
 | **W1** ✅ Done | Investments + Fixed income | `account_id`; seed opening; Record buy/SIP/sell; Record FI deposit/maturity; builders · [acceptance report](../../../.superpowers/sdd/task-7-report.md) |
 | **W2** ✅ Done | Net Worth | Composed lens + snapshot job / API / dashboard KPI · [acceptance report](../../../.superpowers/sdd/task-3-report.md) |
-| **W3** | Income | Record income from streams; savings rate from ledger credits |
+| **W3** ✅ Done | Income | Record income from streams; savings rate from ledger credits |
 | **W4** (later) | Goals → instruments | Link goal → holding/account; progress from ledger/MV |
 
-This document is the umbrella spec. **W3 Income is next.**
+Wealth package **W1–W3** is complete for money paths. **Goals W4** is next when scheduled.
 
 ---
 
