@@ -67,21 +67,25 @@ async def build_summary(
     m0, m1 = _month_bounds(d)
     w0, w1 = _week_bounds(d)
 
-    spent_today = await transactions.sum_between(conn, start=d, end=d)
-    spent_week = await transactions.sum_between(conn, start=w0, end=w1)
-    spent_month = await transactions.sum_between(conn, start=m0, end=m1)
-    by_cat = await transactions.sum_by_category_month(conn, start=m0, end=m1)
-    by_account = await transactions.sum_by_account(conn, start=m0, end=m1)
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "double_entry":
+        spent_today = await ledger_reports.budget_spend_total(conn, start=d, end=d)
+        spent_week = await ledger_reports.budget_spend_total(conn, start=w0, end=w1)
+        spent_month = await ledger_reports.budget_spend_total(conn, start=m0, end=m1)
+        by_cat = await ledger_reports.budget_spend_by_category(conn, start=m0, end=m1)
+        by_account = await ledger_reports.budget_spend_by_account(conn, start=m0, end=m1)
+        monthly_income = await ledger_reports.income_credits_total(conn, start=m0, end=m1)
+    else:
+        spent_today = await transactions.sum_between(conn, start=d, end=d)
+        spent_week = await transactions.sum_between(conn, start=w0, end=w1)
+        spent_month = await transactions.sum_between(conn, start=m0, end=m1)
+        by_cat = await transactions.sum_by_category_month(conn, start=m0, end=m1)
+        by_account = await transactions.sum_by_account(conn, start=m0, end=m1)
+        monthly_income = await income_repo.total_monthly_equivalent_paise(conn)
 
     debt = await _sum_debt(conn)
     nw = await _latest_net_worth(conn)
     port = await _portfolio_market_value(conn)
-
-    project_config = await load_project_config(conn)
-    if project_config.ledger_engine == "double_entry":
-        monthly_income = await ledger_reports.income_credits_total(conn, start=m0, end=m1)
-    else:
-        monthly_income = await income_repo.total_monthly_equivalent_paise(conn)
 
     savings: float | None = None
     if monthly_income > 0:
