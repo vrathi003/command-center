@@ -25,6 +25,12 @@ dev = [
     "mypy>=1.15",
     "pytest-mock>=3.14",
 ]
+docs = [
+    "furo>=2024",
+    "myst-parser>=4",
+    "sphinx>=8",
+    "sphinx-copybutton>=0.5",
+]
 
 [tool.ruff]
 target-version = "py314"

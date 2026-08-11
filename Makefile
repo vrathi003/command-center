@@ -1,4 +1,4 @@
-.PHONY: install dev dev-dashboard seed-demo seed-construction seed-construction-replace test lint fmt migrate clean pdf-to-csv install-services configure-tailscale service-status health check-ledger-writes
+.PHONY: install dev dev-dashboard seed-demo seed-construction seed-construction-replace test lint fmt migrate clean pdf-to-csv install-services configure-tailscale service-status health check-ledger-writes docs docs-serve
 
 XLSX ?= $(HOME)/Documents/Personal/Personal\ Finance/Personal_Finance_OS.xlsx
 DB   ?= ~/finance/finance.db
@@ -56,10 +56,18 @@ pdf-to-csv:
 	uv run python scripts/bank_statement_pdf_to_csv.py "$(PDF)" -o "$(OUT)" \
 		$(if $(PASS),-p "$(PASS)",)
 
+# Product guide (Sphinx + MyST) → committed HTML under docs/site/
+docs:
+	uv run --group docs sphinx-build -b html -d docs/guide/_doctrees docs/guide docs/site
+
+docs-serve: docs
+	@echo "Serving docs/site at http://127.0.0.1:8000"
+	uv run --group docs python -m http.server 8000 --directory docs/site
+
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; \
 	find . -name "*.pyc" -delete 2>/dev/null; \
-	rm -rf .mypy_cache .ruff_cache .pytest_cache dashboard/dist; \
+	rm -rf .mypy_cache .ruff_cache .pytest_cache dashboard/dist docs/guide/_doctrees; \
 	true
 
 install-services:

@@ -20,3 +20,5 @@ build/
 data/
 .worktrees/
 uv.lock
+docs/guide/_doctrees/
+docs/guide/_build/
