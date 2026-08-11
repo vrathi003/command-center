@@ -98,6 +98,35 @@ async def test_composed_net_worth_seed_and_buy(api_client: TestClient) -> None:
         assert disp_net == expected_net
 
 
+def test_snapshot_stores_composed_totals(api_client: TestClient) -> None:
+    bank_id = _create_bank(api_client)
+    _seed_bank_balance(api_client, bank_id=bank_id, amount_paise=1_000_000_00)
+
+    inv = _create_investment(api_client)
+    inv_id = int(inv["id"])
+
+    buy = api_client.post(
+        f"/api/investments/{inv_id}/record-buy",
+        json={
+            "date": "2026-08-01",
+            "amount_paise": 50_000_00,
+            "units": 5.0,
+            "bank_account_id": bank_id,
+        },
+    )
+    assert buy.status_code == 201, buy.text
+
+    snap = api_client.post(
+        "/api/net-worth/snapshot",
+        json={"computed_from_holdings": True, "snapshot_date": "2026-08-11"},
+    )
+    assert snap.status_code == 201, snap.text
+    body = snap.json()
+    assert body["total_assets_paise"] == 1_340_000_00
+    assert body["total_liabilities_paise"] == 0
+    assert body["net_worth_paise"] == 1_340_000_00
+
+
 def test_legacy_holdings_path_when_not_double_entry(api_client: TestClient) -> None:
     api_client.put(
         "/api/settings/",
