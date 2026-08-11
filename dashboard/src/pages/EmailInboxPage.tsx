@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, CalendarSearch, CheckCircle, RefreshCw, RotateCcw, Trash2, XCircle, Zap } from 'lucide-react'
+import { ArrowRight, CalendarSearch, CheckCircle, RefreshCw, RotateCcw, ShieldAlert, Trash2, XCircle, Zap } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -24,7 +24,14 @@ import type { AccountOut, HistoricalSyncResult, StagedEmailTransaction } from '@
 
 const MAX_HISTORICAL_DAYS = 90
 
-type Tab = 'pending' | 'approved' | 'rejected'
+type Tab = 'pending' | 'quarantined' | 'approved' | 'rejected'
+
+function quarantineDeskLink(candidateId: number | null | undefined): string {
+  if (candidateId != null) {
+    return `/transactions/quarantine?candidate=${candidateId}`
+  }
+  return '/transactions/quarantine'
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -350,10 +357,13 @@ interface PendingCardProps {
   selected: boolean
   onToggleSelect: (id: number) => void
   onApprove: (item: StagedEmailTransaction, overrides: EditState) => void
+  onForceApprove?: (item: StagedEmailTransaction, overrides: EditState) => void
   onReject: (item: StagedEmailTransaction) => void
   onApproveAsTransfer: (pair: TransferPair) => void
   approving: boolean
+  forceApproving?: boolean
   rejecting: boolean
+  variant?: 'pending' | 'quarantined'
 }
 
 function PendingCard({
@@ -362,10 +372,13 @@ function PendingCard({
   selected,
   onToggleSelect,
   onApprove,
+  onForceApprove,
   onReject,
   onApproveAsTransfer,
   approving,
+  forceApproving,
   rejecting,
+  variant = 'pending',
 }: PendingCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -375,13 +388,16 @@ function PendingCard({
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
-  const isTransferPair = !!transferPair
+  const isTransferPair = !!transferPair && variant === 'pending'
+  const isQuarantined = variant === 'quarantined' || item.status === 'quarantined'
 
   return (
     <div
       className={[
         'rounded-lg border bg-white p-4 shadow-sm',
-        isTransferPair ? 'border-amber-200 ring-1 ring-amber-100' : 'border-zinc-200',
+        isQuarantined || isTransferPair
+          ? 'border-amber-200 ring-1 ring-amber-100'
+          : 'border-zinc-200',
         selected ? 'ring-2 ring-emerald-400' : '',
       ].join(' ')}
     >
@@ -403,6 +419,12 @@ function PendingCard({
               <span className="ml-1 flex items-center gap-0.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
                 <Zap className="size-3" />
                 Possible transfer
+              </span>
+            )}
+            {isQuarantined && (
+              <span className="ml-1 flex items-center gap-0.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                <ShieldAlert className="size-3" />
+                Quarantined
               </span>
             )}
           </div>
@@ -444,6 +466,23 @@ function PendingCard({
           Category: <span className="font-medium text-zinc-800">{item.parsed_category ?? '—'}</span>
         </span>
       </div>
+
+      {isQuarantined && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <ShieldAlert className="size-3.5 shrink-0" />
+          <span>
+            Possible duplicate or uncertain match — review in the ledger quarantine desk before
+            posting.
+          </span>
+          <Link
+            to={quarantineDeskLink(item.intake_candidate_id)}
+            className="inline-flex items-center gap-1 font-semibold text-amber-900 underline-offset-2 hover:underline"
+          >
+            Open quarantine desk
+            <ArrowRight className="size-3" />
+          </Link>
+        </div>
+      )}
 
       {/* Raw snippet toggle */}
       {item.raw_snippet && (
@@ -538,11 +577,10 @@ function PendingCard({
 
       {/* Action buttons */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        {/* Transfer pair action — shown first and prominently if pair detected */}
         {isTransferPair && (
           <button
             onClick={() => onApproveAsTransfer(transferPair)}
-            disabled={approving || rejecting}
+            disabled={approving || rejecting || forceApproving}
             className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
           >
             <Zap className="size-3.5" />
@@ -550,14 +588,25 @@ function PendingCard({
           </button>
         )}
 
-        <button
-          onClick={() => onApprove(item, form)}
-          disabled={approving || rejecting}
-          className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-        >
-          <CheckCircle className="size-3.5" />
-          {approving ? 'Approving…' : 'Approve individually'}
-        </button>
+        {isQuarantined && onForceApprove ? (
+          <button
+            onClick={() => onForceApprove(item, form)}
+            disabled={approving || rejecting || forceApproving}
+            className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            <ShieldAlert className="size-3.5" />
+            {forceApproving ? 'Force approving…' : 'Force approve'}
+          </button>
+        ) : (
+          <button
+            onClick={() => onApprove(item, form)}
+            disabled={approving || rejecting || forceApproving}
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            <CheckCircle className="size-3.5" />
+            {approving ? 'Approving…' : isTransferPair ? 'Approve individually' : 'Approve'}
+          </button>
+        )}
 
         <button
           onClick={() => setEditing((p) => !p)}
@@ -568,7 +617,7 @@ function PendingCard({
 
         <button
           onClick={() => onReject(item)}
-          disabled={approving || rejecting}
+          disabled={approving || rejecting || forceApproving}
           className="flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
         >
           <XCircle className="size-3.5" />
@@ -804,10 +853,13 @@ function HistoricalImportPanel({ onComplete }: { onComplete: () => void }) {
 export function EmailInboxPage() {
   const qc = useQueryClient()
   const [tab, setTab] = useState<Tab>('pending')
-  const [activeMutations, setActiveMutations] = useState<Record<number, 'approving' | 'rejecting'>>({})
+  const [activeMutations, setActiveMutations] = useState<
+    Record<number, 'approving' | 'forceApproving' | 'rejecting'>
+  >({})
   const [transferModalPair, setTransferModalPair] = useState<TransferPair | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [undoingIds, setUndoingIds] = useState<Set<number>>(new Set())
+  const [quarantineBanner, setQuarantineBanner] = useState<string | null>(null)
 
   const statsQ = useQuery({
     queryKey: ['email-inbox-stats'],
@@ -828,16 +880,30 @@ export function EmailInboxPage() {
   function invalidate() {
     qc.invalidateQueries({ queryKey: ['email-inbox'] })
     qc.invalidateQueries({ queryKey: ['email-inbox-stats'] })
+    qc.invalidateQueries({ queryKey: ['intake-candidates'] })
     qc.invalidateQueries({ queryKey: ['transactions'] })
     qc.invalidateQueries({ queryKey: ['dashboard-summary'] })
     qc.invalidateQueries({ queryKey: ['dashboard-alerts'] })
     qc.invalidateQueries({ queryKey: ['budget-vs'] })
   }
 
+  function handleQuarantinedResult(message: string) {
+    setQuarantineBanner(message)
+    setTab('quarantined')
+  }
+
   const syncMut = useMutation({ mutationFn: syncGmailNow, onSuccess: invalidate })
 
   const approveMut = useMutation({
-    mutationFn: ({ id, form }: { id: number; form: EditState }) => {
+    mutationFn: ({
+      id,
+      form,
+      force = false,
+    }: {
+      id: number
+      form: EditState
+      force?: boolean
+    }) => {
       const amount_paise = rupeesToPaise(form.parsed_amount)
       return approveEmailTransaction(id, {
         parsed_date: form.parsed_date || null,
@@ -846,9 +912,20 @@ export function EmailInboxPage() {
         parsed_category: form.parsed_category || null,
         parsed_payment_mode: form.parsed_payment_mode || null,
         parsed_transaction_type: form.parsed_transaction_type,
+        force,
       })
     },
-    onMutate: ({ id }) => setActiveMutations((p) => ({ ...p, [id]: 'approving' })),
+    onMutate: ({ id, force }) =>
+      setActiveMutations((p) => ({ ...p, [id]: force ? 'forceApproving' : 'approving' })),
+    onSuccess: (data, { force }) => {
+      if (data.status === 'quarantined' && !force) {
+        handleQuarantinedResult(
+          'Possible duplicate — item moved to Quarantined. Review in the quarantine desk or use Force approve.',
+        )
+      } else {
+        setQuarantineBanner(null)
+      }
+    },
     onSettled: (_, __, { id }) => {
       setActiveMutations((p) => { const n = { ...p }; delete n[id]; return n })
       invalidate()
@@ -873,6 +950,7 @@ export function EmailInboxPage() {
       txDate: string
       amountPaise: number
       notes: string
+      force?: boolean
     }) =>
       approveAsTransfer({
         debit_id: args.debitId,
@@ -882,8 +960,23 @@ export function EmailInboxPage() {
         tx_date: args.txDate,
         amount_paise: args.amountPaise,
         notes: args.notes || null,
+        force: args.force,
       }),
-    onSuccess: () => { setTransferModalPair(null); invalidate() },
+    onSuccess: (data) => {
+      if (
+        data.debit_item.status === 'quarantined' ||
+        data.credit_item.status === 'quarantined'
+      ) {
+        setTransferModalPair(null)
+        handleQuarantinedResult(
+          'Possible duplicate transfer — both items moved to Quarantined. Force approve from that tab or the quarantine desk.',
+        )
+      } else {
+        setTransferModalPair(null)
+        setQuarantineBanner(null)
+      }
+    },
+    onSettled: () => invalidate(),
   })
 
   const clearMut = useMutation({ mutationFn: clearRejectedEmails, onSuccess: invalidate })
@@ -935,7 +1028,11 @@ export function EmailInboxPage() {
   )
 
   // Selection helpers — reset when tab changes
-  function switchTab(t: Tab) { setTab(t); setSelectedIds(new Set()) }
+  function switchTab(t: Tab) {
+    setTab(t)
+    setSelectedIds(new Set())
+    if (t !== 'quarantined') setQuarantineBanner(null)
+  }
   function toggleSelect(id: number) {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -952,6 +1049,7 @@ export function EmailInboxPage() {
 
   const TABS: { key: Tab; label: string; count: number | undefined }[] = [
     { key: 'pending', label: 'Pending', count: stats?.pending },
+    { key: 'quarantined', label: 'Quarantined', count: stats?.quarantined },
     { key: 'approved', label: 'Approved', count: stats?.approved },
     { key: 'rejected', label: 'Rejected', count: stats?.rejected },
   ]
@@ -979,11 +1077,27 @@ export function EmailInboxPage() {
         className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 hover:bg-amber-100"
       >
         <span>
-          <span className="font-semibold">Ledger quarantine</span> — review uncertain intake candidates
-          before they are posted.
+          <span className="font-semibold">Ledger quarantine</span> — review uncertain intake
+          candidates before they are posted.
+          {(stats?.quarantined ?? 0) > 0 ? (
+            <span className="ml-1 font-semibold">({stats!.quarantined} waiting)</span>
+          ) : null}
         </span>
         <ArrowRight className="size-4 shrink-0" />
       </Link>
+
+      {quarantineBanner && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+          <div className="flex-1">{quarantineBanner}</div>
+          <button
+            onClick={() => setQuarantineBanner(null)}
+            className="shrink-0 text-xs font-medium text-amber-700 underline-offset-2 hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {syncMut.isSuccess && (
         <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
@@ -1006,8 +1120,10 @@ export function EmailInboxPage() {
             onClick={() => switchTab(key)}
             className={[
               'flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition-colors',
-              tab === key
-                ? 'border-emerald-600 text-emerald-700'
+                  tab === key
+                ? key === 'quarantined'
+                  ? 'border-amber-600 text-amber-800'
+                  : 'border-emerald-600 text-emerald-700'
                 : 'border-transparent text-zinc-500 hover:text-zinc-700',
             ].join(' ')}
           >
@@ -1016,8 +1132,13 @@ export function EmailInboxPage() {
               <span
                 className={[
                   'rounded-full px-1.5 py-0.5 text-xs font-semibold',
-                  tab === key ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-500',
+                  tab === key
+                    ? key === 'quarantined'
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-emerald-100 text-emerald-700'
+                    : 'bg-zinc-100 text-zinc-500',
                   key === 'pending' && count > 0 ? 'bg-orange-100 text-orange-700' : '',
+                  key === 'quarantined' && count > 0 ? 'bg-amber-100 text-amber-800' : '',
                 ].join(' ')}
               >
                 {count}
@@ -1062,7 +1183,9 @@ export function EmailInboxPage() {
           <p className="py-8 text-center text-sm text-zinc-400">
             {tab === 'pending'
               ? 'No pending emails. Click "Sync now" to fetch recent emails.'
-              : `No ${tab} items.`}
+              : tab === 'quarantined'
+                ? 'No quarantined emails. Uncertain or duplicate approvals appear here.'
+                : `No ${tab} items.`}
           </p>
         </Panel>
       ) : (
@@ -1103,6 +1226,36 @@ export function EmailInboxPage() {
                 </div>
               )}
 
+              {/* Bulk actions — quarantined tab */}
+              {someSelected && tab === 'quarantined' && (
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      for (const id of selectedIds) {
+                        const item = itemsById.get(id)
+                        if (item) {
+                          approveMut.mutate({ id, form: itemToEditState(item), force: true })
+                        }
+                      }
+                      setSelectedIds(new Set())
+                    }}
+                    disabled={approveMut.isPending || bulkRejectMut.isPending}
+                    className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    <ShieldAlert className="size-3.5" />
+                    Force approve {selectedIds.size}
+                  </button>
+                  <button
+                    onClick={() => bulkRejectMut.mutate([...selectedIds])}
+                    disabled={approveMut.isPending || bulkRejectMut.isPending}
+                    className="flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    <XCircle className="size-3.5" />
+                    {bulkRejectMut.isPending ? 'Rejecting…' : `Reject ${selectedIds.size}`}
+                  </button>
+                </div>
+              )}
+
               {/* Bulk actions — approved tab */}
               {someSelected && tab === 'approved' && (
                 <div className="ml-auto flex items-center gap-2">
@@ -1119,17 +1272,20 @@ export function EmailInboxPage() {
             </div>
           )}
 
-          {tab === 'pending'
+          {tab === 'pending' || tab === 'quarantined'
             ? items.map((item) => (
                 <PendingCard
                   key={item.id}
                   item={item}
+                  variant={tab === 'quarantined' ? 'quarantined' : 'pending'}
                   transferPair={transferPairs.get(item.id)}
                   selected={selectedIds.has(item.id)}
                   onToggleSelect={toggleSelect}
                   approving={activeMutations[item.id] === 'approving'}
+                  forceApproving={activeMutations[item.id] === 'forceApproving'}
                   rejecting={activeMutations[item.id] === 'rejecting'}
                   onApprove={(it, form) => approveMut.mutate({ id: it.id, form })}
+                  onForceApprove={(it, form) => approveMut.mutate({ id: it.id, form, force: true })}
                   onReject={(it) => rejectMut.mutate({ id: it.id })}
                   onApproveAsTransfer={setTransferModalPair}
                 />

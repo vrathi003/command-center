@@ -729,8 +729,10 @@ export type StagedEmailTransaction = {
   parsed_payment_mode: string | null
   parsed_transaction_type: 'debit' | 'credit' | null
   suggested_account_id: number | null
-  status: 'pending' | 'approved' | 'rejected'
+  status: 'pending' | 'approved' | 'rejected' | 'quarantined'
   created_transaction_id: number | null
+  ledger_transaction_id: number | null
+  intake_candidate_id: number | null
   created_at: string
 }
 
@@ -738,6 +740,7 @@ export type EmailInboxStats = {
   pending: number
   approved: number
   rejected: number
+  quarantined: number
 }
 
 export type HistoricalSyncResult = {
