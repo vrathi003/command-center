@@ -25,6 +25,10 @@ from finance_bot.transfer_flow import (
 )
 from finance_common.classification.matcher import match_merchant
 from finance_common.db import ensure_database, open_db
+from finance_common.ledger import product_writes as ledger_writes
+from finance_common.ledger import service as ledger_service
+from finance_common.ledger.errors import LedgerError
+from finance_common.migration import facade as ledger_facade
 from finance_common.parsing.account_mentions import (
     AccountLike,
     extract_account_fragment,
@@ -41,6 +45,7 @@ from finance_common.parsing.template_line import (
     match_template_longest_prefix,
     strip_template_prefix,
 )
+from finance_common.project_config import uses_ledger_books
 from finance_common.reports_fy import build_fy_summary
 from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import budgets as budget_repo
@@ -223,21 +228,39 @@ class ExpenseCog(commands.Cog):
                         acc_name = row.name
                         aid = row.id
 
-            tid = await tx_repo.insert_transaction(
-                conn,
-                tx_date=tx_date,
-                amount_paise=amount_paise,
-                category=cat_str,
-                merchant=merchant,
-                payment_mode=pay_str,
-                account=acc_name,
-                notes=original_entry,
-                source="discord",
-                discord_message_id=discord_message_id,
-                account_id=aid,
-                transaction_type=tx_type,
-                tags=tpl.tags,
-            )
+            if await uses_ledger_books(conn):
+                try:
+                    tid = await ledger_writes.post_manual(
+                        conn,
+                        tx_date=tx_date,
+                        amount_paise=amount_paise,
+                        category=cat_str,
+                        merchant=merchant,
+                        transaction_type=tx_type,
+                        account_id=aid,
+                        notes=original_entry,
+                        tags=tpl.tags,
+                        source="discord",
+                        external_key=f"discord:{discord_message_id}",
+                    )
+                except ledger_writes.ProductWriteError as e:
+                    return None, str(e)
+            else:
+                tid = await tx_repo.insert_transaction(
+                    conn,
+                    tx_date=tx_date,
+                    amount_paise=amount_paise,
+                    category=cat_str,
+                    merchant=merchant,
+                    payment_mode=pay_str,
+                    account=acc_name,
+                    notes=original_entry,
+                    source="discord",
+                    discord_message_id=discord_message_id,
+                    account_id=aid,
+                    transaction_type=tx_type,
+                    tags=tpl.tags,
+                )
 
         parsed = ParsedExpense(
             amount_paise=amount_paise,
@@ -300,19 +323,36 @@ class ExpenseCog(commands.Cog):
                 if row:
                     acc_name = row.name
                     aid = row.id
-            tid = await tx_repo.insert_transaction(
-                conn,
-                tx_date=parsed.transaction_date,
-                amount_paise=parsed.amount_paise,
-                category=parsed.category.value,
-                merchant=parsed.merchant,
-                payment_mode=parsed.payment_mode.value,
-                account=acc_name,
-                notes=parsed.notes,
-                source="discord",
-                discord_message_id=discord_message_id,
-                account_id=aid,
-            )
+            if await uses_ledger_books(conn):
+                try:
+                    tid = await ledger_writes.post_manual(
+                        conn,
+                        tx_date=parsed.transaction_date,
+                        amount_paise=parsed.amount_paise,
+                        category=parsed.category.value,
+                        merchant=parsed.merchant,
+                        transaction_type="debit",
+                        account_id=aid,
+                        notes=parsed.notes,
+                        source="discord",
+                        external_key=f"discord:{discord_message_id}",
+                    )
+                except ledger_writes.ProductWriteError as e:
+                    return None, str(e)
+            else:
+                tid = await tx_repo.insert_transaction(
+                    conn,
+                    tx_date=parsed.transaction_date,
+                    amount_paise=parsed.amount_paise,
+                    category=parsed.category.value,
+                    merchant=parsed.merchant,
+                    payment_mode=parsed.payment_mode.value,
+                    account=acc_name,
+                    notes=parsed.notes,
+                    source="discord",
+                    discord_message_id=discord_message_id,
+                    account_id=aid,
+                )
         return PersistExpenseResult(parsed=parsed, tid=tid, account_name=acc_name), None
 
     async def _insert_transfer_pair_discord(
@@ -328,6 +368,23 @@ class ExpenseCog(commands.Cog):
         if from_a is None or to_a is None:
             msg = "account missing"
             raise RuntimeError(msg)
+        if await uses_ledger_books(conn):
+            try:
+                tid = await ledger_writes.post_transfer(
+                    conn,
+                    tx_date=pt.transaction_date,
+                    amount_paise=pt.amount_paise,
+                    from_account_id=from_id,
+                    to_account_id=to_id,
+                    notes=pt.notes,
+                    source="discord",
+                    external_key=(
+                        f"discord:{discord_message_id}" if discord_message_id else None
+                    ),
+                )
+            except ledger_writes.ProductWriteError as e:
+                raise RuntimeError(str(e)) from e
+            return tid, tid, f"ledger:{tid}"
         return await tx_repo.insert_transfer_pair(
             conn,
             amount_paise=pt.amount_paise,
@@ -360,10 +417,13 @@ class ExpenseCog(commands.Cog):
         if from_a and to_a:
             if from_a.id == to_a.id:
                 return None, "From and to accounts must be different."
-            async with open_db(self._settings.db_path) as conn:
-                out_id, in_id, pair_id = await self._insert_transfer_pair_discord(
-                    conn, pt, from_a.id, to_a.id, discord_message_id
-                )
+            try:
+                async with open_db(self._settings.db_path) as conn:
+                    out_id, in_id, pair_id = await self._insert_transfer_pair_discord(
+                        conn, pt, from_a.id, to_a.id, discord_message_id
+                    )
+            except RuntimeError as e:
+                return None, str(e)
             return (
                 PersistTransferResult(
                     entry=pt.notes or "",
@@ -500,9 +560,15 @@ class ExpenseCog(commands.Cog):
         embed = discord.Embed(title="Transfer logged", description=f"**{entry}**", color=0x9B59B6)
         embed.add_field(name="Amount", value=_rupees(r.amount_paise), inline=True)
         embed.add_field(name="Pair id", value=r.pair_id[:8] + "…", inline=True)
+        if r.out_id == r.in_id:
+            id_footer = f"id={r.out_id}"
+            remove_hint = "remove"
+        else:
+            id_footer = f"ids={r.out_id}+{r.in_id}"
+            remove_hint = "remove both"
         embed.set_footer(
             text=(
-                f"ids={r.out_id}+{r.in_id} · React: {REACTION_DELETE} remove both · "
+                f"{id_footer} · React: {REACTION_DELETE} {remove_hint} · "
                 f"{REACTION_EDIT} edit hint"
             )
         )
@@ -555,14 +621,19 @@ class ExpenseCog(commands.Cog):
             likes = accounts_to_likes(accounts)
             to_m = match_account_fuzzy(pt.fragment_to, likes)
             if to_m and to_m.id != from_id:
-                async with open_db(self._settings.db_path) as conn:
-                    out_id, in_id, pair_id = await self._insert_transfer_pair_discord(
-                        conn,
-                        pt,
-                        from_id,
-                        to_m.id,
-                        pending.source_discord_message_id or "",
-                    )
+                try:
+                    async with open_db(self._settings.db_path) as conn:
+                        out_id, in_id, pair_id = await self._insert_transfer_pair_discord(
+                            conn,
+                            pt,
+                            from_id,
+                            to_m.id,
+                            pending.source_discord_message_id or "",
+                        )
+                except RuntimeError as e:
+                    with contextlib.suppress(discord.HTTPException):
+                        await msg.reply(str(e), mention_author=False)
+                    return True
                 r = PersistTransferResult(
                     entry=entry_text,
                     out_id=out_id,
@@ -610,14 +681,19 @@ class ExpenseCog(commands.Cog):
             with contextlib.suppress(discord.HTTPException):
                 await msg.reply("From and to must be different accounts.", mention_author=False)
             return True
-        async with open_db(self._settings.db_path) as conn:
-            out_id, in_id, pair_id = await self._insert_transfer_pair_discord(
-                conn,
-                pt,
-                from_id,
-                to_id,
-                pending.source_discord_message_id or "",
-            )
+        try:
+            async with open_db(self._settings.db_path) as conn:
+                out_id, in_id, pair_id = await self._insert_transfer_pair_discord(
+                    conn,
+                    pt,
+                    from_id,
+                    to_id,
+                    pending.source_discord_message_id or "",
+                )
+        except RuntimeError as e:
+            with contextlib.suppress(discord.HTTPException):
+                await msg.reply(str(e), mention_author=False)
+            return True
         r = PersistTransferResult(
             entry=entry_text,
             out_id=out_id,
@@ -706,6 +782,46 @@ class ExpenseCog(commands.Cog):
         if tid is None:
             return
         async with open_db(self._settings.db_path) as conn:
+            if await uses_ledger_books(conn):
+                try:
+                    tx = await ledger_writes.get_posted_discord(conn, tid)
+                except ledger_writes.ProductWriteError:
+                    return
+                if emoji_s == REACTION_DELETE:
+                    try:
+                        await ledger_writes.void_posted(conn, tid)
+                        ok = True
+                    except ledger_writes.ProductWriteError:
+                        ok = False
+                    with contextlib.suppress(discord.HTTPException):
+                        if ok:
+                            await msg.reply(
+                                "That expense was removed (voided).",
+                                mention_author=False,
+                            )
+                        else:
+                            await msg.reply(
+                                "Could not remove that expense (already gone?).",
+                                mention_author=False,
+                            )
+                    return
+                shape = await ledger_facade.transaction_row(conn, tx)
+                if shape.get("transaction_type") == "transfer":
+                    with contextlib.suppress(discord.HTTPException):
+                        await msg.reply(
+                            "Transfers are not editable via /edit. Delete this receipt "
+                            "and log again.",
+                            mention_author=False,
+                        )
+                    return
+                with contextlib.suppress(discord.HTTPException):
+                    await msg.reply(
+                        f"To change this entry, use `/edit` with `transaction_id={tid}` "
+                        f"and a new `entry` text (same format as `/log`).",
+                        mention_author=False,
+                    )
+                return
+
             row = await tx_repo.get_by_id(conn, tid)
             if row is None:
                 return
@@ -809,6 +925,55 @@ class ExpenseCog(commands.Cog):
             await interaction.response.send_message(f"Could not parse: {e}", ephemeral=True)
             return
         async with open_db(self._settings.db_path) as conn:
+            if await uses_ledger_books(conn):
+                try:
+                    old_tx = await ledger_writes.get_posted_discord(conn, transaction_id)
+                    shape = await ledger_facade.transaction_row(conn, old_tx)
+                    if shape.get("transaction_type") == "transfer":
+                        await interaction.response.send_message(
+                            "Transfers cannot be edited via /edit; "
+                            "delete the receipt and log again.",
+                            ephemeral=True,
+                        )
+                        return
+                    account_id = await ledger_writes.cash_account_id_for_posted(
+                        conn, old_tx
+                    )
+                    replacement = await ledger_writes.plan_manual(
+                        conn,
+                        tx_date=parsed.transaction_date,
+                        amount_paise=parsed.amount_paise,
+                        category=parsed.category.value,
+                        merchant=parsed.merchant,
+                        transaction_type="debit",
+                        account_id=account_id,
+                        notes=parsed.notes,
+                        source="discord",
+                    )
+                    await ledger_writes.void_posted(conn, transaction_id)
+                    try:
+                        new_id = await ledger_service.post(conn, replacement)
+                    except LedgerError as e:
+                        await interaction.response.send_message(
+                            "Transaction was voided but replacement posting failed; "
+                            f"review id={transaction_id} and retry. ({e})",
+                            ephemeral=True,
+                        )
+                        return
+                except ledger_writes.ProductWriteError as e:
+                    await interaction.response.send_message(str(e), ephemeral=True)
+                    return
+                embed = discord.Embed(
+                    title="Updated", description=f"**{entry}**", color=0x3498DB
+                )
+                embed.add_field(
+                    name="Amount", value=_rupees(parsed.amount_paise), inline=True
+                )
+                embed.add_field(name="Category", value=parsed.category.value, inline=True)
+                embed.set_footer(text=f"id={new_id}")
+                await interaction.response.send_message(embed=embed)
+                return
+
             row = await tx_repo.get_by_id(conn, transaction_id)
             if row is None:
                 await interaction.response.send_message("Transaction not found.", ephemeral=True)
@@ -874,6 +1039,22 @@ class ExpenseCog(commands.Cog):
             await interaction.response.send_message("Not authorised.", ephemeral=True)
             return
         async with open_db(self._settings.db_path) as conn:
+            if await uses_ledger_books(conn):
+                tid = await ledger_writes.latest_posted_id_by_source(
+                    conn, source="discord"
+                )
+                if tid is None:
+                    await interaction.response.send_message("Nothing to undo.")
+                    return
+                try:
+                    await ledger_writes.void_posted(conn, tid)
+                except ledger_writes.ProductWriteError:
+                    await interaction.response.send_message("Nothing to undo.")
+                    return
+                await interaction.response.send_message(
+                    f"Removed transaction **#{tid}** (voided)."
+                )
+                return
             tid = await tx_repo.soft_delete_last(conn, source="discord")
         if tid is None:
             await interaction.response.send_message("Nothing to undo.")
