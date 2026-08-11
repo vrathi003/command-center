@@ -102,7 +102,7 @@ Still manual progress trackers this package. Later: link each goal to an instrum
 
 ## 12. Budget (`/budget`)
 
-1. Caps vs actual still work; spend lenses read ledger-backed activity after cutover.
+1. Caps vs actual use **ledger budget-spend** (expense categories) when `double_entry`.
 2. Watch **Alerts** at ~75% / over budget instead of relying on Discord DMs.
 
 ---
@@ -145,3 +145,4 @@ Still manual progress trackers this package. Later: link each goal to an instrum
 - Schema: restart API after pull (migrations on boot).
 - Legacy history: `POST /api/migration/legacy-ledger/dry-run` then `…/apply` (you already ran this).
 - Dev guard only: `make check-ledger-writes` — not needed for day-to-day use.
+- After pull: restart API + dashboard so spend/budget/reports read ledger lenses.

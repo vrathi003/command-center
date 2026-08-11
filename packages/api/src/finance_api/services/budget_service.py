@@ -9,6 +9,8 @@ from typing import Literal
 import aiosqlite
 
 from finance_api.schemas.budget import BudgetVsActualRow
+from finance_common.ledger import reports as ledger_reports
+from finance_common.project_config import load_project_config
 from finance_common.repositories import budgets as budget_repo
 from finance_common.repositories import transactions as tx_repo
 from finance_common.types import Category
@@ -46,7 +48,11 @@ async def build_vs_actual(
     budget_map: dict[str, int] = {r.category: r.monthly_amount_paise for r in budget_rows}
 
     start, end = _month_bounds(year, month)
-    spent_map = await tx_repo.sum_by_category_month(conn, start=start, end=end)
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "double_entry":
+        spent_map = await ledger_reports.budget_spend_by_category(conn, start=start, end=end)
+    else:
+        spent_map = await tx_repo.sum_by_category_month(conn, start=start, end=end)
 
     all_categories: set[str] = {c.value for c in Category} | set(spent_map) | set(budget_map)
 

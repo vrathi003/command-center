@@ -17,13 +17,25 @@ from finance_api.services.background_jobs import (
 from finance_api.settings import ApiSettings
 from finance_common.db import ensure_database, open_db
 from finance_common.fy import date_to_fy
+from finance_common.ledger import builders
+from finance_common.ledger import service as ledger_service
+from finance_common.ledger.models import PostTransactionInput
 from finance_common.repositories import budgets as budget_repo
 from finance_common.repositories import credit_cards as cc_repo
 from finance_common.repositories import debts as debt_repo
 from finance_common.repositories import settings_repo
-from finance_common.repositories import transactions as tx_repo
+from finance_common.repositories.accounts import create_account
 
 _FIXED_TODAY = date(2026, 8, 11)
+
+
+async def _uncategorized_expense_id(conn: object) -> int:
+    cur = await conn.execute(  # type: ignore[attr-defined]
+        "SELECT id FROM accounts WHERE name = 'Uncategorized Expense'"
+    )
+    row = await cur.fetchone()
+    assert row is not None
+    return int(row[0])
 
 
 async def _list_all_events(db_path: Path) -> list[tuple[str, dict[str, object]]]:
@@ -81,27 +93,41 @@ async def test_job_budget_emits_threshold_events_no_discord(
             monthly_amount_paise=50_000,
             effective_from=month_start,
         )
-        await tx_repo.insert_transaction(
+        bank_id = await create_account(
             conn,
-            tx_date=_FIXED_TODAY,
-            amount_paise=80_000,
-            category="Food",
-            merchant="Groceries",
-            payment_mode="UPI",
-            account=None,
-            notes=None,
-            source="test",
+            name="Alert Bank",
+            type="savings",
+            institution=None,
+            account_class="asset_cash",
         )
-        await tx_repo.insert_transaction(
+        expense_id = await _uncategorized_expense_id(conn)
+        await ledger_service.post(
             conn,
-            tx_date=_FIXED_TODAY,
-            amount_paise=60_000,
-            category="Transport",
-            merchant="Fuel",
-            payment_mode="UPI",
-            account=None,
-            notes=None,
-            source="test",
+            PostTransactionInput(
+                tx_date=_FIXED_TODAY,
+                payee="Groceries",
+                source="test",
+                postings=builders.build_bank_expense(
+                    bank_id=bank_id,
+                    expense_account_id=expense_id,
+                    amount_paise=80_000,
+                    category="Food",
+                ),
+            ),
+        )
+        await ledger_service.post(
+            conn,
+            PostTransactionInput(
+                tx_date=_FIXED_TODAY,
+                payee="Fuel",
+                source="test",
+                postings=builders.build_bank_expense(
+                    bank_id=bank_id,
+                    expense_account_id=expense_id,
+                    amount_paise=60_000,
+                    category="Transport",
+                ),
+            ),
         )
 
     await job_budget_and_alerts(alert_db, _api_no_discord(alert_db))
@@ -128,7 +154,6 @@ async def test_job_budget_emits_threshold_events_no_discord(
     assert transport["status"] == "over"
     assert transport["spent_paise"] == 60_000
     assert transport["budget_paise"] == 50_000
-
 
 @pytest.mark.asyncio
 @patch("finance_api.services.background_jobs.send_discord_dm", new_callable=AsyncMock)

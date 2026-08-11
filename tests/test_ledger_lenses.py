@@ -108,6 +108,12 @@ async def test_budget_spend_and_cash_flow_match_golden_fixture(tmp_path: Path) -
             conn, start=report_date, end=report_date
         ) == {"Food": 70_000}
         assert await budget_spend_total(conn, start=report_date, end=report_date) == 70_000
+        from finance_common.ledger.reports import budget_spend_by_account
+
+        by_account = await budget_spend_by_account(
+            conn, start=report_date, end=report_date
+        )
+        assert by_account == {"Bank": 20_000, "Credit Card": 50_000}
         assert await cash_flow_for_accounts(
             conn,
             account_ids=[ids["Bank"]],
