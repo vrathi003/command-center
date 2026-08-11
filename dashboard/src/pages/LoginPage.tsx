@@ -1,11 +1,13 @@
 import { KeyRound, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 
-import { storeApiKey } from '@/lib/api'
+import { apiBase, storeApiKey } from '@/lib/api'
 
 async function verifyKey(key: string): Promise<boolean> {
   try {
-    const res = await fetch('/api/settings', {
+    // Must match the real route (`/api/settings/`). A missing trailing slash
+    // triggers FastAPI's redirect, which often drops Authorization → false 401.
+    const res = await fetch(`${apiBase()}/api/settings/`, {
       headers: { Authorization: `Bearer ${key}` },
     })
     return res.ok
