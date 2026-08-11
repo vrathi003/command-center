@@ -7,9 +7,10 @@ from datetime import date as date_cls
 from typing import Annotated
 
 import aiosqlite
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from finance_api.deps import get_conn
+from finance_api.deps_ledger import require_ledger_writes
 from finance_api.schemas.debt import (
     AmortizationResponse,
     DebtCreateBody,
@@ -18,9 +19,22 @@ from finance_api.schemas.debt import (
     DebtSummaryOut,
     LoanDisbursalBody,
     LoanDisbursalOut,
+    RecordEmiBody,
+    RecordEmiOut,
 )
-from finance_api.services.amortization import build_phased_schedule, build_schedule, compute_emi_advance
-from finance_api.services.debt_emi import auto_advance_active_debts, auto_advance_debt
+from finance_api.services.amortization import (
+    build_phased_schedule,
+    build_schedule,
+    compute_emi_advance,
+)
+from finance_api.services.debt_emi import (
+    auto_advance_active_debts,
+    auto_advance_debt,
+    post_emi_and_advance,
+)
+from finance_common.ledger.errors import LedgerError
+from finance_common.project_config import load_project_config
+from finance_common.repositories import accounts as accounts_repo
 from finance_common.repositories import debts as debt_repo
 from finance_common.repositories.debts import DebtRow
 
@@ -43,12 +57,40 @@ def _to_out(row: DebtRow) -> DebtOut:
         tenure_months=row.tenure_months,
         first_emi_date=row.first_emi_date,
         full_emi_start_date=row.full_emi_start_date,
+        account_id=row.account_id,
+        payment_account_id=row.payment_account_id,
     )
 
 
 def _merge_row(existing: DebtRow, body: DebtPutBody) -> DebtRow:
     patch = body.model_dump(exclude_unset=True)
     return replace(existing, **patch)
+
+
+async def _ensure_loan_account(
+    conn: aiosqlite.Connection,
+    *,
+    debt_name: str,
+    lender: str | None,
+    existing_account_id: int | None,
+) -> int:
+    if existing_account_id is not None:
+        return existing_account_id
+    return await accounts_repo.create_account(
+        conn,
+        name=debt_name.strip(),
+        type="loan",
+        institution=lender.strip() if lender else None,
+    )
+
+
+async def _validate_payment_account(
+    conn: aiosqlite.Connection, payment_account_id: int | None
+) -> None:
+    if payment_account_id is None:
+        return
+    if await accounts_repo.get_account(conn, payment_account_id) is None:
+        raise HTTPException(status_code=404, detail="payment_account_id not found")
 
 
 @router.get("/", response_model=list[DebtOut])
@@ -63,6 +105,17 @@ async def create_debt(
     conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
     body: DebtCreateBody,
 ) -> DebtOut:
+    project_config = await load_project_config(conn)
+    account_id: int | None = None
+    if project_config.ledger_engine == "double_entry":
+        await _validate_payment_account(conn, body.payment_account_id)
+        account_id = await _ensure_loan_account(
+            conn,
+            debt_name=body.name,
+            lender=body.lender,
+            existing_account_id=None,
+        )
+
     did = await debt_repo.insert_debt(
         conn,
         name=body.name,
@@ -78,6 +131,8 @@ async def create_debt(
         tenure_months=body.tenure_months,
         first_emi_date=body.first_emi_date,
         full_emi_start_date=body.full_emi_start_date,
+        account_id=account_id,
+        payment_account_id=body.payment_account_id,
     )
     row = await debt_repo.get_debt(conn, did)
     if row is None:
@@ -176,7 +231,19 @@ async def put_debt(
     existing = await debt_repo.get_debt(conn, debt_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Debt not found")
+    await _validate_payment_account(conn, body.payment_account_id)
     merged = _merge_row(existing, body)
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "double_entry" and merged.account_id is None:
+        merged = replace(
+            merged,
+            account_id=await _ensure_loan_account(
+                conn,
+                debt_name=merged.name,
+                lender=merged.lender,
+                existing_account_id=None,
+            ),
+        )
     await debt_repo.update_debt_row(conn, merged)
     return _to_out(merged)
 
@@ -189,6 +256,66 @@ async def delete_debt(
     ok = await debt_repo.delete_debt(conn, debt_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Debt not found")
+
+
+@router.post("/{debt_id}/record-emi", response_model=RecordEmiOut, status_code=201)
+async def record_emi(
+    conn: Annotated[aiosqlite.Connection, Depends(get_conn)],
+    request: Request,
+    debt_id: int,
+    body: RecordEmiBody,
+) -> RecordEmiOut:
+    """Post one EMI payment through the ledger (principal + interest split)."""
+    row = await debt_repo.get_debt(conn, debt_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Debt not found")
+
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine != "double_entry":
+        raise HTTPException(
+            status_code=409,
+            detail="record-emi requires double_entry ledger engine",
+        )
+    if row.account_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="No linked loan account — update debt or recreate in double_entry mode",
+        )
+
+    payment_account_id = body.payment_account_id or row.payment_account_id
+    if payment_account_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="payment_account_id required (on debt or in request body)",
+        )
+    if await accounts_repo.get_account(conn, payment_account_id) is None:
+        raise HTTPException(status_code=404, detail="payment_account_id not found")
+    if await accounts_repo.get_account(conn, row.account_id) is None:
+        raise HTTPException(status_code=404, detail="loan account not found")
+
+    try:
+        tx_date = date_cls.fromisoformat(body.date)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail="invalid date") from e
+
+    require_ledger_writes(request)
+    try:
+        ledger_transaction_id, _ = await post_emi_and_advance(
+            conn,
+            row,
+            tx_date=tx_date,
+            principal_paise=body.principal_paise,
+            interest_paise=body.interest_paise,
+            payment_account_id=payment_account_id,
+            source="dashboard",
+        )
+    except LedgerError as exc:
+        detail = str(exc)
+        if "does not exist" in detail:
+            raise HTTPException(status_code=409, detail=detail) from exc
+        raise HTTPException(status_code=422, detail=detail) from exc
+
+    return RecordEmiOut(ledger_transaction_id=ledger_transaction_id)
 
 
 # ── Disbursal endpoints ───────────────────────────────────────────────────────

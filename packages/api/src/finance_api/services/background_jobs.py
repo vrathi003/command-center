@@ -301,7 +301,7 @@ async def job_fetch_cc_statements(db_path: Path, api: ApiSettings) -> None:
 
 
 async def job_emi_auto_advance(db_path: Path) -> None:
-    """Daily 9:00 AM — reduce balance and advance next_emi_date for all active debts."""
+    """Daily 9:00 AM — auto-post EMI via ledger (double_entry) or balance scrub (legacy)."""
     async with open_db(db_path) as conn:
         updated = await auto_advance_active_debts(conn)
         if updated:

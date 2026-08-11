@@ -1,10 +1,8 @@
-# Task 4 Email Inbox Uses Intake Bridge
+# Task 4 — Hybrid EMI auto-post job
 
-- `email_inbox.py` double_entry approve/transfer now delegate to `email_bridge`; errors mapped 404/409/422.
-- Soft-dupe without force returns **200** + `status=quarantined` + `intake_candidate_id` (no 409).
-- `StagedEmailOut` + stats include `intake_candidate_id` / `quarantined` count.
-- Reject staging rejects linked pending candidate + event; undo uses `reset_by_ledger_transaction_ids`.
-- `intake.py` approve/reject syncs linked staging rows via `email_staging_id` + `get_by_intake_candidate_id`.
-- Force approve updates existing quarantine candidate via `update_candidate_status(..., posted)`.
-- 9 new/updated API tests + 1 bridge test — 27 related tests pass.
-- Commit: `feat(api): email inbox uses intake bridge`
+- **`post_emi_and_advance`** shared by `record-emi` router and daily job: amort split → `build_emi_payment` → ledger post → sync balance → advance `next_emi_date`.
+- **`auto_advance_debt` (double_entry):** when `account_id` + `payment_account_id` + `emi_paise` and due → auto-post (`source=job`); else skip (no balance scrub).
+- **Legacy engine:** unchanged `compute_emi_advance` balance scrub.
+- **`job_emi_auto_advance`:** docstring updated; still calls `auto_advance_active_debts`.
+- Tests: 3 new in `test_debt_emi_ledger.py` — auto-post, skip without bank link, legacy scrub. 13 EMI-related tests pass.
+- Commit: `feat(debt): hybrid EMI auto-post job`

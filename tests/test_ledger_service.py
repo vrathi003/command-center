@@ -276,3 +276,34 @@ def test_build_investment_buy() -> None:
         NewPosting(1, -100_000),
     )
     _assert_balanced(postings)
+
+
+def test_build_emi_payment() -> None:
+    postings = builders.build_emi_payment(
+        bank_id=1,
+        loan_id=7,
+        expense_account_id=2,
+        principal_paise=80_000,
+        interest_paise=20_000,
+    )
+    assert postings == (
+        NewPosting(7, 80_000),
+        NewPosting(2, 20_000, "Debt Interest"),
+        NewPosting(1, -100_000),
+    )
+    _assert_balanced(postings)
+
+
+def test_build_emi_payment_zero_interest() -> None:
+    postings = builders.build_emi_payment(
+        bank_id=1,
+        loan_id=7,
+        expense_account_id=2,
+        principal_paise=50_000,
+        interest_paise=0,
+    )
+    assert postings == (
+        NewPosting(7, 50_000),
+        NewPosting(1, -50_000),
+    )
+    _assert_balanced(postings)

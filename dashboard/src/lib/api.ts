@@ -13,6 +13,7 @@ import type {
   DashboardSummary,
   DebtOut,
   DebtSummaryOut,
+  RecordEmiOut,
   LoanDisbursalOut,
   FixedIncomeOut,
   FixedIncomeSummaryOut,
@@ -1332,6 +1333,23 @@ export async function syncDebtBalance(debtId: number): Promise<DebtOut> {
 export async function syncAllDebtBalances(): Promise<DebtOut[]> {
   const res = await apiFetch(`${apiBase()}/api/debt/sync-all-balances`, { method: 'POST' })
   return parseJson<DebtOut[]>(res)
+}
+
+export async function recordDebtEmi(
+  debtId: number,
+  body: {
+    date: string
+    principal_paise?: number | null
+    interest_paise?: number | null
+    payment_account_id?: number | null
+  },
+): Promise<RecordEmiOut> {
+  const res = await apiFetch(`${apiBase()}/api/debt/${debtId}/record-emi`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<RecordEmiOut>(res)
 }
 
 export async function downloadFYSummaryPdf(fy?: string): Promise<void> {

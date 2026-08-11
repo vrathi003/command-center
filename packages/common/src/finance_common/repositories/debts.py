@@ -24,6 +24,8 @@ class DebtRow:
     tenure_months: int | None
     first_emi_date: str | None
     full_emi_start_date: str | None
+    account_id: int | None = None
+    payment_account_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +41,8 @@ class LoanDisbursalRow:
 _DEBT_SELECT = """
     SELECT id, name, lender, type, original_amount_paise, current_balance_paise,
            emi_paise, rate_percent, start_date, next_emi_date, status,
-           tenure_months, first_emi_date, full_emi_start_date
+           tenure_months, first_emi_date, full_emi_start_date,
+           account_id, payment_account_id
     FROM debts
 """
 
@@ -60,6 +63,8 @@ def _row_from_tuple(r: tuple[Any, ...]) -> DebtRow:
         tenure_months=int(r[11]) if r[11] is not None else None,
         first_emi_date=str(r[12]) if r[12] is not None else None,
         full_emi_start_date=str(r[13]) if r[13] is not None else None,
+        account_id=int(r[14]) if r[14] is not None else None,
+        payment_account_id=int(r[15]) if r[15] is not None else None,
     )
 
 
@@ -99,6 +104,7 @@ async def update_debt_row(conn: aiosqlite.Connection, row: DebtRow) -> None:
             current_balance_paise = ?, emi_paise = ?, rate_percent = ?,
             start_date = ?, next_emi_date = ?, status = ?,
             tenure_months = ?, first_emi_date = ?, full_emi_start_date = ?,
+            account_id = ?, payment_account_id = ?,
             updated_at = datetime('now')
         WHERE id = ?
         """,
@@ -116,6 +122,8 @@ async def update_debt_row(conn: aiosqlite.Connection, row: DebtRow) -> None:
             row.tenure_months,
             row.first_emi_date,
             row.full_emi_start_date,
+            row.account_id,
+            row.payment_account_id,
             row.id,
         ),
     )
@@ -138,6 +146,8 @@ async def insert_debt(
     tenure_months: int | None = None,
     first_emi_date: str | None = None,
     full_emi_start_date: str | None = None,
+    account_id: int | None = None,
+    payment_account_id: int | None = None,
 ) -> int:
     cur = await conn.execute(
         """
@@ -145,8 +155,9 @@ async def insert_debt(
             name, lender, type, original_amount_paise, current_balance_paise,
             emi_paise, rate_percent, start_date, next_emi_date, status,
             tenure_months, first_emi_date, full_emi_start_date,
+            account_id, payment_account_id,
             updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         """,
         (
             name,
@@ -162,6 +173,8 @@ async def insert_debt(
             tenure_months,
             first_emi_date,
             full_emi_start_date,
+            account_id,
+            payment_account_id,
         ),
     )
     await conn.commit()

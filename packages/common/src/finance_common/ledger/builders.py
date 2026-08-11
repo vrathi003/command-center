@@ -104,3 +104,23 @@ def build_investment_buy(
         NewPosting(investment_account_id, amount_paise),
         NewPosting(bank_id, -amount_paise),
     )
+
+
+def build_emi_payment(
+    *,
+    bank_id: int,
+    loan_id: int,
+    expense_account_id: int,
+    principal_paise: int,
+    interest_paise: int,
+    interest_category: str = "Debt Interest",
+) -> tuple[NewPosting, ...]:
+    """Dr loan principal + Dr interest expense · Cr bank."""
+    total = principal_paise + interest_paise
+    postings: list[NewPosting] = [NewPosting(loan_id, principal_paise)]
+    if interest_paise != 0:
+        postings.append(
+            NewPosting(expense_account_id, interest_paise, interest_category)
+        )
+    postings.append(NewPosting(bank_id, -total))
+    return tuple(postings)
