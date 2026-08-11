@@ -8,6 +8,8 @@ from datetime import date, timedelta
 import aiosqlite
 
 from finance_api.schemas.dashboard import DashboardSummary
+from finance_common.ledger import reports as ledger_reports
+from finance_common.project_config import load_project_config
 from finance_common.repositories import income_sources as income_repo
 from finance_common.repositories import settings_repo, transactions
 from finance_common.types import FYYear
@@ -74,7 +76,13 @@ async def build_summary(
     debt = await _sum_debt(conn)
     nw = await _latest_net_worth(conn)
     port = await _portfolio_market_value(conn)
-    monthly_income = await income_repo.total_monthly_equivalent_paise(conn)
+
+    project_config = await load_project_config(conn)
+    if project_config.ledger_engine == "double_entry":
+        monthly_income = await ledger_reports.income_credits_total(conn, start=m0, end=m1)
+    else:
+        monthly_income = await income_repo.total_monthly_equivalent_paise(conn)
+
     savings: float | None = None
     if monthly_income > 0:
         savings = (monthly_income - spent_month) / monthly_income

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from datetime import date
 
+import pytest
 from starlette.testclient import TestClient
 
 
@@ -193,3 +195,27 @@ def test_record_income_requires_double_entry(api_client: TestClient) -> None:
     )
     assert response.status_code == 422
     assert "double_entry" in response.json()["detail"]
+
+
+def test_dashboard_savings_rate_uses_ledger_income_credits(
+    api_client: TestClient,
+) -> None:
+    bank_id = _create_bank(api_client)
+    stream = _create_income_stream(api_client, bank_id=bank_id, amount_paise=150_000_00)
+    income_id = int(stream["id"])
+    today = date.today().isoformat()
+
+    recorded = api_client.post(
+        f"/api/income/{income_id}/record-income",
+        json={"date": today, "amount_paise": 50_000_00},
+    )
+    assert recorded.status_code == 201, recorded.text
+
+    summary = api_client.get("/api/dashboard/summary")
+    assert summary.status_code == 200, summary.text
+    data = summary.json()
+    assert data["monthly_income_paise"] == 50_000_00
+    assert data["savings_rate_month"] is not None
+    assert data["savings_rate_month"] == pytest.approx(
+        (50_000_00 - data["spent_month_paise"]) / 50_000_00
+    )
