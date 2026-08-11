@@ -7,6 +7,8 @@ from typing import Any
 
 import aiosqlite
 
+_UNSET = object()
+
 
 @dataclass(frozen=True, slots=True)
 class StagedEmailRow:
@@ -192,24 +194,25 @@ async def set_status(
     item_id: int,
     status: str,
     *,
-    created_transaction_id: int | None = None,
-    ledger_transaction_id: int | None = None,
-    intake_candidate_id: int | None = None,
+    created_transaction_id: int | None | object = _UNSET,
+    ledger_transaction_id: int | None | object = _UNSET,
+    intake_candidate_id: int | None | object = _UNSET,
 ) -> None:
+    set_clauses = ["status = ?"]
+    params: list[Any] = [status]
+    if created_transaction_id is not _UNSET:
+        set_clauses.append("created_transaction_id = ?")
+        params.append(created_transaction_id)
+    if ledger_transaction_id is not _UNSET:
+        set_clauses.append("ledger_transaction_id = ?")
+        params.append(ledger_transaction_id)
+    if intake_candidate_id is not _UNSET:
+        set_clauses.append("intake_candidate_id = ?")
+        params.append(intake_candidate_id)
+    params.append(item_id)
     await conn.execute(
-        """
-        UPDATE email_transaction_staging
-        SET status = ?, created_transaction_id = ?, ledger_transaction_id = ?,
-            intake_candidate_id = ?
-        WHERE id = ?
-        """,
-        (
-            status,
-            created_transaction_id,
-            ledger_transaction_id,
-            intake_candidate_id,
-            item_id,
-        ),
+        f"UPDATE email_transaction_staging SET {', '.join(set_clauses)} WHERE id = ?",
+        tuple(params),
     )
     await conn.commit()
 

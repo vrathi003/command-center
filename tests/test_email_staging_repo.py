@@ -179,6 +179,52 @@ async def test_reset_by_ledger_transaction_ids_clears_links(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_set_status_omitted_intake_candidate_id_preserves_existing_link(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "repo.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        candidate_id = await _insert_candidate(conn)
+        item_id = await _insert_staged(
+            conn,
+            gmail_message_id="preserve-candidate-1",
+            status="quarantined",
+            intake_candidate_id=candidate_id,
+        )
+
+        await staging_repo.set_status(conn, item_id, "approved")
+
+        row = await staging_repo.get_staged(conn, item_id)
+        assert row is not None
+        assert row.status == "approved"
+        assert row.intake_candidate_id == candidate_id
+
+
+@pytest.mark.asyncio
+async def test_set_status_omitted_ledger_transaction_id_preserves_existing_link(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "repo.db"
+    await ensure_database(db)
+    async with aiosqlite.connect(db) as conn:
+        ledger_tx_id = 55
+        item_id = await _insert_staged(
+            conn,
+            gmail_message_id="preserve-ledger-1",
+            status="approved",
+            ledger_transaction_id=ledger_tx_id,
+        )
+
+        await staging_repo.set_status(conn, item_id, "pending")
+
+        row = await staging_repo.get_staged(conn, item_id)
+        assert row is not None
+        assert row.status == "pending"
+        assert row.ledger_transaction_id == ledger_tx_id
+
+
+@pytest.mark.asyncio
 async def test_reset_helpers_noop_on_empty_id_list(tmp_path: Path) -> None:
     db = tmp_path / "repo.db"
     await ensure_database(db)
