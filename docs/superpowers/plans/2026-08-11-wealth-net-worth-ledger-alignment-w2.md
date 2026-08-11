@@ -56,16 +56,16 @@ net = assets - liabilities
 
 `compute_totals_from_holdings` becomes a dispatcher: double_entry → composed; else old path.
 
-- [ ] Unit/integration tests with seeded inv + bank
-- [ ] Commit `feat(net-worth): composed ledger + MV lens`
+- [x] Unit/integration tests with seeded inv + bank
+- [x] Commit `feat(net-worth): composed ledger + MV lens`
 
 ---
 
 ### Task 2: Wire snapshot API + month-end job
 
 - Ensure POST snapshot / compute-from-holdings / job call dispatcher
-- [ ] Test snapshot stores composed totals
-- [ ] Commit `feat(net-worth): snapshots use composed compute`
+- [x] Test snapshot stores composed totals
+- [x] Commit `feat(net-worth): snapshots use composed compute`
 
 ---
 
@@ -73,7 +73,7 @@ net = assets - liabilities
 
 - pytest + check-ledger-writes
 - Mark W2 ✅ on wealth umbrella; W3 Income next
-- Commit `docs(wealth): mark net worth ledger W2 complete`
+- [x] Commit `docs(wealth): mark net worth ledger W2 complete`
 
 ---
 
