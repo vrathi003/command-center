@@ -215,6 +215,56 @@ def test_transaction_get_returns_404_for_void_ledger_entry_after_cutover(
     assert response.status_code == 404
 
 
+def test_transactions_list_maps_investment_opening_seed_without_cash_leg(
+    api_client: TestClient,
+) -> None:
+    """Wealth opening seeds are investment + equity only — must not 500 the list."""
+    _seed_accounts()
+    # Touch the API so migrations create system accounts (Opening Balance Equity).
+    assert api_client.get("/health").status_code == 200
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    conn.execute(
+        "INSERT INTO accounts (name, type, account_class) VALUES (?, ?, ?)",
+        ("ELSS", "investment", "asset_investment"),
+    )
+    conn.commit()
+    inv_id = int(conn.execute("SELECT id FROM accounts WHERE name='ELSS'").fetchone()[0])
+    equity_row = conn.execute(
+        "SELECT id FROM accounts WHERE name='Opening Balance Equity'"
+    ).fetchone()
+    assert equity_row is not None
+    equity_id = int(equity_row[0])
+    conn.close()
+
+    transaction_id = _post(
+        api_client,
+        {
+            "date": "2026-08-11",
+            "pattern": "custom",
+            "postings": [
+                {"account_id": inv_id, "amount_paise": 100_000},
+                {"account_id": equity_id, "amount_paise": -100_000},
+            ],
+            "source": "wealth_seed",
+            "external_key": "inv_seed:test",
+            "notes": "Opening cost seed — ELSS",
+        },
+    )
+    _mark_cutover()
+
+    response = api_client.get("/api/transactions/")
+
+    assert response.status_code == 200, response.text
+    row = next(r for r in response.json() if r["id"] == transaction_id)
+    assert row["amount_paise"] == 100_000
+    assert row["account"] == "ELSS"
+    assert row["account_id"] == inv_id
+    assert row["transaction_type"] == "credit"
+    assert row["category"] == "Other"
+    assert row["source"] == "wealth_seed"
+
+
 def test_transaction_get_includes_transfer_sibling_after_cutover(
     api_client: TestClient,
 ) -> None:

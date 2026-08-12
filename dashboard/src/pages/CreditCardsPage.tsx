@@ -2,13 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import { KpiCard } from '@/components/dashboard/KpiCard'
 import { PageError, PageLoading } from '@/components/ui/PageStatus'
 import { PageHero } from '@/components/ui/PageHero'
 import { Panel } from '@/components/ui/Panel'
 import { SectionTitle } from '@/components/ui/SectionTitle'
 import { fetchCreditCards, postCreditCard } from '@/lib/api'
 import { formatPaiseCompact } from '@/lib/format'
-
+import type { CreditCardOut } from '@/types/api'
 
 function rupeesToPaise(s: string): number | null {
   const n = Number.parseFloat(s.replace(/,/g, ''))
@@ -16,6 +17,28 @@ function rupeesToPaise(s: string): number | null {
     return null
   }
   return Math.round(n * 100)
+}
+
+function portfolioTotals(cards: CreditCardOut[]) {
+  let outstanding = 0
+  let totalLimit = 0
+  let utilised = 0
+  let available = 0
+  let emiCount = 0
+  let emiMonthly = 0
+
+  for (const c of cards) {
+    const balance = c.current_balance_paise ?? 0
+    const used = c.total_limit_used_paise ?? balance + (c.emi_limit_blocked_paise ?? 0)
+    outstanding += balance
+    totalLimit += c.credit_limit_paise
+    utilised += used
+    available += Math.max(0, c.credit_limit_paise - used)
+    emiCount += c.emi_active_plan_count ?? 0
+    emiMonthly += c.emi_monthly_due_paise ?? 0
+  }
+
+  return { outstanding, totalLimit, utilised, available, emiCount, emiMonthly }
 }
 
 export function CreditCardsPage() {
@@ -47,6 +70,7 @@ export function CreditCardsPage() {
   }
 
   const rows = q.data ?? []
+  const totals = portfolioTotals(rows.filter((c) => c.is_active))
 
   return (
     <div className="space-y-10">
@@ -63,6 +87,33 @@ export function CreditCardsPage() {
           </Link>
         }
       />
+
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <KpiCard
+          tone="balance"
+          label="Total outstanding"
+          value={formatPaiseCompact(totals.outstanding)}
+          hint="Active cards"
+        />
+        <KpiCard
+          tone="spending"
+          label="Limit available"
+          value={formatPaiseCompact(totals.available)}
+        />
+        <KpiCard tone="neutral" label="Total limit" value={formatPaiseCompact(totals.totalLimit)} />
+        <KpiCard
+          tone="balance"
+          label="Limit utilised"
+          value={formatPaiseCompact(totals.utilised)}
+          hint="Balance + EMI blocked"
+        />
+        <KpiCard tone="neutral" label="Active EMIs" value={String(totals.emiCount)} />
+        <KpiCard
+          tone="balance"
+          label="EMI / month"
+          value={formatPaiseCompact(totals.emiMonthly)}
+        />
+      </section>
 
       <section>
         <SectionTitle>Add a card</SectionTitle>

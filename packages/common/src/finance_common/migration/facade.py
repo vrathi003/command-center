@@ -8,9 +8,11 @@ import aiosqlite
 
 from finance_common.ledger import service as ledger_service
 from finance_common.ledger.errors import LedgerError
-from finance_common.ledger.models import PostedTransaction
+from finance_common.ledger.models import PostedPosting, PostedTransaction
 
 _CASH_OR_CC_CLASSES = frozenset({"asset_cash", "liability_cc"})
+
+_PrimaryLeg = tuple[PostedPosting, str, str]
 
 
 async def _account_details(
@@ -32,6 +34,25 @@ def _is_asset_or_liability(account_class: str) -> bool:
     return account_class.startswith(("asset_", "liability_"))
 
 
+def _pick_primary_leg(
+    postings: list[_PrimaryLeg],
+    *,
+    prefer_negative: bool = False,
+) -> _PrimaryLeg:
+    """Choose the legacy display account: cash/CC first, else any BS asset/liability."""
+    cash_or_cc = [p for p in postings if p[2] in _CASH_OR_CC_CLASSES]
+    balance_sheet = [p for p in postings if _is_asset_or_liability(p[2])]
+    candidates = cash_or_cc or balance_sheet or list(postings)
+    if not candidates:
+        raise LedgerError("Transaction has no postings to map")
+    if prefer_negative:
+        negative = [p for p in candidates if p[0].amount_paise < 0]
+        if negative:
+            cash_pref = next((p for p in negative if p[2] == "asset_cash"), None)
+            return cash_pref or negative[0]
+    return candidates[0]
+
+
 async def transaction_row(
     conn: aiosqlite.Connection, transaction: PostedTransaction
 ) -> dict[str, object]:
@@ -40,28 +61,15 @@ async def transaction_row(
     postings = [
         (posting, *details[posting.account_id]) for posting in transaction.postings
     ]
-    cash_or_cc = [
-        posting for posting in postings if posting[2] in _CASH_OR_CC_CLASSES
-    ]
     is_transfer = len(postings) == 2 and all(
         _is_asset_or_liability(account_class) for _, _, account_class in postings
     )
     if is_transfer:
-        negative_cash_or_cc = [
-            posting for posting in cash_or_cc if posting[0].amount_paise < 0
-        ]
-        cash_leg = next(
-            (
-                posting
-                for posting in negative_cash_or_cc
-                if posting[2] == "asset_cash"
-            ),
-            negative_cash_or_cc[0],
-        )
+        cash_leg = _pick_primary_leg(postings, prefer_negative=True)
         transaction_type = "transfer"
         transfer_pair_id: str | None = transaction.external_key or f"ledger:{transaction.id}"
     else:
-        cash_leg = cash_or_cc[0]
+        cash_leg = _pick_primary_leg(postings)
         transaction_type = "debit" if cash_leg[0].amount_paise < 0 else "credit"
         transfer_pair_id = None
 

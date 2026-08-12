@@ -48,6 +48,14 @@ function appreciationColor(pct: number | null): string {
   return pct >= 0 ? 'text-emerald-700' : 'text-red-600'
 }
 
+function isDepreciatingAsset(asset: AssetOut): boolean {
+  return asset.type === 'vehicle'
+}
+
+function sectionCurrentValue(assets: AssetOut[]): number {
+  return assets.reduce((sum, a) => sum + (a.current_value_paise ?? 0), 0)
+}
+
 export function AssetsPage() {
   const qc = useQueryClient()
   const [showAddModal, setShowAddModal] = useState(false)
@@ -123,44 +131,51 @@ export function AssetsPage() {
         />
       </section>
 
-      {/* Asset list */}
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <SectionTitle>Your assets</SectionTitle>
-          <button
-            type="button"
-            onClick={() => setShowAddModal(true)}
-            className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
-          >
-            + Add asset
-          </button>
-        </div>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setShowAddModal(true)}
+          className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+        >
+          + Add asset
+        </button>
+      </div>
 
-        {list.length === 0 ? (
-          <Panel>
-            <p className="py-6 text-center text-sm text-zinc-500">
-              No assets yet — add one to start tracking your physical wealth.
-            </p>
-          </Panel>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {list.map((asset) => (
-              <AssetCard
-                key={asset.id}
-                asset={asset}
-                onDelete={() => {
-                  if (window.confirm(`Delete asset "${asset.name}"?`)) {
-                    remove.mutate(asset.id)
-                  }
-                }}
-              />
-            ))}
-          </div>
-        )}
-        {remove.isError ? (
-          <p className="mt-2 text-sm text-red-600">{String(remove.error)}</p>
-        ) : null}
-      </section>
+      {list.length === 0 ? (
+        <Panel>
+          <p className="py-6 text-center text-sm text-zinc-500">
+            No assets yet — add one to start tracking your physical wealth.
+          </p>
+        </Panel>
+      ) : (
+        <>
+          <AssetSection
+            title="Appreciation assets"
+            hint="Real estate, gold & other assets that typically gain value"
+            assets={list.filter((a) => !isDepreciatingAsset(a))}
+            emptyMessage="No appreciation assets yet."
+            onDelete={(asset) => {
+              if (window.confirm(`Delete asset "${asset.name}"?`)) {
+                remove.mutate(asset.id)
+              }
+            }}
+          />
+          <AssetSection
+            title="Depreciation assets"
+            hint="Vehicles and other assets that typically lose value"
+            assets={list.filter(isDepreciatingAsset)}
+            emptyMessage="No depreciation assets yet."
+            onDelete={(asset) => {
+              if (window.confirm(`Delete asset "${asset.name}"?`)) {
+                remove.mutate(asset.id)
+              }
+            }}
+          />
+        </>
+      )}
+      {remove.isError ? (
+        <p className="text-sm text-red-600">{String(remove.error)}</p>
+      ) : null}
 
       {/* Add modal */}
       {showAddModal ? (
@@ -175,6 +190,57 @@ export function AssetsPage() {
   )
 }
 
+function AssetSection({
+  title,
+  hint,
+  assets,
+  emptyMessage,
+  onDelete,
+}: {
+  title: string
+  hint: string
+  assets: AssetOut[]
+  emptyMessage: string
+  onDelete: (asset: AssetOut) => void
+}) {
+  const totalValue = sectionCurrentValue(assets)
+
+  return (
+    <section>
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <SectionTitle>{title}</SectionTitle>
+          <p className="mt-1 text-sm text-zinc-500">{hint}</p>
+        </div>
+        <p className="text-sm text-zinc-600">
+          <span className="font-medium tabular-nums text-zinc-900">{assets.length}</span>
+          {assets.length === 1 ? ' asset' : ' assets'}
+          {assets.length > 0 ? (
+            <>
+              {' · '}
+              <span className="font-semibold tabular-nums text-zinc-900">
+                {formatPaiseCompact(totalValue)}
+              </span>
+            </>
+          ) : null}
+        </p>
+      </div>
+
+      {assets.length === 0 ? (
+        <Panel>
+          <p className="py-4 text-center text-sm text-zinc-500">{emptyMessage}</p>
+        </Panel>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {assets.map((asset) => (
+            <AssetCard key={asset.id} asset={asset} onDelete={() => onDelete(asset)} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function AssetCard({
   asset,
   onDelete,
@@ -186,6 +252,7 @@ function AssetCard({
     asset.current_value_paise != null && asset.purchase_price_paise != null && asset.purchase_price_paise > 0
       ? ((asset.current_value_paise - asset.purchase_price_paise) / asset.purchase_price_paise) * 100
       : null
+  const changeLabel = isDepreciatingAsset(asset) ? 'Depreciation' : 'Appreciation'
 
   return (
     <div className="flex flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
@@ -238,7 +305,7 @@ function AssetCard({
           </p>
         </div>
         <div>
-          <p className="text-xs text-zinc-500">Appreciation</p>
+          <p className="text-xs text-zinc-500">{changeLabel}</p>
           <p className={`tabular-nums font-medium ${appreciationColor(appreciationPct)}`}>
             {appreciationPct != null ? `${appreciationPct >= 0 ? '+' : ''}${appreciationPct.toFixed(1)}%` : '—'}
           </p>
