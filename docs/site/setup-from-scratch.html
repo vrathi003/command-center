@@ -1,0 +1,737 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="./">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><base href="/guide/">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="genindex.html"><link rel="search" title="Search" href="search.html"><link rel="next" title="Getting started" href="getting-started.html"><link rel="prev" title="Personal Finance OS Guide" href="index.html">
+        <link rel="canonical" href="/guide/setup-from-scratch.html">
+
+    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>Set up from scratch - Personal Finance OS</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="index.html"><div class="brand">Personal Finance OS</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="index.html">
+  
+  <span class="sidebar-brand-text">Personal Finance OS</span>
+  
+</a><form class="sidebar-search-container" method="get" action="search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Start here</span></p>
+<ul class="current">
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Set up from scratch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting started</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Ledger</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ledger/index.html">Ledger</a><input aria-label="Toggle navigation of Ledger" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="ledger/overview.html">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ledger/sign-convention.html">Sign convention</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ledger/schema.html">Schema</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ledger/service.html">LedgerService (<code class="docutils literal notranslate"><span class="pre">service.py</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ledger/builders.html">Builders</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ledger/balances.html">Balances and reports</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ledger/integrity.html">Integrity and write gates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ledger/product-writes.html">Product writes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ledger/gates.html">Feature gates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ledger/worked-examples.html">Worked examples</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Day-to-day workflows</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="workflows/index.html">Day-to-day workflows</a><input aria-label="Toggle navigation of Day-to-day workflows" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="workflows/email-to-ledger.html">Email → ledger</a></li>
+<li class="toctree-l2"><a class="reference internal" href="workflows/quarantine-approve.html">Quarantine approve</a></li>
+<li class="toctree-l2"><a class="reference internal" href="workflows/cc-bill-pay.html">Credit card bill pay</a></li>
+<li class="toctree-l2"><a class="reference internal" href="workflows/debt-emi.html">Debt EMI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="workflows/transfers.html">Transfers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="workflows/emi-conversion.html">Card EMI conversion (e-commerce)</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Dashboard</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="dashboard/index.html">Dashboard surfaces</a><input aria-label="Toggle navigation of Dashboard surfaces" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="dashboard/credit-cards.html">Credit cards</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dashboard/assets.html">Assets</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dashboard/goals.html">Goals</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Reference (stubs + API)</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="reference/index.html">Reference</a><input aria-label="Toggle navigation of Reference" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="reference/modules.html">Package map</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference/intake.html">Intake (stub)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference/recon.html">Reconciliation (stub)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference/alerts.html">Alerts / Notifications (stub)</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="_sources/setup-from-scratch.md.txt" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div>
+<div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="set-up-from-scratch">
+<h1>Set up from scratch<a class="headerlink" href="#set-up-from-scratch" title="Link to this heading">¶</a></h1>
+<p>End-to-end path: empty machine → running Personal Finance OS (local or Ubuntu
+services) → optional Discord, Gmail, LLM, and remote access.</p>
+<p>For day-to-day money flows after install, see <a class="reference internal" href="workflows/index.html"><span class="doc">Day-to-day workflows</span></a> and
+<a class="reference internal" href="dashboard/index.html"><span class="doc">Dashboard surfaces</span></a>. For env var / job detail, see <code class="docutils literal notranslate"><span class="pre">docs/SETUP_AND_OPERATIONS.md</span></code>.</p>
+<hr class="docutils" />
+<section id="what-you-will-end-up-with">
+<h2>0. What you will end up with<a class="headerlink" href="#what-you-will-end-up-with" title="Link to this heading">¶</a></h2>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Piece</p></th>
+<th class="head"><p>Default</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>API</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8000</span></code> (Swagger at <code class="docutils literal notranslate"><span class="pre">/docs</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Dashboard</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:3000</span></code> (dev) or <code class="docutils literal notranslate"><span class="pre">4173</span></code> (production build + Tailscale)</p></td>
+</tr>
+<tr class="row-even"><td><p>Database</p></td>
+<td><p>SQLite at <code class="docutils literal notranslate"><span class="pre">DB_PATH</span></code> (e.g. <code class="docutils literal notranslate"><span class="pre">~/finance/finance.db</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Bot (optional)</p></td>
+<td><p>Discord expense entry</p></td>
+</tr>
+<tr class="row-even"><td><p>Jobs</p></td>
+<td><p>APScheduler inside the <strong>API</strong> process (prices, backups, alerts, digests)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>New installs default to <strong><code class="docutils literal notranslate"><span class="pre">ledger_engine=double_entry</span></code></strong>. Schema migrations run on API startup.</p>
+</section>
+<hr class="docutils" />
+<section id="prerequisites">
+<h2>1. Prerequisites<a class="headerlink" href="#prerequisites" title="Link to this heading">¶</a></h2>
+<p>Install on the host that will run the stack:</p>
+<ol class="arabic">
+<li><p><strong>Python 3.14+</strong> and <strong><a class="reference external" href="https://docs.astral.sh/uv/">uv</a></strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-Lsf<span class="w"> </span>https://astral.sh/uv/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
+<span class="c1"># ensure ~/.local/bin is on PATH</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Node.js 20+</strong> and <strong>npm</strong> (nvm is fine on Ubuntu).</p></li>
+<li><p><strong>Git</strong>, and a clone of this repo:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>&lt;your-fork-or-remote-url&gt;<span class="w"> </span>Personal-Finance-OS
+<span class="nb">cd</span><span class="w"> </span>Personal-Finance-OS
+</pre></div>
+</div>
+</li>
+<li><p>Optional later:</p>
+<ul class="simple">
+<li><p>Discord application (bot token + Message Content Intent)</p></li>
+<li><p>Google Cloud OAuth client (Gmail sync)</p></li>
+<li><p>Ollama or LM Studio (PDF LLM fallback)</p></li>
+<li><p>Tailscale (remote HTTPS without opening the firewall)</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<hr class="docutils" />
+<section id="install-dependencies">
+<h2>2. Install dependencies<a class="headerlink" href="#install-dependencies" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>install
+<span class="c1"># equivalent: uv sync  &amp;&amp;  npm install --prefix dashboard</span>
+</pre></div>
+</div>
+<p>One-click helper (uv sync + copy <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> → <code class="docutils literal notranslate"><span class="pre">.env</span></code> if missing):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>setup.py
+<span class="c1"># or: uv run python scripts/setup.py</span>
+</pre></div>
+</div>
+</section>
+<hr class="docutils" />
+<section id="configure-env">
+<h2>3. Configure <code class="docutils literal notranslate"><span class="pre">.env</span></code><a class="headerlink" href="#configure-env" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>.env.example<span class="w"> </span>.env<span class="w">   </span><span class="c1"># skip if setup.py already created it</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span>~/finance<span class="w"> </span>~/finance/backups
+</pre></div>
+</div>
+<p>Edit <strong><code class="docutils literal notranslate"><span class="pre">.env</span></code></strong> at the repo root. <strong>Do not commit secrets.</strong> Use placeholders, not real tokens, in any shared notes.</p>
+<section id="minimum-local-dashboard-api">
+<h3>Minimum (local dashboard + API)<a class="headerlink" href="#minimum-local-dashboard-api" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">DB_PATH</span><span class="o">=</span>~/finance/finance.db
+<span class="nv">API_HOST</span><span class="o">=</span><span class="m">127</span>.0.0.1
+<span class="nv">API_PORT</span><span class="o">=</span><span class="m">8000</span>
+<span class="nv">DASHBOARD_PORT</span><span class="o">=</span><span class="m">3000</span>
+<span class="nv">APP_ENV</span><span class="o">=</span>development
+<span class="nv">LOG_LEVEL</span><span class="o">=</span>INFO
+<span class="c1"># Leave empty for local unauthenticated access:</span>
+<span class="c1"># APP_SECRET_KEY=</span>
+</pre></div>
+</div>
+</section>
+<section id="recommended-for-anything-beyond-pure-localhost">
+<h3>Recommended for anything beyond pure localhost<a class="headerlink" href="#recommended-for-anything-beyond-pure-localhost" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Generate: python -c &quot;import secrets; print(secrets.token_urlsafe(32))&quot;</span>
+<span class="nv">APP_SECRET_KEY</span><span class="o">=</span>replace_me
+<span class="nv">APP_ENV</span><span class="o">=</span>production
+<span class="nv">BACKUP_DIR</span><span class="o">=</span>~/finance/backups
+<span class="nv">JOBS_ENABLED</span><span class="o">=</span><span class="nb">true</span>
+<span class="nv">SCHEDULER_TIMEZONE</span><span class="o">=</span>Asia/Kolkata
+</pre></div>
+</div>
+<p>Dashboard auth uses <code class="docutils literal notranslate"><span class="pre">APP_SECRET_KEY</span></code> as a static API key when set. Leave it empty only for trusted local-only use.</p>
+</section>
+<section id="discord-optional">
+<h3>Discord (optional)<a class="headerlink" href="#discord-optional" title="Link to this heading">¶</a></h3>
+<ol class="arabic simple">
+<li><p>Create an application at the <a class="reference external" href="https://discord.com/developers/applications">Discord Developer Portal</a>.</p></li>
+<li><p>Bot → enable <strong>Message Content Intent</strong>.</p></li>
+<li><p>Invite the bot to a server you use (or DM-capable setup for DMs).</p></li>
+<li><p>Set:</p></li>
+</ol>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">DISCORD_BOT_TOKEN</span><span class="o">=</span>your_bot_token
+<span class="nv">DISCORD_USER_ID</span><span class="o">=</span>your_numeric_user_id
+<span class="c1"># Optional — faster slash sync while testing:</span>
+<span class="c1"># DISCORD_DEV_GUILD_ID=</span>
+</pre></div>
+</div>
+<p>API scheduled DMs (budget / EMI) also need these when Discord is enabled.</p>
+</section>
+<section id="local-llm-for-pdf-bank-statements-optional">
+<h3>Local LLM for PDF bank statements (optional)<a class="headerlink" href="#local-llm-for-pdf-bank-statements-optional" title="Link to this heading">¶</a></h3>
+<p>Heuristic PDF parsing always runs first. LLM is a fallback:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">LOCAL_LLM_URL</span><span class="o">=</span>http://localhost:11434/v1
+<span class="nv">LOCAL_LLM_MODEL</span><span class="o">=</span>qwen2.5:1.5b
+<span class="nv">LOCAL_LLM_TIMEOUT_SECONDS</span><span class="o">=</span><span class="m">600</span>
+</pre></div>
+</div>
+<p>Example with Ollama: <code class="docutils literal notranslate"><span class="pre">ollama</span> <span class="pre">pull</span> <span class="pre">qwen2.5:1.5b</span></code>. Details: <code class="docutils literal notranslate"><span class="pre">docs/BANK_STATEMENT_PARSING.md</span></code>.</p>
+</section>
+<section id="gmail-sync-optional">
+<h3>Gmail sync (optional)<a class="headerlink" href="#gmail-sync-optional" title="Link to this heading">¶</a></h3>
+<ol class="arabic">
+<li><p>Create a Google Cloud OAuth <strong>Desktop</strong> client; download JSON to e.g. <code class="docutils literal notranslate"><span class="pre">~/finance/gmail_credentials.json</span></code>.</p></li>
+<li><p>Run consent once:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Machine with a browser:</span>
+uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/setup_gmail.py<span class="w"> </span>--credentials<span class="w"> </span>~/finance/gmail_credentials.json
+
+<span class="c1"># Headless server: SSH tunnel then --console (see script docstring)</span>
+</pre></div>
+</div>
+</li>
+<li><p>Set:</p></li>
+</ol>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">GMAIL_CREDENTIALS_PATH</span><span class="o">=</span>~/finance/gmail_credentials.json
+<span class="nv">GMAIL_TOKEN_PATH</span><span class="o">=</span>~/finance/gmail_token.json
+<span class="c1"># GMAIL_SYNC_LOOKBACK_HOURS=4</span>
+</pre></div>
+</div>
+</section>
+</section>
+<hr class="docutils" />
+<section id="first-run-development">
+<h2>4. First run (development)<a class="headerlink" href="#first-run-development" title="Link to this heading">¶</a></h2>
+<p>Terminal A — API + bot:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>dev
+<span class="c1"># or: uv run python start.py</span>
+</pre></div>
+</div>
+<p>Terminal B — React:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>dev-dashboard
+</pre></div>
+</div>
+<p>Checks:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-fsS<span class="w"> </span>http://127.0.0.1:8000/health
+<span class="c1"># open http://127.0.0.1:3000</span>
+<span class="c1"># API docs: http://127.0.0.1:8000/docs</span>
+</pre></div>
+</div>
+<p>Optional demo data (wipes selected demo tables — read the script before <code class="docutils literal notranslate"><span class="pre">--force</span></code>):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>seed-demo
+</pre></div>
+</div>
+</section>
+<hr class="docutils" />
+<section id="first-hour-product-checklist">
+<h2>5. First-hour product checklist<a class="headerlink" href="#first-hour-product-checklist" title="Link to this heading">¶</a></h2>
+<p>Do this once the dashboard loads (skip seed if you want a clean books start):</p>
+<ol class="arabic simple">
+<li><p><strong>Settings</strong> — confirm financial year; keep <strong>ledger engine</strong> on <code class="docutils literal notranslate"><span class="pre">double_entry</span></code>.</p></li>
+<li><p><strong>Accounts</strong> — add banks / wallets you use.</p></li>
+<li><p><strong>Credit cards</strong> — add cards (creates <code class="docutils literal notranslate"><span class="pre">liability_cc</span></code> accounts); check the portfolio KPI strip.</p></li>
+<li><p><strong>Debt</strong> — add loans if needed; set payment account for EMI posting.</p></li>
+<li><p><strong>Budget</strong> — set category caps for the current FY.</p></li>
+<li><p><strong>Transactions</strong> — import a small statement or add a manual debit/credit.</p></li>
+<li><p><strong>Goals / Assets / Investments</strong> — optional; wealth seeds create investment ledger accounts on first bind.</p></li>
+</ol>
+<p>If you already had <strong>legacy</strong> <code class="docutils literal notranslate"><span class="pre">transactions</span></code> history from an older install:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>POST /api/migration/legacy-ledger/dry-run
+POST /api/migration/legacy-ledger/apply
+</pre></div>
+</div>
+<p>Prefer Settings UI if exposed; apply takes a DB backup first. Fresh installs usually <strong>skip</strong> this.</p>
+<p>Excel history (optional):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>migrate-dry
+make<span class="w"> </span>migrate<span class="w">    </span><span class="c1"># uses Makefile XLSX / DB defaults — edit paths as needed</span>
+</pre></div>
+</div>
+</section>
+<hr class="docutils" />
+<section id="production-on-ubuntu-systemd">
+<h2>6. Production on Ubuntu (systemd)<a class="headerlink" href="#production-on-ubuntu-systemd" title="Link to this heading">¶</a></h2>
+<p>Assumes the repo lives on the server (e.g. <code class="docutils literal notranslate"><span class="pre">~/Documents/WorkSpace/.../Personal-Finance-OS</span></code>), <code class="docutils literal notranslate"><span class="pre">.env</span></code> is filled, and <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">install</span></code> already succeeded for that user.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># From repo root, as a user with sudo:</span>
+sudo<span class="w"> </span>make<span class="w"> </span>install-services
+<span class="c1"># → scripts/install_systemd_services.sh</span>
+</pre></div>
+</div>
+<p>That installs and enables:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">finance-api.service</span></code> — uvicorn on <code class="docutils literal notranslate"><span class="pre">127.0.0.1:8000</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">finance-dashboard.service</span></code> — Vite production preview / built UI (see unit file)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">finance-bot.service</span></code> — Discord bot</p></li>
+</ul>
+<p>Useful commands:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>service-status
+<span class="c1"># or:</span>
+sudo<span class="w"> </span>systemctl<span class="w"> </span>status<span class="w"> </span>finance-api.service<span class="w"> </span>finance-dashboard.service<span class="w"> </span>finance-bot.service
+sudo<span class="w"> </span>journalctl<span class="w"> </span>-u<span class="w"> </span>finance-api.service<span class="w"> </span>-n<span class="w"> </span><span class="m">80</span><span class="w"> </span>--no-pager
+
+<span class="c1"># After git pull:</span>
+<span class="nb">cd</span><span class="w"> </span>/path/to/repo
+git<span class="w"> </span>pull
+make<span class="w"> </span>install
+sudo<span class="w"> </span>systemctl<span class="w"> </span>restart<span class="w"> </span>finance-api.service<span class="w"> </span>finance-dashboard.service<span class="w"> </span>finance-bot.service
+</pre></div>
+</div>
+<p>API migrations apply on API process start — <strong>restart API after pull</strong> when schema changes land.</p>
+<section id="macos-windows-alternatives">
+<h3>macOS / Windows alternatives<a class="headerlink" href="#macos-windows-alternatives" title="Link to this heading">¶</a></h3>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Platform</p></th>
+<th class="head"><p>Helper</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>macOS</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">scripts/launchd/com.personalfinance.api.plist</span></code> (edit paths)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Windows</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">scripts/windows/register-api-task.ps1</span></code> (edit paths)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+<hr class="docutils" />
+<section id="remote-access-tailscale">
+<h2>7. Remote access (Tailscale)<a class="headerlink" href="#remote-access-tailscale" title="Link to this heading">¶</a></h2>
+<p>Keep services bound to localhost; expose via Tailscale Serve:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>configure-tailscale
+<span class="c1"># → scripts/configure_tailscale_serve.sh</span>
+</pre></div>
+</div>
+<p>Requires Tailscale installed and <code class="docutils literal notranslate"><span class="pre">sudo</span> <span class="pre">tailscale</span> <span class="pre">up</span></code>. The script serves HTTPS to the dashboard port and <code class="docutils literal notranslate"><span class="pre">/api</span></code> to the API. Open the printed <code class="docutils literal notranslate"><span class="pre">https://…</span></code> MagicDNS URL from any device on your tailnet.</p>
+<p>Alternative tunnels: <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">python</span> <span class="pre">scripts/expose.py</span> <span class="pre">--help</span></code> (ngrok / Tailscale helpers).</p>
+</section>
+<hr class="docutils" />
+<section id="verify-a-healthy-stack">
+<h2>8. Verify a healthy stack<a class="headerlink" href="#verify-a-healthy-stack" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>health
+<span class="c1"># or:</span>
+curl<span class="w"> </span>-fsS<span class="w"> </span>http://127.0.0.1:8000/health
+</pre></div>
+</div>
+<p>Expect:</p>
+<ul class="simple">
+<li><p>API returns healthy JSON</p></li>
+<li><p>Dashboard loads; authenticated calls work if <code class="docutils literal notranslate"><span class="pre">APP_SECRET_KEY</span></code> is set</p></li>
+<li><p>Settings show <code class="docutils literal notranslate"><span class="pre">double_entry</span></code></p></li>
+<li><p>Creating a credit card or investment does not error; transactions list loads (including wealth-seed rows)</p></li>
+</ul>
+<p>If transactions 500 after wealth seeds, ensure you are on a build that maps non-cash ledger legs in the transactions façade (see <a class="reference internal" href="getting-started.html"><span class="doc">Getting started</span></a>).</p>
+</section>
+<hr class="docutils" />
+<section id="backups-and-jobs">
+<h2>9. Backups and jobs<a class="headerlink" href="#backups-and-jobs" title="Link to this heading">¶</a></h2>
+<p>With <code class="docutils literal notranslate"><span class="pre">BACKUP_DIR</span></code> set and the API running, a daily <strong>02:00</strong> job copies <code class="docutils literal notranslate"><span class="pre">DB_PATH</span></code> (timezone <code class="docutils literal notranslate"><span class="pre">SCHEDULER_TIMEZONE</span></code>). Also keep occasional offline copies of <code class="docutils literal notranslate"><span class="pre">~/finance/</span></code>.</p>
+<p>Job schedule summary: <code class="docutils literal notranslate"><span class="pre">docs/SETUP_AND_OPERATIONS.md</span></code>.</p>
+</section>
+<hr class="docutils" />
+<section id="docs-site-optional">
+<h2>10. Docs site (optional)<a class="headerlink" href="#docs-site-optional" title="Link to this heading">¶</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>docs
+make<span class="w"> </span>docs<span class="w">          </span><span class="c1"># writes docs/site/</span>
+make<span class="w"> </span>docs-serve<span class="w">    </span><span class="c1"># http://127.0.0.1:8000 — stop API first or use another port</span>
+</pre></div>
+</div>
+<p>Start at <code class="docutils literal notranslate"><span class="pre">docs/site/index.html</span></code> or this page after rebuild.</p>
+</section>
+<hr class="docutils" />
+<section id="quick-reference">
+<h2>Quick reference<a class="headerlink" href="#quick-reference" title="Link to this heading">¶</a></h2>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Goal</p></th>
+<th class="head"><p>Command / place</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Install deps</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">install</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Dev API + bot</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">dev</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Dev UI</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">dev-dashboard</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Seed demo</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">seed-demo</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Systemd</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">sudo</span> <span class="pre">make</span> <span class="pre">install-services</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Tailscale</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">configure-tailscale</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Health</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">health</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Gmail OAuth</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">python</span> <span class="pre">scripts/setup_gmail.py</span> <span class="pre">…</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Product guide</p></td>
+<td><p><a class="reference internal" href="index.html"><span class="doc">Personal Finance OS Guide</span></a></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<hr class="docutils" />
+<section id="security-checklist">
+<h2>Security checklist<a class="headerlink" href="#security-checklist" title="Link to this heading">¶</a></h2>
+<ul class="contains-task-list simple">
+<li class="task-list-item"><p><input class="task-list-item-checkbox" disabled="disabled" type="checkbox"><code class="docutils literal notranslate"><span class="pre">.env</span></code> is gitignored and never committed</p></li>
+<li class="task-list-item"><p><input class="task-list-item-checkbox" disabled="disabled" type="checkbox"><code class="docutils literal notranslate"><span class="pre">APP_SECRET_KEY</span></code> set when the dashboard is reachable beyond loopback</p></li>
+<li class="task-list-item"><p><input class="task-list-item-checkbox" disabled="disabled" type="checkbox">API/dashboard bind to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>; use Tailscale/VPN instead of public bind</p></li>
+<li class="task-list-item"><p><input class="task-list-item-checkbox" disabled="disabled" type="checkbox">Discord token and Gmail OAuth JSON stay under <code class="docutils literal notranslate"><span class="pre">~/finance/</span></code> with tight permissions</p></li>
+<li class="task-list-item"><p><input class="task-list-item-checkbox" disabled="disabled" type="checkbox"><code class="docutils literal notranslate"><span class="pre">BACKUP_DIR</span></code> set before you rely on the stack for real money data</p></li>
+</ul>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="getting-started.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Getting started</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="index.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Home</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2026, Vaibhav
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Set up from scratch</a><ul>
+<li><a class="reference internal" href="#what-you-will-end-up-with">0. What you will end up with</a></li>
+<li><a class="reference internal" href="#prerequisites">1. Prerequisites</a></li>
+<li><a class="reference internal" href="#install-dependencies">2. Install dependencies</a></li>
+<li><a class="reference internal" href="#configure-env">3. Configure <code class="docutils literal notranslate"><span class="pre">.env</span></code></a><ul>
+<li><a class="reference internal" href="#minimum-local-dashboard-api">Minimum (local dashboard + API)</a></li>
+<li><a class="reference internal" href="#recommended-for-anything-beyond-pure-localhost">Recommended for anything beyond pure localhost</a></li>
+<li><a class="reference internal" href="#discord-optional">Discord (optional)</a></li>
+<li><a class="reference internal" href="#local-llm-for-pdf-bank-statements-optional">Local LLM for PDF bank statements (optional)</a></li>
+<li><a class="reference internal" href="#gmail-sync-optional">Gmail sync (optional)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#first-run-development">4. First run (development)</a></li>
+<li><a class="reference internal" href="#first-hour-product-checklist">5. First-hour product checklist</a></li>
+<li><a class="reference internal" href="#production-on-ubuntu-systemd">6. Production on Ubuntu (systemd)</a><ul>
+<li><a class="reference internal" href="#macos-windows-alternatives">macOS / Windows alternatives</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#remote-access-tailscale">7. Remote access (Tailscale)</a></li>
+<li><a class="reference internal" href="#verify-a-healthy-stack">8. Verify a healthy stack</a></li>
+<li><a class="reference internal" href="#backups-and-jobs">9. Backups and jobs</a></li>
+<li><a class="reference internal" href="#docs-site-optional">10. Docs site (optional)</a></li>
+<li><a class="reference internal" href="#quick-reference">Quick reference</a></li>
+<li><a class="reference internal" href="#security-checklist">Security checklist</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="_static/documentation_options.js?v=f2a433a1"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="_static/copybutton.js?v=f281be69"></script>
+    </body>
+</html>

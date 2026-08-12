@@ -1,5 +1,7 @@
 # Setup and operations
 
+**New install?** Follow the product guide **[Set up from scratch](guide/setup-from-scratch.md)** (also [`site/setup-from-scratch.html`](site/setup-from-scratch.html) after `make docs`).
+
 This document covers environment variables, **Phase 6** background jobs, deployment helpers, PDF reports, stocks holdings fields, and related code paths. For day-to-day usage of the app, see the root [README](../README.md).
 
 **Bank statement PDF import** (local parsing, Ollama/LM Studio fallback, passwords, CLI): see **[BANK_STATEMENT_PARSING.md](BANK_STATEMENT_PARSING.md)**.

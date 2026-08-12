@@ -37,11 +37,14 @@ db/         → SQLite database
 
 ## Quick Start
 
+**Full from-scratch guide** (local + Ubuntu systemd + Discord / Gmail / LLM / Tailscale):  
+[`docs/guide/setup-from-scratch.md`](docs/guide/setup-from-scratch.md) → after `make docs`, open [`docs/site/setup-from-scratch.html`](docs/site/setup-from-scratch.html).
+
 ### 1 — Prerequisites
 
 - Python 3.14+ with [uv](https://docs.astral.sh/uv/) — `curl -Lsf https://astral.sh/uv/install.sh | sh`
 - Node.js 20+
-- A Discord bot token ([create one here](https://discord.com/developers/applications)) — enable **Message Content Intent** under Bot → Privileged Gateway Intents
+- Optional: Discord bot token ([create one here](https://discord.com/developers/applications)) — enable **Message Content Intent** under Bot → Privileged Gateway Intents
 
 ### 2 — Install dependencies
 
@@ -53,27 +56,31 @@ make install
 
 ```bash
 cp .env.example .env
+mkdir -p ~/finance ~/finance/backups
 ```
 
-Edit `.env`:
+Edit `.env` (use **placeholders** — never commit real tokens):
 
 ```env
-# Required
-DISCORD_BOT_TOKEN=your_bot_token_here
-DISCORD_USER_ID=your_discord_user_id   # right-click your name in Discord → Copy User ID
+# Required for a local stack
 DB_PATH=~/finance/finance.db
-
-# API defaults (change if needed)
 API_HOST=127.0.0.1
 API_PORT=8000
 APP_ENV=development
 
+# Optional Discord
+# DISCORD_BOT_TOKEN=
+# DISCORD_USER_ID=
+
+# Optional — set for any non-loopback / shared access
+# APP_SECRET_KEY=
+
 # Optional — AI-powered PDF bank statement parsing (heuristic parsing always runs first)
-LOCAL_LLM_ENABLED=true
-LOCAL_LLM_URL=http://localhost:1234/v1
-LOCAL_LLM_MODEL=qwen2.5:1.5b
-LOCAL_LLM_TIMEOUT_SECONDS=600
+# LOCAL_LLM_URL=http://localhost:11434/v1
+# LOCAL_LLM_MODEL=qwen2.5:1.5b
 ```
+
+See the from-scratch guide for production, systemd, Gmail, and Tailscale.
 
 ### 4 — Load demo data (optional)
 
@@ -88,7 +95,7 @@ make dev            # starts API server + Discord bot
 make dev-dashboard  # in a separate terminal — starts React dev server
 ```
 
-Open **http://localhost:3000** in your browser.
+Open **http://localhost:3000** in the browser.
 API docs (Swagger UI): **http://localhost:8000/docs**
 
 ---

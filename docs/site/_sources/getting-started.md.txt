@@ -1,5 +1,12 @@
 # Getting started
 
+:::{admonition} New machine?
+:class: tip
+
+For a full install path (prerequisites → ``.env`` → systemd → optional Discord / Gmail / LLM / Tailscale),
+use {doc}`setup-from-scratch` first. This page is the mental model once the stack is running.
+:::
+
 ## What “the ledger” means here
 
 Under ``ledger_engine=double_entry``, the books of record are:

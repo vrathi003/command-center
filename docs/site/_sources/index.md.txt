@@ -7,6 +7,7 @@ especially the **double-entry ledger**.
 :::{admonition} How to read this site
 :class: tip
 
+- **Brand new install** — {doc}`setup-from-scratch` (local → systemd → Discord / Gmail / LLM / Tailscale).
 - **Operator path** — start at {doc}`getting-started`, then {doc}`workflows/index`.
 - **Internals path** — start at {doc}`ledger/overview` and work through each ledger page.
 - Open the committed HTML at ``docs/site/index.html`` after ``make docs``, or serve with ``make docs-serve``.
@@ -18,6 +19,7 @@ especially the **double-entry ledger**.
 :maxdepth: 2
 :caption: Start here
 
+setup-from-scratch
 getting-started
 ```
 
