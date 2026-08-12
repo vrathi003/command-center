@@ -45,3 +45,12 @@ UI / Email / Bot / CC Pay Bill / Record EMI
 - Trace Email Inbox approve → {doc}`workflows/email-to-ledger`
 - Trace CC bill pay → {doc}`workflows/cc-bill-pay`
 - Trace loan EMI → {doc}`workflows/debt-emi`
+- Dashboard surfaces (CC / Assets / Goals KPIs) → {doc}`dashboard/index`
+
+## Transactions list after cutover
+
+``GET /api/transactions/`` maps posted ledger rows into the legacy shape. Cash and
+credit-card legs are preferred for the display account. Wealth **opening seeds**
+(``asset_investment`` + Opening Balance Equity, source ``wealth_seed``) have no
+cash leg — the façade falls back to the investment (or other balance-sheet) leg so
+the list does not 500.

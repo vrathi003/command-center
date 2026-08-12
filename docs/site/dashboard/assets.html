@@ -2,10 +2,11 @@
 <html class="no-js" lang="en" data-content_root="../">
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="color-scheme" content="light dark"><link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Goals" href="goals.html"><link rel="prev" title="Credit cards" href="credit-cards.html">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
-        <title>Overview: module code - Personal Finance OS</title>
+        <title>Assets - Personal Finance OS</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
@@ -172,7 +173,7 @@
           <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
         </button>
       </div>
-      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
         <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
       </label>
     </div>
@@ -223,11 +224,11 @@
 </li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Dashboard</span></p>
-<ul>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../dashboard/index.html">Dashboard surfaces</a><input aria-label="Toggle navigation of Dashboard surfaces" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
-<li class="toctree-l2"><a class="reference internal" href="../dashboard/credit-cards.html">Credit cards</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../dashboard/assets.html">Assets</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../dashboard/goals.html">Goals</a></li>
+<ul class="current">
+<li class="toctree-l1 current has-children"><a class="reference internal" href="index.html">Dashboard surfaces</a><input aria-label="Toggle navigation of Dashboard surfaces" checked="" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="credit-cards.html">Credit cards</a></li>
+<li class="toctree-l2 current current-page"><a class="current reference internal" href="#">Assets</a></li>
+<li class="toctree-l2"><a class="reference internal" href="goals.html">Goals</a></li>
 </ul>
 </li>
 </ul>
@@ -259,7 +260,13 @@
           <span>Back to top</span>
         </a>
         <div class="content-icon-container">
-          <div class="theme-toggle-container theme-toggle-content">
+          <div class="view-this-page">
+  <a class="muted-link" href="../_sources/dashboard/assets.md.txt" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div>
+<div class="theme-toggle-container theme-toggle-content">
             <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
               <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
               <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
@@ -267,25 +274,105 @@
               <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
             </button>
           </div>
-          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
             <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <h1>All modules for which code is available</h1>
-<ul><li><a href="finance_common/ledger/balances.html">finance_common.ledger.balances</a></li>
-<li><a href="finance_common/ledger/builders.html">finance_common.ledger.builders</a></li>
-<li><a href="finance_common/ledger/errors.html">finance_common.ledger.errors</a></li>
-<li><a href="finance_common/ledger/models.html">finance_common.ledger.models</a></li>
-<li><a href="finance_common/ledger/service.html">finance_common.ledger.service</a></li>
+          <section id="assets">
+<h1>Assets<a class="headerlink" href="#assets" title="Link to this heading">¶</a></h1>
+<p>Route: <code class="docutils literal notranslate"><span class="pre">/assets</span></code> (list) and <code class="docutils literal notranslate"><span class="pre">/assets/:id</span></code> (detail).</p>
+<p>Physical wealth: real estate, vehicles, gold, and other holdings. Values are
+manual / module-side today (not full <code class="docutils literal notranslate"><span class="pre">asset_other</span></code> ledger posts for every asset).</p>
+<section id="portfolio-kpis">
+<h2>Portfolio KPIs<a class="headerlink" href="#portfolio-kpis" title="Link to this heading">¶</a></h2>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>KPI</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Total assets</strong></p></td>
+<td><p>Count of assets</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Current value</strong></p></td>
+<td><p>Sum of <code class="docutils literal notranslate"><span class="pre">current_value_paise</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Purchase price</strong></p></td>
+<td><p>Sum of purchase prices</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Overall appreciation</strong></p></td>
+<td><p>Portfolio % change vs purchase</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="appreciation-vs-depreciation-sections">
+<h2>Appreciation vs depreciation sections<a class="headerlink" href="#appreciation-vs-depreciation-sections" title="Link to this heading">¶</a></h2>
+<p>The list is split by <strong>asset type</strong> (not by whether the latest % is positive):</p>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Section</p></th>
+<th class="head"><p>Types</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Appreciation assets</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">apartment</span></code>, <code class="docutils literal notranslate"><span class="pre">plot</span></code>, <code class="docutils literal notranslate"><span class="pre">commercial</span></code>, <code class="docutils literal notranslate"><span class="pre">gold</span></code>, <code class="docutils literal notranslate"><span class="pre">other</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Depreciation assets</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">vehicle</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Each section shows a <strong>count</strong> and <strong>current-value subtotal</strong>. Cards show
+“Appreciation” or “Depreciation” for the purchase→current % label accordingly.</p>
+<p>Sold assets stay in their type section (status badge still shows <code class="docutils literal notranslate"><span class="pre">sold</span></code>).</p>
+</section>
+<section id="detail-page">
+<h2>Detail page<a class="headerlink" href="#detail-page" title="Link to this heading">¶</a></h2>
+<p>Per-asset edit, real-estate / vehicle extras, costs, linked loans, and payment
+milestones live on <code class="docutils literal notranslate"><span class="pre">/assets/:id</span></code>.</p>
+</section>
+<section id="out-of-scope-for-now">
+<h2>Out of scope (for now)<a class="headerlink" href="#out-of-scope-for-now" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Auto-classifying by actual gain/loss instead of type</p></li>
+<li><p>Posting every physical asset as <code class="docutils literal notranslate"><span class="pre">asset_other</span></code> on the ledger</p></li>
 </ul>
+</section>
+</section>
+
         </article>
       </div>
       <footer>
         
         <div class="related-pages">
-          
-          
+          <a class="next-page" href="goals.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Goals</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="credit-cards.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Credit cards</div>
+                
+              </div>
+            </a>
         </div>
         <div class="bottom-of-page">
           <div class="left-details">
@@ -304,8 +391,30 @@
         
       </footer>
     </div>
-    <aside class="toc-drawer no-toc">
+    <aside class="toc-drawer">
       
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Assets</a><ul>
+<li><a class="reference internal" href="#portfolio-kpis">Portfolio KPIs</a></li>
+<li><a class="reference internal" href="#appreciation-vs-depreciation-sections">Appreciation vs depreciation sections</a></li>
+<li><a class="reference internal" href="#detail-page">Detail page</a></li>
+<li><a class="reference internal" href="#out-of-scope-for-now">Out of scope (for now)</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
       
       
     </aside>

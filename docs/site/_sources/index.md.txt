@@ -37,6 +37,13 @@ workflows/index
 
 ```{toctree}
 :maxdepth: 2
+:caption: Dashboard
+
+dashboard/index
+```
+
+```{toctree}
+:maxdepth: 2
 :caption: Reference (stubs + API)
 
 reference/index

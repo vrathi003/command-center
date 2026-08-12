@@ -9,6 +9,8 @@ This guide covers everything on the **Credit Cards** section of Personal Finance
 1. [Overview](#overview)
 2. [Adding a Credit Card](#adding-a-credit-card)
 3. [The Credit Cards List](#the-credit-cards-list)
+   - [Portfolio KPI strip](#portfolio-kpi-strip)
+   - [Card tiles](#card-tiles)
 4. [The Card Detail Page](#the-card-detail-page)
    - [KPI Strip (the numbers at the top)](#kpi-strip)
    - [Interest Leakage Warning](#interest-leakage-warning)
@@ -65,12 +67,29 @@ Navigate to **Credit Cards** from the left sidebar.
 
 ## The Credit Cards List
 
+### Portfolio KPI strip
+
+At the top of **Credit Cards** (active cards only):
+
+| KPI | Meaning |
+|-----|---------|
+| **Total outstanding** | Sum of current/statement balances |
+| **Limit available** | Remaining limit across cards (after balance + EMI blocked) |
+| **Total limit** | Sum of credit limits |
+| **Limit utilised** | Balances + EMI principal blocked against limits |
+| **Active EMIs** | Count of active EMI plans |
+| **EMI / month** | Sum of monthly EMI dues |
+
+**Outstanding ≠ utilised** — utilised includes EMI-blocked principal so available credit stays honest.
+
+### Card tiles
+
 Each card on the list shows:
 
-- **Live balance** — how much you currently owe (calculated from transaction history)
-- **Credit limit** — your total limit
-- **Utilization %** — live balance ÷ credit limit. High utilization (over 30%) affects credit scores
-- **EMI info** — if you have active EMI plans, shows limit blocked and monthly EMI amount
+- **Name / issuer / last four**
+- **Utilization %** — (balance + EMI blocked) ÷ credit limit when limit > 0
+- **Limit** and **Balance**
+- **EMI / month** — when active EMI plans exist
 
 Click any card name to open its detail page.
 

@@ -223,9 +223,18 @@
 </ul>
 </li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">Dashboard</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="dashboard/index.html">Dashboard surfaces</a><input aria-label="Toggle navigation of Dashboard surfaces" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="dashboard/credit-cards.html">Credit cards</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dashboard/assets.html">Assets</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dashboard/goals.html">Goals</a></li>
+</ul>
+</li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">Reference (stubs + API)</span></p>
 <ul>
-<li class="toctree-l1 has-children"><a class="reference internal" href="reference/index.html">Reference</a><input aria-label="Toggle navigation of Reference" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="reference/index.html">Reference</a><input aria-label="Toggle navigation of Reference" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
 <li class="toctree-l2"><a class="reference internal" href="reference/modules.html">Package map</a></li>
 <li class="toctree-l2"><a class="reference internal" href="reference/intake.html">Intake (stub)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="reference/recon.html">Reconciliation (stub)</a></li>
@@ -344,7 +353,16 @@
 <li><p>Trace Email Inbox approve → <a class="reference internal" href="workflows/email-to-ledger.html"><span class="doc">Email → ledger</span></a></p></li>
 <li><p>Trace CC bill pay → <a class="reference internal" href="workflows/cc-bill-pay.html"><span class="doc">Credit card bill pay</span></a></p></li>
 <li><p>Trace loan EMI → <a class="reference internal" href="workflows/debt-emi.html"><span class="doc">Debt EMI</span></a></p></li>
+<li><p>Dashboard surfaces (CC / Assets / Goals KPIs) → <a class="reference internal" href="dashboard/index.html"><span class="doc">Dashboard surfaces</span></a></p></li>
 </ul>
+</section>
+<section id="transactions-list-after-cutover">
+<h2>Transactions list after cutover<a class="headerlink" href="#transactions-list-after-cutover" title="Link to this heading">¶</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/transactions/</span></code> maps posted ledger rows into the legacy shape. Cash and
+credit-card legs are preferred for the display account. Wealth <strong>opening seeds</strong>
+(<code class="docutils literal notranslate"><span class="pre">asset_investment</span></code> + Opening Balance Equity, source <code class="docutils literal notranslate"><span class="pre">wealth_seed</span></code>) have no
+cash leg — the façade falls back to the investment (or other balance-sheet) leg so
+the list does not 500.</p>
 </section>
 </section>
 
@@ -408,6 +426,7 @@
 <li><a class="reference internal" href="#config-flags-that-change-behaviour">Config flags that change behaviour</a></li>
 <li><a class="reference internal" href="#mental-model-adapters-plan-post">Mental model: adapters → plan → post</a></li>
 <li><a class="reference internal" href="#where-to-go-next">Where to go next</a></li>
+<li><a class="reference internal" href="#transactions-list-after-cutover">Transactions list after cutover</a></li>
 </ul>
 </li>
 </ul>

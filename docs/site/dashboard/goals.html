@@ -2,10 +2,11 @@
 <html class="no-js" lang="en" data-content_root="../">
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="color-scheme" content="light dark"><link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Reference" href="../reference/index.html"><link rel="prev" title="Assets" href="assets.html">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
-        <title>Overview: module code - Personal Finance OS</title>
+        <title>Goals - Personal Finance OS</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d111a655" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=7bdb33bb" />
     <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
@@ -172,7 +173,7 @@
           <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
         </button>
       </div>
-      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
         <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
       </label>
     </div>
@@ -223,11 +224,11 @@
 </li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Dashboard</span></p>
-<ul>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../dashboard/index.html">Dashboard surfaces</a><input aria-label="Toggle navigation of Dashboard surfaces" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
-<li class="toctree-l2"><a class="reference internal" href="../dashboard/credit-cards.html">Credit cards</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../dashboard/assets.html">Assets</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../dashboard/goals.html">Goals</a></li>
+<ul class="current">
+<li class="toctree-l1 current has-children"><a class="reference internal" href="index.html">Dashboard surfaces</a><input aria-label="Toggle navigation of Dashboard surfaces" checked="" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="credit-cards.html">Credit cards</a></li>
+<li class="toctree-l2"><a class="reference internal" href="assets.html">Assets</a></li>
+<li class="toctree-l2 current current-page"><a class="current reference internal" href="#">Goals</a></li>
 </ul>
 </li>
 </ul>
@@ -259,7 +260,13 @@
           <span>Back to top</span>
         </a>
         <div class="content-icon-container">
-          <div class="theme-toggle-container theme-toggle-content">
+          <div class="view-this-page">
+  <a class="muted-link" href="../_sources/dashboard/goals.md.txt" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div>
+<div class="theme-toggle-container theme-toggle-content">
             <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
               <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
               <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
@@ -267,25 +274,112 @@
               <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
             </button>
           </div>
-          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
             <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <h1>All modules for which code is available</h1>
-<ul><li><a href="finance_common/ledger/balances.html">finance_common.ledger.balances</a></li>
-<li><a href="finance_common/ledger/builders.html">finance_common.ledger.builders</a></li>
-<li><a href="finance_common/ledger/errors.html">finance_common.ledger.errors</a></li>
-<li><a href="finance_common/ledger/models.html">finance_common.ledger.models</a></li>
-<li><a href="finance_common/ledger/service.html">finance_common.ledger.service</a></li>
+          <section id="goals">
+<h1>Goals<a class="headerlink" href="#goals" title="Link to this heading">¶</a></h1>
+<p>Route: <code class="docutils literal notranslate"><span class="pre">/goals</span></code>.</p>
+<p>Savings targets with portfolio KPIs, time-to-goal, on-track status, an emergency-fund
+helper, and an illustrative retirement corpus projector. Progress amounts are
+<strong>manual</strong> this package (Goals ↔ holding link is later).</p>
+<section id="portfolio-kpi-strip">
+<h2>Portfolio KPI strip<a class="headerlink" href="#portfolio-kpi-strip" title="Link to this heading">¶</a></h2>
+<div class="table-wrapper colwidths-auto docutils container">
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>KPI</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Goals</strong></p></td>
+<td><p>Number of goals</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Total target</strong></p></td>
+<td><p>Sum of target amounts</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Total saved</strong></p></td>
+<td><p>Sum of current amounts</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Overall progress</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">saved</span> <span class="pre">÷</span> <span class="pre">target</span></code> (capped at 100%)</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Monthly save</strong></p></td>
+<td><p>Sum of planned monthly contributions</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>On track</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">on_track_or_done</span> <span class="pre">/</span> <span class="pre">trackable</span></code> — needs both a target date and monthly save</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="emergency-fund">
+<h2>Emergency fund<a class="headerlink" href="#emergency-fund" title="Link to this heading">¶</a></h2>
+<ol class="arabic simple">
+<li><p>Enter <strong>Monthly expenses (₹)</strong> (stored in browser <code class="docutils literal notranslate"><span class="pre">localStorage</span></code> — not derived from ledger spend).</p></li>
+<li><p>Target = <strong>6 ×</strong> that amount.</p></li>
+<li><p><strong>Create emergency goal</strong> / <strong>Update emergency goal target</strong> finds a goal whose name or category contains <code class="docutils literal notranslate"><span class="pre">emergency</span></code> (case-insensitive), or creates <code class="docutils literal notranslate"><span class="pre">Emergency</span> <span class="pre">fund</span></code> / category <code class="docutils literal notranslate"><span class="pre">Emergency</span></code>.</p></li>
+</ol>
+<p>Gap = target − that goal’s current saved amount.</p>
+</section>
+<section id="retirement-corpus-illustrative">
+<h2>Retirement corpus (illustrative)<a class="headerlink" href="#retirement-corpus-illustrative" title="Link to this heading">¶</a></h2>
+<p>Local-only calculator (also <code class="docutils literal notranslate"><span class="pre">localStorage</span></code>): grow current corpus annually and add a flat monthly SIP until retirement age. Not advice; ignores tax and inflation.</p>
+</section>
+<section id="goal-cards">
+<h2>Goal cards<a class="headerlink" href="#goal-cards" title="Link to this heading">¶</a></h2>
+<p>Replaces the old inline edit table. Each card shows:</p>
+<ul class="simple">
+<li><p>Progress bar and %</p></li>
+<li><p>Saved / target / monthly save</p></li>
+<li><p><strong>Time to goal</strong> — <code class="docutils literal notranslate"><span class="pre">ceil(remaining</span> <span class="pre">÷</span> <span class="pre">monthly)</span></code> months when monthly &gt; 0</p></li>
+<li><p><strong>On track / Behind / Complete / No pace yet</strong></p>
+<ul>
+<li><p>On track when planned monthly ≥ remaining ÷ months until target date</p></li>
 </ul>
+</li>
+<li><p>Edit / Delete</p></li>
+</ul>
+</section>
+<section id="out-of-scope-for-now">
+<h2>Out of scope (for now)<a class="headerlink" href="#out-of-scope-for-now" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p>Linking a goal to an investment / account for automatic progress</p></li>
+<li><p>Auto monthly expenses from ledger spend</p></li>
+<li><p>Server <code class="docutils literal notranslate"><span class="pre">/goals/summary</span></code> endpoint (rollups are client-side)</p></li>
+</ul>
+</section>
+</section>
+
         </article>
       </div>
       <footer>
         
         <div class="related-pages">
-          
-          
+          <a class="next-page" href="../reference/index.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Reference</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="assets.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Assets</div>
+                
+              </div>
+            </a>
         </div>
         <div class="bottom-of-page">
           <div class="left-details">
@@ -304,8 +398,31 @@
         
       </footer>
     </div>
-    <aside class="toc-drawer no-toc">
+    <aside class="toc-drawer">
       
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Goals</a><ul>
+<li><a class="reference internal" href="#portfolio-kpi-strip">Portfolio KPI strip</a></li>
+<li><a class="reference internal" href="#emergency-fund">Emergency fund</a></li>
+<li><a class="reference internal" href="#retirement-corpus-illustrative">Retirement corpus (illustrative)</a></li>
+<li><a class="reference internal" href="#goal-cards">Goal cards</a></li>
+<li><a class="reference internal" href="#out-of-scope-for-now">Out of scope (for now)</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
       
       
     </aside>

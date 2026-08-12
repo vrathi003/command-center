@@ -106,7 +106,7 @@ LOG_LEVEL=INFO
 
 ---
 
-## Dashboard Pages (16 routes)
+## Dashboard Pages (18+ routes)
 
 | Page | Route | Purpose |
 |------|-------|---------|
@@ -118,14 +118,15 @@ LOG_LEVEL=INFO
 | Investments | `/investments` | Market holdings (stocks/MF/ETF) with P&L, fixed income instruments, SIP projector |
 | Stocks | `/investments/stocks` | Dedicated stocks sub-page |
 | Net Worth | `/net-worth` | Snapshot history (assets − liabilities), line chart, compute from holdings |
-| Goals | `/goals` | Savings targets with progress bars, retirement corpus projector |
+| Goals | `/goals` | Savings targets with portfolio KPIs, time-to-goal / on-track, emergency fund (6× manual expenses), retirement corpus projector, card edit UI |
 | Income & Tax | `/income` | Income streams, tax profile (80C/80D), old vs new regime comparison |
 | Reports | `/reports` | FY spending by month (bar chart), PDF download |
 | Recurring | `/recurring` | Subscriptions and recurring payments (loans + subscriptions) |
 | Accounts | `/accounts` | Bank accounts, credit cards, wallets — CRUD with type/institution |
-| Credit Cards | `/credit-cards` | CC management, statements, EMI plans |
+| Credit Cards | `/credit-cards` | Portfolio KPIs (outstanding / available / utilised / EMI), cards CRUD, detail, statements, EMI plans |
 | Credit Card Detail | `/credit-cards/:cardId` | Individual card details |
 | CC Statement | `/credit-cards/:cardId/statements/:statementId` | Statement viewer |
+| Assets | `/assets` | Appreciation vs depreciation sections (by type), portfolio KPIs, detail extras |
 | Settings | `/settings` | FY setting, links to tax config |
 
 ---
@@ -199,10 +200,11 @@ LOG_LEVEL=INFO
 - Avalanche vs Snowball debt strategies on Debt page (sorted strategy cards)
 - Old/New tax regime comparison on Income page (side-by-side with slab estimates)
 - 80C/80D deduction inputs saved to settings
-- Retirement corpus projector on Goals page (with localStorage persistence)
+- Retirement corpus projector on Goals page (with localStorage persistence); portfolio KPIs, time-to-goal / on-track, emergency fund (6× manual expenses), card UI
 - Accounts page (full CRUD — savings, current, CC, wallet, investment, loan, other)
 - Recurring Payments page (subscriptions CRUD + loan EMIs view)
-- Credit Cards page (cards CRUD, detail view, statement uploads, EMI plans)
+- Credit Cards page (portfolio KPIs, cards CRUD, detail view, statement uploads, EMI plans)
+- Assets page — appreciation vs depreciation sections by type + portfolio KPIs
 - Stocks portfolio sub-page (`/investments/stocks`)
 - FY reports with PDF download (`GET /reports/fy-summary.pdf`)
 - Payment mode auto-detection (UPI/NEFT/ATM from merchant narration)
@@ -214,7 +216,7 @@ LOG_LEVEL=INFO
 - **Auto-start scripts** — `scripts/launchd/com.personalfinance.api.plist` (macOS), `scripts/systemd/finance-{api,bot,dashboard}.service` (Linux), `scripts/windows/register-api-task.ps1`
 - **`setup.py`** and **`expose.py`** — one-click setup and ngrok/Tailscale tunnel helper both in `scripts/`
 - **Edit individual transactions** — `PUT /transactions/{id}` (`update_transaction`) handles debit/credit edits and transfer pair re-linking; dashboard drawer has `editDraft` state
-- **Assets module** — `AssetsPage.tsx` (425 lines) + `AssetDetailPage.tsx` + `assets.py` router — real estate / vehicle tracking beyond original spec
+- **Assets module** — `AssetsPage.tsx` + `AssetDetailPage.tsx` + `assets.py` router — appreciation/depreciation sections, portfolio KPIs, real estate / vehicle tracking
 - **Beyond-spec pages** — `InsurancePage.tsx` (685 lines), `HomeInventoryPage.tsx` (359 lines), `JournalPage.tsx` (238 lines)
 
 ### ❌ Remaining Gaps (within spec)
@@ -243,10 +245,9 @@ LOG_LEVEL=INFO
 - **CSV export** of transactions and all data
 - **Net worth breakdown by asset class** — liquid, semi-liquid, illiquid, retirement
 - **Month-over-month change** on Net Worth page
-- **Time-to-goal projection** on Goals page
-- **Emergency fund goal** (auto-calculated from 6× monthly expenses)
 - **Part-payment history** + **interest certificate tracking** (Section 24b) on Debt page
 - **Dividend/interest income tracking** on Investments page
+- **Goals ↔ instrument linking** — auto progress from holdings/accounts (manual amounts remain)
 
 ### Build Phases (Spec §11 + extensions) — updated 2026-07-02
 | Phase | Status |

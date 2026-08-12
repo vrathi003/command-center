@@ -41,10 +41,21 @@ Pull latest `main`, restart the three services once so schema migrations apply, 
 
 ## 5. Credit cards (`/credit-cards`)
 
-1. Open a card — **live outstanding** comes from the ledger (not a stale cache alone).
-2. Swipes / statement apply still update the card; cache refreshes after apply.
-3. **Pay bill** → pick bank + amount + date → posts `CC ↓` + `Bank ↓` (cash-flow only; not a second “spend”).
-4. After pay, outstanding should drop by the paid amount.
+1. List page shows a **portfolio KPI strip** (active cards): total outstanding, limit available, total limit, limit utilised (balance + EMI blocked), active EMI count, EMI / month.
+2. Open a card — **live outstanding** comes from the ledger (not a stale cache alone).
+3. Swipes / statement apply still update the card; cache refreshes after apply.
+4. **Pay bill** → pick bank + amount + date → posts `CC ↓` + `Bank ↓` (cash-flow only; not a second “spend”).
+5. After pay, outstanding should drop by the paid amount.
+
+See also product guide: `docs/guide/dashboard/credit-cards.md` and `docs/CREDIT_CARDS.md`.
+
+---
+
+## 5b. Assets (`/assets`)
+
+1. Portfolio KPIs: count, current value, purchase price, overall appreciation %.
+2. List is split into **Appreciation** (apartment / plot / commercial / gold / other) and **Depreciation** (vehicle) sections, each with count + value subtotal.
+3. Detail page still holds real-estate / vehicle extras, costs, loans, milestones.
 
 ---
 
@@ -96,7 +107,13 @@ Pull latest `main`, restart the three services once so schema migrations apply, 
 
 ## 11. Goals (`/goals`)
 
-Still manual progress trackers this package. Later: link each goal to an instrument.
+1. **KPI strip:** goals count, total target, total saved, overall progress %, monthly save sum, on-track ratio.
+2. **Emergency fund:** enter monthly expenses manually → target = 6×; create/update a goal named/categorised Emergency.
+3. **Retirement corpus:** illustrative local calculator (browser storage) — unchanged intent.
+4. **Goal cards:** progress, time-to-goal (months), on-track/behind vs target date + monthly save; edit/delete per card.
+5. Progress amounts stay **manual**. Later: link each goal to an instrument/account.
+
+See `docs/guide/dashboard/goals.md`.
 
 ---
 
@@ -135,6 +152,8 @@ Still manual progress trackers this package. Later: link each goal to an instrum
 | FD topped up / matured | Investments (FI) | Record deposit / maturity |
 | Salary credited | Income | Record income |
 | Refresh NW after trades | Net Worth | Snapshot from holdings |
+| Check CC portfolio limits | Credit cards | Read KPI strip |
+| Track emergency / savings goal | Goals | Set monthly expense / edit cards |
 | Got a warning | Alerts | Ack |
 | Statement vs books | Reconciliation | Match / fix |
 
