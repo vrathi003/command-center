@@ -1,4 +1,4 @@
-.PHONY: install dev dev-dashboard seed-demo seed-construction seed-construction-replace test lint fmt migrate clean pdf-to-csv install-services configure-tailscale service-status health check-ledger-writes docs docs-serve
+.PHONY: install dev dev-dashboard seed-demo seed-construction seed-construction-replace test lint fmt migrate clean pdf-to-csv install-services install-docs-service configure-tailscale service-status health check-ledger-writes docs docs-serve
 
 XLSX ?= $(HOME)/Documents/Personal/Personal\ Finance/Personal_Finance_OS.xlsx
 DB   ?= ~/finance/finance.db
@@ -60,9 +60,11 @@ pdf-to-csv:
 docs:
 	uv run --group docs sphinx-build -b html -d docs/guide/_doctrees docs/guide docs/site
 
+# Port 8080 (API uses 8000). Prefer the systemd service for always-on access.
+# Served under /guide/ so MagicDNS + local URLs match (fixes CSS under Tailscale path).
 docs-serve: docs
-	@echo "Serving docs/site at http://127.0.0.1:8000"
-	uv run --group docs python -m http.server 8000 --directory docs/site
+	@echo "Serving docs/site at http://127.0.0.1:8080/guide/"
+	uv run python scripts/serve_docs.py --host 127.0.0.1 --port 8080 --directory docs/site
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; \
@@ -73,21 +75,27 @@ clean:
 install-services:
 	sudo bash scripts/install_systemd_services.sh
 
+install-docs-service:
+	sudo bash scripts/install_docs_service.sh
+
 configure-tailscale:
 	bash scripts/configure_tailscale_serve.sh
 
 service-status:
-	systemctl status finance-api.service finance-dashboard.service finance-bot.service
+	systemctl status finance-api.service finance-dashboard.service finance-bot.service finance-docs.service
 
 health:
 	@echo "== Systemd services =="
-	@systemctl --no-pager --full status finance-api.service finance-dashboard.service finance-bot.service || true
+	@systemctl --no-pager --full status finance-api.service finance-dashboard.service finance-bot.service finance-docs.service || true
 	@echo ""
 	@echo "== API health =="
 	@curl -fsS http://127.0.0.1:8000/health && echo ""
 	@echo ""
 	@echo "== Frontend health =="
 	@curl -fsS -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:4173
+	@echo ""
+	@echo "== Docs health =="
+	@curl -fsS -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:8080/guide/
 	@echo ""
 	@echo "== Tailscale serve status =="
 	@bash -lc 'if tailscale serve status >/dev/null 2>&1; then tailscale serve status; elif command -v sudo >/dev/null 2>&1; then sudo tailscale serve status; else echo "tailscale serve status unavailable"; fi'

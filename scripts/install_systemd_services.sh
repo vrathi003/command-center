@@ -116,19 +116,28 @@ def render(name: str) -> str:
     return text
 
 out_dir = pathlib.Path("/etc/systemd/system")
-out_dir.joinpath("finance-api.service").write_text(render("finance-api.service"))
-out_dir.joinpath("finance-dashboard.service").write_text(render("finance-dashboard.service"))
-out_dir.joinpath("finance-bot.service").write_text(render("finance-bot.service"))
+for name in (
+    "finance-api.service",
+    "finance-dashboard.service",
+    "finance-bot.service",
+    "finance-docs.service",
+):
+    out_dir.joinpath(name).write_text(render(name))
 PY
 
-chmod 0644 /etc/systemd/system/finance-api.service /etc/systemd/system/finance-dashboard.service /etc/systemd/system/finance-bot.service
+chmod 0644 \
+  /etc/systemd/system/finance-api.service \
+  /etc/systemd/system/finance-dashboard.service \
+  /etc/systemd/system/finance-bot.service \
+  /etc/systemd/system/finance-docs.service
 
 systemctl daemon-reload
 systemctl enable --now finance-api.service
 systemctl enable --now finance-dashboard.service
 systemctl enable --now finance-bot.service
+systemctl enable --now finance-docs.service
 
-for svc in finance-api.service finance-dashboard.service finance-bot.service; do
+for svc in finance-api.service finance-dashboard.service finance-bot.service finance-docs.service; do
   if ! systemctl is-active --quiet "$svc"; then
     echo "error: $svc is not active after install."
     systemctl status "$svc" --no-pager || true
@@ -138,4 +147,5 @@ done
 
 echo "Services installed and started."
 echo "Check status with:"
-echo "  systemctl status finance-api.service finance-dashboard.service finance-bot.service"
+echo "  systemctl status finance-api.service finance-dashboard.service finance-bot.service finance-docs.service"
+echo "Docs: http://127.0.0.1:8080"

@@ -2,8 +2,10 @@
 <html class="no-js" lang="en" data-content_root="./">
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark"><base href="/guide/">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="index" title="Index" href="genindex.html"><link rel="search" title="Search" href="search.html"><link rel="next" title="Getting started" href="getting-started.html">
+        <link rel="canonical" href="/guide/index.html">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>Personal Finance OS</title>
@@ -365,8 +367,16 @@ especially the <strong>double-entry ledger</strong>.</p>
 </section>
 <section id="rebuild-the-site">
 <h2>Rebuild the site<a class="headerlink" href="#rebuild-the-site" title="Link to this heading">¶</a></h2>
+<p>Always-on (systemd, port <strong>8080</strong> locally; MagicDNS at <code class="docutils literal notranslate"><span class="pre">/guide/</span></code>):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>systemctl<span class="w"> </span>restart<span class="w"> </span>finance-docs.service<span class="w">   </span><span class="c1"># rebuild + serve</span>
+make<span class="w"> </span>configure-tailscale<span class="w">                      </span><span class="c1"># once: map /guide on Tailscale Serve</span>
+<span class="c1"># local:    http://127.0.0.1:8080/guide/</span>
+<span class="c1"># MagicDNS: https://&lt;host&gt;.ts.net/guide/</span>
+</pre></div>
+</div>
+<p>One-shot:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>docs<span class="w">          </span><span class="c1"># writes HTML into docs/site/</span>
-make<span class="w"> </span>docs-serve<span class="w">    </span><span class="c1"># http://127.0.0.1:8000</span>
+make<span class="w"> </span>docs-serve<span class="w">    </span><span class="c1"># http://127.0.0.1:8080</span>
 </pre></div>
 </div>
 <p>Sources live in <code class="docutils literal notranslate"><span class="pre">docs/guide/</span></code> (MyST Markdown). Design specs and implementation plans stay under <code class="docutils literal notranslate"><span class="pre">docs/superpowers/</span></code> and are <strong>not</strong> part of this TOC.</p>

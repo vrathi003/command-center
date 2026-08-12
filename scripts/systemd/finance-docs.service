@@ -1,0 +1,19 @@
+[Unit]
+Description=Personal Finance OS Docs (Sphinx)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+WorkingDirectory=__REPO_ROOT__
+# Rebuild HTML on start/restart so doc source edits apply after a service restart.
+TimeoutStartSec=300
+ExecStartPre=__UV_BIN__ run --group docs sphinx-build -b html -d docs/guide/_doctrees docs/guide docs/site
+ExecStart=__UV_BIN__ run python scripts/serve_docs.py --host 127.0.0.1 --port 8080 --directory docs/site
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

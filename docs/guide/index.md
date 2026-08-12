@@ -51,9 +51,20 @@ reference/index
 
 ## Rebuild the site
 
+Always-on (systemd, port **8080** locally; MagicDNS at ``/guide/``):
+
+```bash
+sudo systemctl restart finance-docs.service   # rebuild + serve
+make configure-tailscale                      # once: map /guide on Tailscale Serve
+# local:    http://127.0.0.1:8080/guide/
+# MagicDNS: https://<host>.ts.net/guide/
+```
+
+One-shot:
+
 ```bash
 make docs          # writes HTML into docs/site/
-make docs-serve    # http://127.0.0.1:8000
+make docs-serve    # http://127.0.0.1:8080
 ```
 
 Sources live in ``docs/guide/`` (MyST Markdown). Design specs and implementation plans stay under ``docs/superpowers/`` and are **not** part of this TOC.
